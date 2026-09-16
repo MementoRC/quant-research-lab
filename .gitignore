@@ -13,3 +13,4 @@ site/data/*.json
 .coverage
 .ruff_cache/
 .mypy_cache/
+logs/
