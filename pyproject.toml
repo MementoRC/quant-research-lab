@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qrl"
+version = "0.1.0"
+description = "Quant research lab: a disciplined backtesting pipeline with a static dashboard"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.1", "numpy>=1.26", "pyyaml>=6.0", "yfinance>=0.2.50"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

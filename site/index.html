@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quant Research Lab</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F2F4F1;
+    --panel: #FAFBF9;
+    --ink: #1B2530;
+    --ink-soft: #56616B;
+    --rule: #CDD4CF;
+    --strategy: #0F6B6B;
+    --bench-1: #6D55A3;
+    --bench-2: #8C8676;
+    --loss: #A3303F;
+    --gain: #2F7A4A;
+    --band-validation: rgba(15, 107, 107, 0.07);
+    --band-holdout: rgba(109, 85, 163, 0.10);
+    --warn-bg: #FFF4D6;
+    --warn-ink: #6B4E00;
+    --serif: "Newsreader", Georgia, "Times New Roman", serif;
+    --sans: "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #141A1F; --panel: #1A2127; --ink: #E3E8EB; --ink-soft: #9AA5AD;
+      --rule: #2E3840; --strategy: #4DB6B0; --bench-1: #A994DB; --bench-2: #B3AC9A;
+      --loss: #E0707D; --gain: #6FC48F;
+      --band-validation: rgba(77, 182, 176, 0.09); --band-holdout: rgba(169, 148, 219, 0.12);
+      --warn-bg: #3A3016; --warn-ink: #F1D58A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #141A1F; --panel: #1A2127; --ink: #E3E8EB; --ink-soft: #9AA5AD;
+    --rule: #2E3840; --strategy: #4DB6B0; --bench-1: #A994DB; --bench-2: #B3AC9A;
+    --loss: #E0707D; --gain: #6FC48F;
+    --band-validation: rgba(77, 182, 176, 0.09); --band-holdout: rgba(169, 148, 219, 0.12);
+    --warn-bg: #3A3016; --warn-ink: #F1D58A;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--sans); font-size: 1rem; line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+  }
+  main { max-width: 61rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+
+  .notice {
+    background: var(--warn-bg); color: var(--warn-ink);
+    padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 2rem; max-width: 46rem;
+  }
+  .notice[hidden] { display: none; }
+
+  header.hero { margin-bottom: 2.5rem; }
+  .hero .site-name { font-size: 0.9375rem; color: var(--ink-soft); margin: 0 0 1.5rem; }
+  .hero h1 {
+    font-family: var(--serif); font-weight: 400;
+    font-size: clamp(2.25rem, 6vw, 4rem); line-height: 1.08;
+    letter-spacing: -0.015em; margin: 0 0 1rem; max-width: 18ch;
+  }
+  .hero h1 strong { font-weight: 600; color: var(--strategy); }
+  .hero .sub { color: var(--ink-soft); margin: 0; max-width: 46rem; }
+
+  section { margin-top: 3rem; }
+  h2 {
+    font-family: var(--serif); font-weight: 600; font-size: 1.5rem;
+    line-height: 1.25; margin: 0 0 0.5rem;
+  }
+  .section-note { color: var(--ink-soft); margin: 0 0 1.25rem; max-width: 46rem; }
+
+  .chart-frame {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
+    padding: 1rem 1rem 0.5rem;
+  }
+  .chart-frame + .chart-frame { margin-top: 0.75rem; }
+  .chart-box { position: relative; height: 22rem; }
+  .chart-box.short { height: 11rem; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin: 0 0 0.75rem; padding: 0; list-style: none; font-size: 0.9375rem; }
+  .legend li { display: flex; align-items: center; gap: 0.5rem; }
+  .swatch { width: 1.25rem; height: 3px; border-radius: 2px; display: inline-block; }
+  .swatch.band { height: 0.875rem; width: 0.875rem; border-radius: 2px; border: 1px solid var(--rule); }
+
+  .period-picker { display: flex; flex-wrap: wrap; gap: 0.375rem; margin: 0 0 1rem; }
+  .period-picker button {
+    font: inherit; font-size: 0.9375rem; color: var(--ink);
+    background: transparent; border: 1px solid var(--rule); border-radius: 999px;
+    padding: 0.3rem 0.9rem; cursor: pointer;
+  }
+  .period-picker button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .period-picker button:focus-visible, .theme-toggle:focus-visible { outline: 2px solid var(--strategy); outline-offset: 2px; }
+  .period-range { color: var(--ink-soft); font-size: 0.9375rem; margin: -0.25rem 0 1rem; }
+
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 40rem; }
+  th, td { padding: 0.6rem 0.75rem; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; white-space: normal; }
+  thead th { font-weight: 500; color: var(--ink-soft); font-size: 0.9375rem; }
+  tbody tr.is-strategy td:first-child { font-weight: 600; }
+  .neg { color: var(--loss); }
+
+  .checks { list-style: none; padding: 0; margin: 0; max-width: 46rem; }
+  .checks li {
+    display: grid; grid-template-columns: 1.5rem 1fr auto; gap: 0.75rem;
+    align-items: baseline; padding: 0.6rem 0; border-bottom: 1px solid var(--rule);
+  }
+  .checks .mark { font-weight: 600; }
+  .checks .pass .mark { color: var(--gain); }
+  .checks .fail .mark { color: var(--loss); }
+  .checks .detail { color: var(--ink-soft); font-size: 0.9375rem; }
+
+  footer { margin-top: 4rem; padding-top: 1.25rem; border-top: 1px solid var(--rule); color: var(--ink-soft); font-size: 0.9375rem; }
+  footer p { margin: 0 0 0.5rem; max-width: 46rem; }
+  footer code { font-size: 0.875rem; }
+  .theme-toggle { font: inherit; font-size: 0.9375rem; color: var(--ink-soft); background: none; border: none; padding: 0; text-decoration: underline; cursor: pointer; }
+
+  .error { max-width: 40rem; }
+  .error h1 { font-family: var(--serif); font-weight: 400; font-size: 2rem; margin: 0 0 1rem; }
+
+  @media (max-width: 40rem) {
+    main { padding-top: 1.5rem; }
+    .chart-box { height: 16rem; }
+    .chart-box.short { height: 9rem; }
+  }
+</style>
+</head>
+<body>
+<main id="app">
+  <p class="section-note">Loading results…</p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(() => {
+  // Relative path so the site works under username.github.io/repo-name/
+  const DATA_URL = "data/results.json";
+  const app = document.getElementById("app");
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  const pct = (x, digits = 1) => (x == null ? "–" : `${(x * 100).toFixed(digits)}%`);
+  const num = (x, digits = 2) => (x == null ? "–" : Number(x).toFixed(digits));
+  const fmtDate = (s) => new Date(s + "T12:00:00Z").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const PERIODS = [
+    ["full", "Full history"],
+    ["research", "Research"],
+    ["validation", "Validation"],
+    ["holdout", "Holdout"],
+  ];
+
+  function colorFor(strategy, benchIndex) {
+    if (strategy.kind === "strategy") return css("--strategy");
+    return benchIndex % 2 === 0 ? css("--bench-1") : css("--bench-2");
+  }
+
+  function renderError(err) {
+    app.innerHTML = `
+      <div class="error">
+        <h1>No results to show yet</h1>
+        <p>The dashboard reads <code>${DATA_URL}</code>, which could not be loaded (${esc(err.message)}).</p>
+        <p>On GitHub, open the Actions tab and check that the "Build and deploy dashboard" workflow finished. Locally, run <code>python scripts/build_site.py</code> and then <code>python -m http.server -d site</code>; opening the HTML file directly will not work.</p>
+      </div>`;
+  }
+
+  function heroText(strategy) {
+    const w = strategy.current.weights;
+    const names = Object.keys(w);
+    if (names.length === 0) return "At the next open, stay in <strong>cash</strong>.";
+    if (names.length === 1 && w[names[0]] >= 0.999) return `At the next open, hold <strong>${esc(names[0])}</strong>.`;
+    const parts = names.map((n) => `${Math.round(w[n] * 100)}% ${esc(n)}`);
+    return `At the next open, hold <strong>${parts.join(", ")}</strong>.`;
+  }
+
+  function render(data) {
+    const strategies = data.strategies;
+    const primary = strategies.find((s) => s.kind === "strategy") || strategies[0];
+
+    app.innerHTML = `
+      <div class="notice" id="synthetic-notice" ${data.data_source === "synthetic" ? "" : "hidden"}>
+        These results use randomly generated demo prices, not market data. Run the build without <code>--synthetic</code> to see real results.
+      </div>
+
+      <header class="hero">
+        <p class="site-name">Quant Research Lab</p>
+        <h1>${heroText(primary)}</h1>
+        <p class="sub">${esc(primary.name)}. Signal decided at the close on ${fmtDate(primary.current.decided_on)}, unchanged since ${fmtDate(primary.current.since)}. This is a research dashboard, not financial advice.</p>
+      </header>
+
+      <section aria-labelledby="growth-title">
+        <h2 id="growth-title">Growth of $1</h2>
+        <p class="section-note">Net of trading costs, on a log scale, from ${fmtDate(data.window.start)} to ${fmtDate(data.window.end)}. The shaded areas mark the validation and holdout periods defined in the criteria file.</p>
+        <div class="chart-frame">
+          <ul class="legend" id="legend"></ul>
+          <div class="chart-box"><canvas id="equity-chart" aria-label="Growth of one dollar for each strategy and benchmark" role="img"></canvas></div>
+        </div>
+        <div class="chart-frame">
+          <div class="chart-box short"><canvas id="dd-chart" aria-label="Drawdown from previous peak" role="img"></canvas></div>
+        </div>
+      </section>
+
+      <section aria-labelledby="metrics-title">
+        <h2 id="metrics-title">Performance by period</h2>
+        <div class="period-picker" role="group" aria-label="Choose a period" id="picker"></div>
+        <p class="period-range" id="period-range"></p>
+        <div class="table-scroll"><table id="metrics-table"></table></div>
+      </section>
+
+      <section aria-labelledby="checks-title">
+        <h2 id="checks-title">Pass criteria</h2>
+        <p class="section-note" id="checks-note"></p>
+        <ul class="checks" id="checks"></ul>
+      </section>
+
+      <footer>
+        <p>Data through ${fmtDate(data.data_through)} from ${data.data_source === "synthetic" ? "synthetic demo prices" : "Yahoo Finance"}. Built ${new Date(data.generated_at).toLocaleString()}.</p>
+        <p>Criteria file version <code>${esc(data.criteria_hash)}</code>. If this code changes unexpectedly, the pass rules were edited.</p>
+        <p>Costs: ${data.criteria.costs.bps_per_unit_turnover} basis points per unit of turnover. Past backtest results do not predict future returns.</p>
+        <p><button class="theme-toggle" id="theme-toggle" type="button">Switch light or dark theme</button></p>
+      </footer>`;
+
+    // Legend
+    let benchIdx = 0;
+    const colors = {};
+    strategies.forEach((s) => {
+      colors[s.id] = colorFor(s, s.kind === "benchmark" ? benchIdx++ : 0);
+    });
+    document.getElementById("legend").innerHTML =
+      strategies.map((s) => `<li><span class="swatch" style="background:${colors[s.id]}"></span>${esc(s.name)}</li>`).join("") +
+      `<li><span class="swatch band" style="background:${css("--band-validation")}"></span>Validation</li>` +
+      `<li><span class="swatch band" style="background:${css("--band-holdout")}"></span>Holdout</li>`;
+
+    drawCharts(data, colors);
+    setupPeriods(data);
+
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+      const root = document.documentElement;
+      const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      root.dataset.theme = dark ? "light" : "dark";
+      try { localStorage.setItem("qrl-theme", root.dataset.theme); } catch (e) {}
+      render(data);
+    });
+  }
+
+  function bandIndices(dates, criteria) {
+    const firstAtOrAfter = (d) => {
+      if (!d) return dates.length - 1;
+      const i = dates.findIndex((x) => x >= d);
+      return i === -1 ? dates.length - 1 : i;
+    };
+    const bands = [];
+    const v = criteria.periods.validation, h = criteria.periods.holdout;
+    bands.push({ from: firstAtOrAfter(v.start), to: firstAtOrAfter(v.end), color: css("--band-validation") });
+    bands.push({ from: firstAtOrAfter(h.start), to: h.end ? firstAtOrAfter(h.end) : dates.length - 1, color: css("--band-holdout") });
+    return bands;
+  }
+
+  const bandPlugin = {
+    id: "periodBands",
+    beforeDatasetsDraw(chart, _args, opts) {
+      const { ctx, chartArea, scales } = chart;
+      (opts.bands || []).forEach((b) => {
+        if (b.from >= b.to) return;
+        const x1 = scales.x.getPixelForValue(b.from);
+        const x2 = scales.x.getPixelForValue(b.to);
+        ctx.save();
+        ctx.fillStyle = b.color;
+        ctx.fillRect(x1, chartArea.top, x2 - x1, chartArea.bottom - chartArea.top);
+        ctx.restore();
+      });
+    },
+  };
+
+  let charts = [];
+  function drawCharts(data, colors) {
+    charts.forEach((c) => c.destroy());
+    charts = [];
+    const dates = data.series.dates;
+    const bands = bandIndices(dates, data.criteria);
+    const grid = css("--rule"), soft = css("--ink-soft");
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const base = {
+      responsive: true, maintainAspectRatio: false, animation: reduce ? false : { duration: 400 },
+      interaction: { mode: "index", intersect: false },
+      elements: { point: { radius: 0, hoverRadius: 3 }, line: { borderWidth: 1.75, tension: 0 } },
+      plugins: { legend: { display: false }, periodBands: { bands } },
+      scales: {
+        x: {
+          type: "category", grid: { display: false }, border: { color: grid },
+          ticks: {
+            color: soft, maxRotation: 0, autoSkip: true, maxTicksLimit: 8,
+            callback: (i) => dates[i].slice(0, 4),
+          },
+        },
+      },
+    };
+
+    const ds = (key) => data.strategies.map((s) => ({
+      label: s.name, data: data.series[key][s.id], borderColor: colors[s.id], backgroundColor: colors[s.id],
+      borderWidth: s.kind === "strategy" ? 2.25 : 1.5,
+    }));
+
+    charts.push(new Chart(document.getElementById("equity-chart"), {
+      type: "line", data: { labels: dates, datasets: ds("equity") }, plugins: [bandPlugin],
+      options: {
+        ...base,
+        plugins: { ...base.plugins, tooltip: { callbacks: { title: (it) => fmtDate(dates[it[0].dataIndex]), label: (it) => ` ${it.dataset.label}: $${num(it.parsed.y)}` } } },
+        scales: { ...base.scales, y: { type: "logarithmic", grid: { color: grid }, border: { display: false }, ticks: { color: soft, callback: (v) => ([0.25, 0.5, 1, 2, 5, 10, 20, 50, 100].includes(Number(v.toPrecision(3))) ? `$${v}` : "") } } },
+      },
+    }));
+
+    charts.push(new Chart(document.getElementById("dd-chart"), {
+      type: "line", data: { labels: dates, datasets: ds("drawdown") }, plugins: [bandPlugin],
+      options: {
+        ...base,
+        plugins: { ...base.plugins, tooltip: { callbacks: { title: (it) => fmtDate(dates[it[0].dataIndex]), label: (it) => ` ${it.dataset.label}: ${pct(it.parsed.y)}` } } },
+        scales: { ...base.scales, y: { max: 0, grid: { color: grid }, border: { display: false }, ticks: { color: soft, maxTicksLimit: 4, callback: (v) => pct(v, 0) } } },
+      },
+    }));
+  }
+
+  function setupPeriods(data) {
+    const picker = document.getElementById("picker");
+    let current = "validation";
+    const available = PERIODS.filter(([k]) => data.strategies[0].metrics[k]);
+    if (!available.find(([k]) => k === current)) current = available[0][0];
+
+    const draw = () => {
+      picker.innerHTML = available.map(([k, label]) =>
+        `<button type="button" data-period="${k}" aria-pressed="${k === current}">${label}</button>`).join("");
+      picker.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { current = b.dataset.period; draw(); }));
+      renderTable(data, current);
+      renderChecks(data, current);
+    };
+    draw();
+  }
+
+  function renderTable(data, periodKey) {
+    const any = data.strategies[0].metrics[periodKey];
+    document.getElementById("period-range").textContent = any ? `${fmtDate(any.start)} to ${fmtDate(any.end)}` : "";
+    const rows = data.strategies.map((s) => {
+      const m = s.metrics[periodKey];
+      if (!m) return "";
+      const neg = (x) => (x != null && x < 0 ? ' class="neg"' : "");
+      return `<tr class="${s.kind === "strategy" ? "is-strategy" : ""}">
+        <td>${esc(s.name)}</td>
+        <td${neg(m.cagr)}>${pct(m.cagr)}</td>
+        <td>${num(m.sharpe)}</td>
+        <td class="neg">${pct(-m.max_drawdown)}</td>
+        <td>${pct(m.volatility)}</td>
+        <td>${m.calmar == null ? "–" : num(m.calmar)}</td>
+        <td>${m.trades ?? "–"}</td>
+        <td>${pct(m.exposure, 0)}</td>
+      </tr>`;
+    }).join("");
+    document.getElementById("metrics-table").innerHTML = `
+      <thead><tr>
+        <th scope="col">Strategy</th><th scope="col">Annual return</th><th scope="col">Sharpe</th>
+        <th scope="col">Worst drawdown</th><th scope="col">Volatility</th><th scope="col">Calmar</th>
+        <th scope="col">Trade days</th><th scope="col">Invested</th>
+      </tr></thead><tbody>${rows}</tbody>`;
+  }
+
+  function renderChecks(data, periodKey) {
+    const s = data.strategies.find((x) => x.kind === "strategy");
+    const list = document.getElementById("checks");
+    const note = document.getElementById("checks-note");
+    const checks = s && s.checks[periodKey];
+    if (!checks) { list.innerHTML = ""; note.textContent = "No checks for this period."; return; }
+    const passed = checks.filter((c) => c.passed).length;
+    note.textContent = `${s.name} passes ${passed} of ${checks.length} rules in this period. Rules come from config/criteria.yaml and were set before testing.`;
+    list.innerHTML = checks.map((c) => `
+      <li class="${c.passed ? "pass" : "fail"}">
+        <span class="mark" aria-hidden="true">${c.passed ? "✓" : "✗"}</span>
+        <span>${esc(c.rule)} <span class="detail">(needs ${esc(c.threshold)})</span></span>
+        <span>${c.value ?? "–"} <span class="visually-hidden">${c.passed ? "passed" : "failed"}</span></span>
+      </li>`).join("");
+  }
+
+  try {
+    const saved = localStorage.getItem("qrl-theme");
+    if (saved) document.documentElement.dataset.theme = saved;
+  } catch (e) {}
+
+  fetch(DATA_URL, { cache: "no-cache" })
+    .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(render)
+    .catch(renderError);
+})();
+</script>
+<style>.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}</style>
+</body>
+</html>

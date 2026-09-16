@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# PASS CRITERIA — written BEFORE any test results are viewed.
+#
+# Rules for this file:
+#   * Change it only in its own commit, with a reason in the commit message.
+#   * Never change it after looking at results in order to make something pass.
+#   * The dashboard shows a hash of this file, so any change is visible.
+# ---------------------------------------------------------------------------
+version: 1
+
+# Data periods. Research is where strategies get built and searched.
+# Validation is checked once per candidate. Holdout stays sealed: code refuses
+# to slice it unless explicitly unsealed (see qrl/periods.py).
+periods:
+  research:   {start: "2005-01-01", end: "2018-12-31"}
+  validation: {start: "2019-01-01", end: "2022-12-31"}
+  holdout:    {start: "2023-01-01", end: null}
+
+costs:
+  # Commission + slippage charged per unit of turnover.
+  # Switching 100% from QQQ to GLD is turnover 2.0 (sell one, buy the other).
+  bps_per_unit_turnover: 5
+
+benchmarks: [QQQ, SPY]
+
+pass:
+  min_trades: 10          # too few trades means too little evidence
+  min_sharpe: 0.5
+  max_drawdown: 0.35      # positive fraction; 0.35 = a 35% peak-to-trough loss
+  beat_benchmark: QQQ
+  beat_on: sharpe         # sharpe | cagr

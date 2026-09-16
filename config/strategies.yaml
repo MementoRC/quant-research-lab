@@ -1,0 +1,10 @@
+# Strategies to backtest and show on the dashboard.
+# Unlike criteria.yaml, this file is expected to change often.
+strategies:
+  - id: core_trend_qqq_gld
+    name: Core trend (QQQ above its 200-day average, otherwise GLD)
+    fn: core_trend
+    params:
+      risk_on: QQQ
+      risk_off: GLD
+      lookback: 200
