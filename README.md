@@ -28,13 +28,13 @@ HTML and JavaScript and works on any device.
 ## Quick start (local)
 
 ```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pytest -q
+pixi install -e dev
+pixi run -e dev test
+pixi run -e dev quality
 
-python scripts/build_site.py              # real data, cached in data/cache/
-python scripts/build_site.py --synthetic  # offline demo with random prices
-python -m http.server -d site 8000        # open http://localhost:8000
+pixi run build-site              # real data, cached in data/cache/
+pixi run build-site --synthetic  # offline demo with random prices
+pixi run -e dev serve            # open http://localhost:8000
 ```
 
 Opening `site/index.html` directly from disk will not load the data; use the local server.
@@ -51,7 +51,15 @@ Opening `site/index.html` directly from disk will not load the data; use the loc
 4. Go to **Actions → Build and deploy dashboard → Run workflow**.
 5. When it finishes, the dashboard is live at `https://<username>.github.io/<repo>/`.
 
-After that it rebuilds on every push to `main` and every weekday at 22:30 UTC.
+After that it rebuilds on every push to `development` and every weekday at 22:30 UTC.
+
+## Branches & CI
+
+- `development` is the default/integration branch. Feature branches PR into `development`.
+- Only `development` may PR into `main` (enforced by the CI **Branch Policy** job).
+- CI (the `ci-framework` reusable workflow) runs on push and pull request to both `main`
+  and `development`: lint, format, type-check, tests, and security checks via pixi.
+- Pages deploys from `development` on every push to it and every weekday at 22:30 UTC.
 
 ## Project layout
 

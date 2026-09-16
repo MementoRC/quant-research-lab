@@ -1,0 +1,51 @@
+[workspace]
+name = "quant-research-lab"
+version = "0.1.0"
+description = "Quant research lab: a disciplined backtesting pipeline with a static dashboard"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = ">=3.11,<3.13"
+pandas = ">=2.1"
+numpy = ">=1.26"
+pyyaml = ">=6.0"
+yfinance = ">=0.2.50"
+
+[tasks]
+build-site = "python scripts/build_site.py"
+
+[feature.ci.dependencies]
+ruff = ">=0.8.4"
+mypy = ">=1.14.0"
+pytest = ">=8.0.0"
+pytest-cov = ">=6.0.0"
+bandit = ">=1.8.0"
+pre-commit = ">=4.0.0"
+python-build = ">=1.0.0"
+setuptools = ">=68"
+pandas-stubs = "*"
+types-pyyaml = "*"
+
+[feature.ci.tasks]
+lint = "ruff check ."
+lint-fix = "ruff check --fix ."
+format = "ruff format ."
+format-check = "ruff format --check ."
+type-check = "mypy src/qrl"
+quality = { depends-on = ["lint", "format-check", "type-check"] }
+test = "pytest tests/ --cov=qrl --cov-report=term-missing"
+security = "bandit -c pyproject.toml -r src/qrl"
+pre-commit-install = "pre-commit install"
+pre-commit-run = "pre-commit run --all-files"
+build = "python -m build"
+
+[feature.dev.tasks]
+serve = "python -m http.server -d site 8000"
+
+[environments]
+default = { solve-group = "default" }
+dev = { features = ["ci", "dev"], solve-group = "default" }
+ci = { features = ["ci"], solve-group = "default" }
+quality-extended = { features = ["ci"], solve-group = "default" }
+quality-ci = { features = ["ci"], solve-group = "default" }

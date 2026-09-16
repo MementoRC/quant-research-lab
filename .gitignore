@@ -7,3 +7,9 @@ site/data/*.json
 !site/data/.gitkeep
 .env
 .pytest_cache/
+.claude/
+.mcp.json
+.pixi/
+.coverage
+.ruff_cache/
+.mypy_cache/

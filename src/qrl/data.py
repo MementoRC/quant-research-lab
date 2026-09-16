@@ -1,5 +1,6 @@
 """Price data: Yahoo Finance daily bars with a local CSV cache, plus a synthetic
 generator for offline development and tests."""
+
 from __future__ import annotations
 
 import time
@@ -17,8 +18,9 @@ def _download_one(ticker: str, start: str, retries: int = 3) -> pd.DataFrame:
     last_err: Exception | None = None
     for attempt in range(retries):
         try:
-            df = yf.download(ticker, start=start, auto_adjust=True, progress=False,
-                             threads=False)
+            df: pd.DataFrame = yf.download(
+                ticker, start=start, auto_adjust=True, progress=False, threads=False
+            )
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             if df.empty:
@@ -32,8 +34,12 @@ def _download_one(ticker: str, start: str, retries: int = 3) -> pd.DataFrame:
     raise RuntimeError(f"Failed to download {ticker}: {last_err}")
 
 
-def load_prices(tickers: list[str], start: str = "1999-01-01", refresh: bool = False,
-                cache_dir: Path = CACHE_DIR) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_prices(
+    tickers: list[str],
+    start: str = "1999-01-01",
+    refresh: bool = False,
+    cache_dir: Path = CACHE_DIR,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (open, close) DataFrames with one column per ticker."""
     cache_dir.mkdir(parents=True, exist_ok=True)
     frames = {}
@@ -50,8 +56,9 @@ def load_prices(tickers: list[str], start: str = "1999-01-01", refresh: bool = F
     return open_, close
 
 
-def synthetic_prices(tickers: list[str], start: str = "2003-01-01", end: str | None = None,
-                     seed: int = 7) -> tuple[pd.DataFrame, pd.DataFrame]:
+def synthetic_prices(
+    tickers: list[str], start: str = "2003-01-01", end: str | None = None, seed: int = 7
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Random-walk OHLC for offline work. Not market data; never trade on it."""
     rng = np.random.default_rng(seed)
     idx = pd.bdate_range(start, end or pd.Timestamp.today().normalize())

@@ -2,7 +2,7 @@ name: Build and deploy dashboard
 
 on:
   push:
-    branches: [main]
+    branches: [development]
   schedule:
     # 22:30 UTC on weekdays, after the US close in both summer and winter time.
     - cron: "30 22 * * 1-5"
@@ -22,20 +22,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
+          ref: development
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: "Setup PIXI Environment"
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          pixi-version: v0.49.0
+          environments: ci
+          cache: true
 
       - name: Run tests (engine timing, costs, look-ahead checks)
-        run: pytest -q
+        run: pixi run -e ci test
 
       - name: Backtest and build results
-        run: python scripts/build_site.py --refresh
+        run: pixi run -e ci build-site --refresh
 
       - uses: actions/upload-pages-artifact@v3
         with:
