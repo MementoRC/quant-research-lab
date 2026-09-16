@@ -1,4 +1,5 @@
 """Guardrails that any strategy, human- or AI-written, must pass."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,7 +19,7 @@ def assert_causal(weights_fn, close: pd.DataFrame, n_cuts: int = 12, seed: int =
     for cut in sorted(rng.integers(lo, hi, size=n_cuts)):
         for factor in (0.6, 1.6):
             tampered = close.copy()
-            tampered.iloc[cut + 1:] = tampered.iloc[cut + 1:] * factor
+            tampered.iloc[cut + 1 :] = tampered.iloc[cut + 1 :] * factor
             altered = weights_fn(tampered)
             a = base.iloc[: cut + 1].fillna(-1.0)
             b = altered.iloc[: cut + 1].fillna(-1.0)

@@ -7,10 +7,11 @@ Strategy contract:
     * Long-only, weights per row sum to <= 1.
 Every registered strategy is checked by tests/test_strategies.py for look-ahead.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from .buy_and_hold import buy_and_hold
 from .core_trend import core_trend

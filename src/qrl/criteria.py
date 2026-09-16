@@ -1,4 +1,5 @@
 """Load the locked criteria file and evaluate metrics against it."""
+
 from __future__ import annotations
 
 import hashlib
@@ -36,10 +37,12 @@ def evaluate(metrics: dict, benchmark_metrics: dict | None, criteria: dict) -> l
     ]
     if benchmark_metrics:
         key = rules["beat_on"]
-        checks.append({
-            "rule": f"Beats {rules['beat_benchmark']} on {key}",
-            "value": round(metrics[key], 3),
-            "threshold": f"> {round(benchmark_metrics[key], 3)}",
-            "passed": metrics[key] > benchmark_metrics[key],
-        })
+        checks.append(
+            {
+                "rule": f"Beats {rules['beat_benchmark']} on {key}",
+                "value": round(metrics[key], 3),
+                "threshold": f"> {round(benchmark_metrics[key], 3)}",
+                "passed": metrics[key] > benchmark_metrics[key],
+            }
+        )
     return checks

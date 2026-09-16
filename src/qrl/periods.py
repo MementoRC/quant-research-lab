@@ -4,6 +4,7 @@ The holdout exists to answer one question, once: does the final choice still
 work on data it has never influenced? Every peek makes that answer less honest,
 so slicing it requires an explicit, deliberate flag.
 """
+
 from __future__ import annotations
 
 import pandas as pd

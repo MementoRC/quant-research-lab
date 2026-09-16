@@ -8,8 +8,9 @@ from qrl.engine import run_backtest
 def _prices(n=300, seed=1):
     rng = np.random.default_rng(seed)
     idx = pd.bdate_range("2020-01-01", periods=n)
-    close = pd.DataFrame(100 * np.exp(np.cumsum(rng.normal(0, 0.01, (n, 2)), axis=0)),
-                         index=idx, columns=["A", "B"])
+    close = pd.DataFrame(
+        100 * np.exp(np.cumsum(rng.normal(0, 0.01, (n, 2)), axis=0)), index=idx, columns=["A", "B"]
+    )
     open_ = close.shift(1).fillna(100) * np.exp(rng.normal(0, 0.003, (n, 2)))
     return open_, close
 

@@ -2,8 +2,9 @@ import numpy as np
 import pandas as pd
 
 
-def core_trend(close: pd.DataFrame, risk_on: str = "QQQ", risk_off: str = "GLD",
-               lookback: int = 200) -> pd.DataFrame:
+def core_trend(
+    close: pd.DataFrame, risk_on: str = "QQQ", risk_off: str = "GLD", lookback: int = 200
+) -> pd.DataFrame:
     """Hold risk_on while it closes above its simple moving average, else risk_off."""
     price = close[risk_on]
     sma = price.rolling(lookback, min_periods=lookback).mean()

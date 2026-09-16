@@ -5,12 +5,13 @@ Usage:
     python scripts/build_site.py --refresh    # re-download prices
     python scripts/build_site.py --synthetic  # offline random-walk demo data
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -44,8 +45,15 @@ def main() -> None:
 
     runs = [dict(c, kind="strategy") for c in configs]
     for b in criteria["benchmarks"]:
-        runs.append({"id": f"bh_{b.lower()}", "name": f"{b} buy and hold",
-                     "fn": "buy_and_hold", "params": {"ticker": b}, "kind": "benchmark"})
+        runs.append(
+            {
+                "id": f"bh_{b.lower()}",
+                "name": f"{b} buy and hold",
+                "fn": "buy_and_hold",
+                "params": {"ticker": b},
+                "kind": "benchmark",
+            }
+        )
 
     tickers = sorted({t for r in runs for t in REGISTRY[r["fn"]].tickers(r["params"])})
     if args.synthetic:
@@ -65,9 +73,11 @@ def main() -> None:
     common_end = min(res.returns.index[-1] for res in results.values())
 
     def window(res):
-        return (res.returns.loc[common_start:common_end],
-                res.turnover.loc[common_start:common_end],
-                res.executed.loc[common_start:common_end])
+        return (
+            res.returns.loc[common_start:common_end],
+            res.turnover.loc[common_start:common_end],
+            res.executed.loc[common_start:common_end],
+        )
 
     period_metrics = {}
     for r in runs:
@@ -96,18 +106,25 @@ def main() -> None:
         last = target.iloc[-1]
         changed = (target != target.shift(1)).any(axis=1)
         since = changed[changed].index[-1] if changed.iloc[1:].any() else target.index[0]
-        out_strats.append({
-            "id": r["id"], "name": r["name"], "kind": r["kind"],
-            "fn": r["fn"], "params": r["params"],
-            "metrics": {k: {kk: (_round(vv) if isinstance(vv, float) else vv)
-                            for kk, vv in v.items()} for k, v in pm.items()},
-            "checks": checks,
-            "current": {
-                "decided_on": target.index[-1].strftime("%Y-%m-%d"),
-                "weights": {k: _round(v, 4) for k, v in last.items() if v > 0},
-                "since": since.strftime("%Y-%m-%d"),
-            },
-        })
+        out_strats.append(
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "kind": r["kind"],
+                "fn": r["fn"],
+                "params": r["params"],
+                "metrics": {
+                    k: {kk: (_round(vv) if isinstance(vv, float) else vv) for kk, vv in v.items()}
+                    for k, v in pm.items()
+                },
+                "checks": checks,
+                "current": {
+                    "decided_on": target.index[-1].strftime("%Y-%m-%d"),
+                    "weights": {k: _round(v, 4) for k, v in last.items() if v > 0},
+                    "since": since.strftime("%Y-%m-%d"),
+                },
+            }
+        )
 
     # Weekly series keep the JSON small; drawdown keeps each week's worst point.
     series = {"dates": None, "equity": {}, "drawdown": {}}
@@ -120,11 +137,13 @@ def main() -> None:
         series["drawdown"][r["id"]] = [_round(v, 4) for v in dd]
 
     payload = {
-        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "data_source": "synthetic" if args.synthetic else "yahoo",
         "data_through": close.dropna(how="all").index[-1].strftime("%Y-%m-%d"),
-        "window": {"start": common_start.strftime("%Y-%m-%d"),
-                   "end": common_end.strftime("%Y-%m-%d")},
+        "window": {
+            "start": common_start.strftime("%Y-%m-%d"),
+            "end": common_end.strftime("%Y-%m-%d"),
+        },
         "criteria_hash": criteria_hash,
         "criteria": criteria,
         "strategies": out_strats,
@@ -133,11 +152,15 @@ def main() -> None:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, separators=(",", ":"), default=str))
-    print(f"Wrote {out} ({out.stat().st_size / 1024:.0f} KB), data through {payload['data_through']}")
+    print(
+        f"Wrote {out} ({out.stat().st_size / 1024:.0f} KB), data through {payload['data_through']}"
+    )
     for s in out_strats:
         f = s["metrics"]["full"]
-        print(f"  {s['name']:<60} CAGR {f['cagr']:6.1%}  Sharpe {f['sharpe']:.2f}  "
-              f"MaxDD {f['max_drawdown']:6.1%}  trades {f.get('trades')}")
+        print(
+            f"  {s['name']:<60} CAGR {f['cagr']:6.1%}  Sharpe {f['sharpe']:.2f}  "
+            f"MaxDD {f['max_drawdown']:6.1%}  trades {f.get('trades')}"
+        )
 
 
 if __name__ == "__main__":

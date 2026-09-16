@@ -1,4 +1,5 @@
 """Performance metrics computed from daily returns."""
+
 from __future__ import annotations
 
 import math
@@ -13,8 +14,9 @@ def drawdown(returns: pd.Series) -> pd.Series:
     return equity / equity.cummax() - 1
 
 
-def compute_metrics(returns: pd.Series, turnover: pd.Series | None = None,
-                    executed: pd.DataFrame | None = None) -> dict:
+def compute_metrics(
+    returns: pd.Series, turnover: pd.Series | None = None, executed: pd.DataFrame | None = None
+) -> dict:
     returns = returns.dropna()
     n = len(returns)
     if n < 2:
