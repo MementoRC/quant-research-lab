@@ -165,8 +165,9 @@ Build the milestones in order. Each ends with passing tests and a commit.
   and report missing-data coverage per ticker.
 - Handle delistings: when a held stock's prices end, the strategy must exit before
   the last available close; the engine's missing-price error should catch mistakes.
-- Add macro series from FRED (10-year minus 2-year yield spread, high-yield credit
-  spread, initial jobless claims) with release-date lags so they are never used
+- Add macro series from FRED (10-year minus 2-year yield spread, Baa corporate
+  minus 10-year Treasury spread (BAA10Y; FRED's ICE high-yield history is too
+  short), initial jobless claims) with release-date lags so they are never used
   before they were published.
 - **Acceptance:** tests confirm macro series are lagged, and the build reports
   universe coverage.

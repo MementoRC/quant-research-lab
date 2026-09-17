@@ -89,7 +89,7 @@ def test_weekly_saturday_dated_series_aligned_hand_checked():
 def test_property_every_aligned_value_is_known_by_its_trading_day(lag):
     """For every trading day t, an aligned value's source observation date plus
     its lag must be <= t (the acceptance property: macro series are lagged)."""
-    # Real daily FRED series (T10Y2Y, BAMLH0A0HYM2) only observe business days;
+    # Real daily FRED series (T10Y2Y, BAA10Y) only observe business days;
     # weekly series (ICSA) observe every 7th calendar day.
     freq = "7D" if lag is WEEKLY_LAG else "B"
     obs_dates = pd.date_range("2024-01-01", periods=40, freq=freq)
