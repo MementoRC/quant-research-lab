@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# MACRO SERIES — FRED (Federal Reserve Economic Data), fetched with the free,
+# keyless CSV endpoint (see `qrl.macro.fetch_series`). Each series' `lag` says
+# how long after its observation date to wait before treating the value as
+# known, so `qrl.macro.load_macro` can never let a backtest use a number
+# before it was actually published.
+#
+# Known residual bias, documented on purpose: FRED's CSV endpoint always
+# serves the *latest revised* value for a date, not the value as first
+# published. Point-in-time correctness would need ALFRED (FRED's vintage
+# archive), which needs a registered API key and is out of scope here. This
+# mainly affects ICSA, whose early prints are sometimes revised the following
+# week; the lag below controls *when* a value is used, not whether it has
+# since been revised.
+# ---------------------------------------------------------------------------
+
+series:
+  T10Y2Y:
+    description: 10-year minus 2-year Treasury constant-maturity yield spread (percentage points)
+    frequency: daily
+    lag:
+      unit: business_days
+      value: 2
+      # FRED typically posts the prior business day's constant-maturity
+      # Treasury series late in the following business day, after that day's
+      # close. 2 business days is a conservative buffer against that delay.
+
+  BAMLH0A0HYM2:
+    description: ICE BofA US High Yield Index option-adjusted spread (percentage points)
+    frequency: daily
+    lag:
+      unit: business_days
+      value: 2
+      # Same conservative buffer as T10Y2Y: ICE/BofA index levels reach FRED
+      # with a similar next-business-day-or-later delay.
+
+  ICSA:
+    description: Initial unemployment insurance claims, seasonally adjusted (level)
+    frequency: weekly
+    lag:
+      unit: calendar_days
+      value: 6
+      # Each observation is dated the week-ending Saturday and released the
+      # following Thursday at 8:30 ET (Saturday + 5 calendar days). Using it
+      # from Friday close onward (Saturday + 6) is conservative; Thursday
+      # close (Saturday + 5) would already be safe since 8:30 ET is well
+      # before that close, but the extra day guards against holiday-shifted
+      # release calendars.
