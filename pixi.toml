@@ -14,6 +14,7 @@ yfinance = ">=0.2.50"
 
 [tasks]
 build-site = "python scripts/build_site.py"
+profile-check = "python scripts/profile_check.py"
 
 [feature.ci.dependencies]
 ruff = ">=0.8.4"

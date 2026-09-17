@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------
+# TRADER PROFILE — owner decisions that shape data, timeframe, and strategy fit.
+#
+# This is not a pass/fail file like criteria.yaml; it describes the human, not
+# the backtest. Run `pixi run profile-check` after any edit to see what the
+# profile implies and whether it conflicts with itself or with criteria.yaml.
+# ---------------------------------------------------------------------------
+version: 1
+
+# growth | income | conservative
+goal: growth
+
+# Target trades per week across the whole sleeve (rough sizing input, not a hard cap).
+trades_per_week: 3
+
+# How long a sleeve trade is typically held, in trading days.
+holding_period_days: {min: 2, max: 15}
+
+# Whether positions may be held over market close (swing trading needs this).
+overnight_holds: true
+
+# Largest peak-to-trough loss the owner can tolerate without abandoning the process.
+max_drawdown: 0.35
+
+# core: always-invested, rarely-trading holdings. sleeve: short swing trades.
+# The sleeve universe (which stocks) is defined separately in config/universe.yaml
+# (milestone 2.1); here it is just named.
+assets:
+  core: [QQQ, GLD]
+  sleeve: us_large_cap_stocks
+
+# free | paid. Free daily bars (Yahoo) lack deep intraday history.
+data_budget: free
+
+# Fraction of capital in each bucket. Must sum to 1.
+capital_split: {core: 0.80, sleeve: 0.20}
