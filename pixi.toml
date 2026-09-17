@@ -11,10 +11,12 @@ pandas = ">=2.1"
 numpy = ">=1.26"
 pyyaml = ">=6.0"
 yfinance = ">=0.2.50"
+pyarrow = ">=14.0"
 
 [tasks]
 build-site = "python scripts/build_site.py"
 profile-check = "python scripts/profile_check.py"
+data-check = "python scripts/data_check.py"
 
 [feature.ci.dependencies]
 ruff = ">=0.8.4"

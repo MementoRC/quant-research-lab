@@ -149,6 +149,28 @@ def main() -> None:
         "strategies": out_strats,
         "series": series,
     }
+
+    coverage_path = ROOT / "site" / "data" / "universe_coverage.json"
+    if coverage_path.exists():
+        coverage = json.loads(coverage_path.read_text())
+        payload["universe"] = {
+            "name": coverage["name"],
+            "as_of": coverage["as_of"],
+            "survivorship_biased": coverage["survivorship_biased"],
+            "requested": coverage["requested"],
+            "loaded": coverage["loaded"],
+            "failed": coverage["failed"],
+            "late_starters": coverage["late_starters"],
+            "ended_early": coverage["ended_early"],
+        }
+        bias = (
+            "SURVIVORSHIP-BIASED" if coverage["survivorship_biased"] else "not survivorship-biased"
+        )
+        print(
+            f"Universe {coverage['name']} ({bias}): {coverage['loaded']}/{coverage['requested']} "
+            f"loaded, {coverage['late_starters']} late starters, {coverage['ended_early']} ended early"
+        )
+
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, separators=(",", ":"), default=str))

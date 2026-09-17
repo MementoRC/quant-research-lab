@@ -1,0 +1,130 @@
+# ---------------------------------------------------------------------------
+# SLEEVE UNIVERSE — which stocks the sleeve strategies (milestone 2.2+) may
+# hold. Loaded and validated by `qrl.universe.load_universe`.
+#
+# Owner decision (PLAN.md section 8, item 3): use today's free large-cap list
+# rather than pay for point-in-time constituent data or restrict the sleeve to
+# ETFs. That is why `survivorship_biased: true` below is not optional -- any
+# code that builds a dashboard from this universe must show that label.
+# ---------------------------------------------------------------------------
+name: us_large_cap_stocks
+
+# Month this list was assembled/reviewed. Re-check periodically; large-cap
+# membership drifts (mergers, spin-offs, index changes) even without any
+# company going bankrupt.
+as_of: "2026-09"
+
+source: >
+  Hand-curated, roughly S&P 100-style list of current (as_of) large-cap US
+  common stocks, no ETFs, in Yahoo Finance ticker format (e.g. BRK-B for
+  Berkshire Hathaway class B). Not sourced from a licensed index provider;
+  free-data project, not a licensed replica of any index.
+
+# TRUE and required: this list only contains companies that are large and
+# free-data-visible *today*. Names that shrank, were acquired, or went
+# bankrupt between the research period's start (2005) and now are silently
+# absent, which biases any backtest on this universe optimistically. See
+# PLAN.md section 3, "Survivorship bias in stock baskets".
+survivorship_biased: true
+
+tickers:
+  - AAPL
+  - ABBV
+  - ABT
+  - ACN
+  - ADBE
+  - ADI
+  - ADP
+  - AMD
+  - AMGN
+  - AMZN
+  - AON
+  - APD
+  - AVGO
+  - AXP
+  - BA
+  - BAC
+  - BKNG
+  - BLK
+  - BRK-B
+  - CAT
+  - CB
+  - CI
+  - CL
+  - CMCSA
+  - COST
+  - CRM
+  - CSCO
+  - CSX
+  - CVX
+  - DE
+  - DHR
+  - DIS
+  - EOG
+  - EQIX
+  - F
+  - GE
+  - GILD
+  - GOOGL
+  - GS
+  - HD
+  - HON
+  - IBM
+  - INTC
+  - INTU
+  - ISRG
+  - ITW
+  - JNJ
+  - JPM
+  - KO
+  - LIN
+  - LLY
+  - LMT
+  - LOW
+  - MA
+  - MCD
+  - MDT
+  - META
+  - MMM
+  - MO
+  - MPC
+  - MRK
+  - MS
+  - MSFT
+  - NEE
+  - NFLX
+  - NKE
+  - NOW
+  - NVDA
+  - ORCL
+  - PEP
+  - PFE
+  - PG
+  - PLD
+  - PM
+  - PNC
+  - PYPL
+  - QCOM
+  - RTX
+  - SBUX
+  - SCHW
+  - SLB
+  - SO
+  - SPGI
+  - SYK
+  - T
+  - TGT
+  - TJX
+  - TMO
+  - TXN
+  - UNH
+  - UNP
+  - UPS
+  - USB
+  - V
+  - VRTX
+  - VZ
+  - WM
+  - WMT
+  - XOM
+  - ZTS
