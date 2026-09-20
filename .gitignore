@@ -14,3 +14,6 @@ site/data/*.json
 .ruff_cache/
 .mypy_cache/
 logs/
+research/ledger.sqlite
+research/ledger.sqlite-wal
+research/ledger.sqlite-shm

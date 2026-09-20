@@ -94,12 +94,18 @@ SLEEVE_REGISTRY: dict[str, StrategySpec] = {
     "quiet_pullback": StrategySpec(
         quiet_pullback,
         _sleeve_tickers,
+        # Declares the union of fields needed by either quiet_by variant:
+        # "volume" needs close+volume, "volatility" needs only close.
+        # StrategySpec.fields is per-family, not per-parameter, so we load
+        # the superset here rather than complicate every other entry; the
+        # "volatility" branch of quiet_pullback simply ignores volume.
         fields=("close", "volume"),
         space={
             "trend_lookback": [100, 150, 200, 250],
             "short_ma": [5, 10, 15, 20],
             "vol_lookback": [10, 20, 30],
             "quiet_ratio": [0.6, 0.7, 0.8, 0.9],
+            "quiet_by": ["volume", "volatility"],
             "exit_days": [3, 5, 8, 10],
             "max_positions": [5, 10, 15],
         },
