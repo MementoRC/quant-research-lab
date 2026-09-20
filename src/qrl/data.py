@@ -14,6 +14,13 @@ import pandas as pd
 CACHE_DIR = Path("data/cache")
 CHUNK_SIZE = 50
 _BARS = ["Open", "High", "Low", "Close", "Volume"]
+_FIELD_COLUMNS = {
+    "open": "Open",
+    "high": "High",
+    "low": "Low",
+    "close": "Close",
+    "volume": "Volume",
+}
 
 
 def _tidy(df: pd.DataFrame) -> pd.DataFrame:
@@ -94,30 +101,40 @@ def _load_cached(cache_dir: Path, ticker: str) -> pd.DataFrame | None:
     return None
 
 
-def load_prices(
-    tickers: list[str],
-    start: str = "1999-01-01",
-    refresh: bool = False,
-    cache_dir: Path = CACHE_DIR,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (open, close) DataFrames with one column per ticker.
+def _has_columns(df: pd.DataFrame, columns: list[str]) -> bool:
+    return all(c in df.columns for c in columns)
 
-    Uncached tickers are downloaded in chunks (`CHUNK_SIZE` per request); a
-    chunk that fails outright, or a ticker missing from an otherwise-successful
-    chunk, falls back to a per-ticker download. Tickers with no data anywhere
+
+def _load_frames(
+    tickers: list[str],
+    start: str,
+    refresh: bool,
+    cache_dir: Path,
+    columns: list[str],
+) -> dict[str, pd.DataFrame]:
+    """Shared loader behind `load_prices`/`load_ohlcv`: per-ticker tidy bars
+    satisfying `columns`.
+
+    A cached ticker missing one of `columns` (e.g. a legacy open/close-only
+    parquet asked for High/Low/Volume) is treated exactly like an uncached
+    ticker and refetched. Tickers with no data anywhere (after that refetch)
     are dropped and reported with a warning, not a crash.
     """
     cache_dir.mkdir(parents=True, exist_ok=True)
     tickers = sorted(set(tickers))
     frames: dict[str, pd.DataFrame] = {}
     missing: list[str] = []
+    stale: list[str] = []
 
     to_fetch = []
     for t in tickers:
         cached = None if refresh else _load_cached(cache_dir, t)
-        if cached is not None:
+        if cached is None:
+            to_fetch.append(t)
+        elif _has_columns(cached, columns):
             frames[t] = cached
         else:
+            stale.append(t)
             to_fetch.append(t)
 
     for i in range(0, len(to_fetch), CHUNK_SIZE):
@@ -138,15 +155,59 @@ def load_prices(
             df.to_parquet(_cache_path(cache_dir, t))
             frames[t] = df
 
+    if stale:
+        warnings.warn(
+            f"Refreshing {len(stale)} ticker(s) whose cache was missing requested "
+            f"field(s) {columns}: {sorted(stale)}",
+            stacklevel=2,
+        )
     if missing:
         warnings.warn(
             f"No data for {len(missing)} ticker(s), dropped from the universe: {sorted(missing)}",
             stacklevel=2,
         )
 
+    return frames
+
+
+def load_prices(
+    tickers: list[str],
+    start: str = "1999-01-01",
+    refresh: bool = False,
+    cache_dir: Path = CACHE_DIR,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return (open, close) DataFrames with one column per ticker.
+
+    Uncached tickers are downloaded in chunks (`CHUNK_SIZE` per request); a
+    chunk that fails outright, or a ticker missing from an otherwise-successful
+    chunk, falls back to a per-ticker download. Tickers with no data anywhere
+    are dropped and reported with a warning, not a crash.
+    """
+    frames = _load_frames(tickers, start, refresh, cache_dir, ["Open", "Close"])
     open_ = pd.DataFrame({t: f["Open"] for t, f in frames.items()}).sort_index()
     close = pd.DataFrame({t: f["Close"] for t, f in frames.items()}).sort_index()
     return open_, close
+
+
+def load_ohlcv(
+    tickers: list[str],
+    start: str = "1999-01-01",
+    refresh: bool = False,
+    cache_dir: Path = CACHE_DIR,
+) -> dict[str, pd.DataFrame]:
+    """Return {"open", "high", "low", "close", "volume"} DataFrames, one
+    column per ticker, for strategy families that need more than open/close
+    (e.g. `low_range_close` needs high/low, `quiet_pullback` needs volume).
+
+    Uses the same chunked-download-with-fallback cache as `load_prices`; a
+    cache written before this field was needed is treated as needing a
+    refetch rather than crashing (see `_load_frames`).
+    """
+    frames = _load_frames(tickers, start, refresh, cache_dir, _BARS)
+    return {
+        key: pd.DataFrame({t: f[col] for t, f in frames.items()}).sort_index()
+        for key, col in _FIELD_COLUMNS.items()
+    }
 
 
 def coverage_report(
@@ -216,3 +277,34 @@ def synthetic_prices(
         o = np.concatenate([[100.0], c[:-1]]) * np.exp(gap)
         closes[t], opens[t] = c, o
     return pd.DataFrame(opens, index=idx), pd.DataFrame(closes, index=idx)
+
+
+def synthetic_ohlcv(
+    tickers: list[str], start: str = "2003-01-01", end: str | None = None, seed: int = 7
+) -> dict[str, pd.DataFrame]:
+    """Random-walk OHLCV for offline work, built on `synthetic_prices`.
+
+    High/low are the open/close range stretched by a small random extension,
+    so high >= max(open, close) >= min(open, close) >= low always holds;
+    volume is a positive series loosely scaled to the day's absolute move.
+    Not market data; never trade on it.
+    """
+    open_, close = synthetic_prices(tickers, start=start, end=end, seed=seed)
+    rng = np.random.default_rng(seed + 1)
+    shape = close.shape
+    hi_ext = pd.DataFrame(rng.uniform(0.0, 0.01, shape), index=close.index, columns=close.columns)
+    lo_ext = pd.DataFrame(rng.uniform(0.0, 0.01, shape), index=close.index, columns=close.columns)
+
+    upper = open_.combine(close, np.maximum)
+    lower = open_.combine(close, np.minimum)
+    high = upper * (1 + hi_ext)
+    low = lower * (1 - lo_ext)
+
+    move = close.pct_change().abs().fillna(0.0)
+    volume = pd.DataFrame(
+        1_000_000 * (1 + 20 * move) * rng.uniform(0.8, 1.2, shape),
+        index=close.index,
+        columns=close.columns,
+    ).round()
+
+    return {"open": open_, "high": high, "low": low, "close": close, "volume": volume}
