@@ -69,9 +69,28 @@ def test_low_range_close_is_causal(params):
     assert_causal(wrapped, close)
 
 
-@pytest.mark.parametrize(
-    "params", sample_params(SLEEVE_REGISTRY["quiet_pullback"].space, N_SAMPLES, seed=3)
-)
+def _quiet_pullback_param_samples() -> list[dict]:
+    """Sample `quiet_pullback`'s space once per `quiet_by` value so the
+    causal sweep below always exercises both the volume and volatility
+    branches, rather than relying on chance to draw both from one pooled
+    sample."""
+    space = SLEEVE_REGISTRY["quiet_pullback"].space
+    samples: list[dict] = []
+    for quiet_by in space["quiet_by"]:
+        sub_space = {**space, "quiet_by": [quiet_by]}
+        samples.extend(sample_params(sub_space, N_SAMPLES, seed=3))
+    return samples
+
+
+_QUIET_PULLBACK_PARAM_SAMPLES = _quiet_pullback_param_samples()
+
+
+def test_quiet_pullback_param_samples_cover_both_quiet_by_values():
+    quiet_by_values = {p["quiet_by"] for p in _QUIET_PULLBACK_PARAM_SAMPLES}
+    assert quiet_by_values == {"volume", "volatility"}
+
+
+@pytest.mark.parametrize("params", _QUIET_PULLBACK_PARAM_SAMPLES)
 def test_quiet_pullback_is_causal(params):
     _, close = synthetic_prices(["A", "B", "C"], start=_START, end=_END)
 
@@ -175,6 +194,74 @@ def test_quiet_pullback_hand_checked():
         [np.nan, np.nan, np.nan, np.nan, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0], index=idx
     )
     pd.testing.assert_series_equal(w["A"], expected, check_names=False)
+
+
+def test_quiet_pullback_hand_checked_volatility_variant():
+    idx = pd.RangeIndex(10)
+    # A choppy, high-realized-vol uptrend (returns alternate 15%/5% on rows
+    # 1-4) settles into a near-flat stretch (rows 5-9, ~0.1% moves) with one
+    # tiny down-tick at row 6 (the pullback: close <= its own 2-day average
+    # exactly when that day's return is <= 0). Row 6's own 3-day return std
+    # is far below the 3-day rolling average of that std -- which is still
+    # elevated from the choppy phase two windows back -- so row 6 is "quiet"
+    # by volatility even though volume (constant here) never changes.
+    rets = pd.Series([0.0, 0.15, 0.05, 0.15, 0.05, 0.001, -0.0005, 0.001, 0.001, 0.001], index=idx)
+    close = (rets.add(1.0).cumprod() * 100.0).to_frame("A")
+    volume = pd.DataFrame({"A": [1_000.0] * len(idx)}, index=idx)
+
+    w = quiet_pullback(
+        close,
+        volume,
+        trend_lookback=6,
+        short_ma=2,
+        vol_lookback=3,
+        quiet_ratio=0.8,
+        exit_days=3,
+        max_positions=1,
+        quiet_by="volatility",
+    )
+
+    # Warm-up through row 4 (the 6-day trend SMA and the 3-of-3-day vol
+    # average both first complete at row 5). Entry on row 6 (quiet
+    # pullback); exit on row 7 when the close recovers back above its own
+    # 2-day average (before the 3-bar time exit would fire on row 9).
+    expected = pd.Series(
+        [np.nan, np.nan, np.nan, np.nan, np.nan, 0.0, 1.0, 0.0, 0.0, 0.0], index=idx
+    )
+    pd.testing.assert_series_equal(w["A"], expected, check_names=False)
+
+
+def test_quiet_pullback_volatility_diverges_from_volume():
+    idx = pd.RangeIndex(12)
+    close = pd.DataFrame(
+        {"A": [100, 102, 104, 106, 108, 107, 106, 109, 111, 113, 112, 115]}, index=idx
+    ).astype(float)
+    # Same series as test_quiet_pullback_hand_checked: volume dips to half
+    # its 3-day average on the two pullback rows (5, 10), so they are
+    # "quiet" by volume. But those pullback rows are also the *largest*
+    # relative price moves in the whole series, so their own 3-day return
+    # std is *higher*, not lower, than its 3-day rolling average -- they
+    # are not "quiet" by volatility. The two definitions disagree by
+    # construction.
+    volume = pd.DataFrame(
+        {"A": [1000, 1000, 1000, 1000, 1000, 500, 1000, 1000, 1000, 1000, 500, 1000]}, index=idx
+    ).astype(float)
+    kwargs = {
+        "trend_lookback": 5,
+        "short_ma": 2,
+        "vol_lookback": 3,
+        "quiet_ratio": 0.8,
+        "exit_days": 3,
+        "max_positions": 1,
+    }
+
+    w_volume = quiet_pullback(close, volume, quiet_by="volume", **kwargs)
+    w_volatility = quiet_pullback(close, volume, quiet_by="volatility", **kwargs)
+
+    assert w_volume.loc[5, "A"] == 1.0
+    assert w_volume.loc[10, "A"] == 1.0
+    # The volatility variant never enters at all on this series.
+    assert (w_volatility.fillna(0.0) == 0.0).all().all()
 
 
 def test_core_trend_cash_hand_checked():

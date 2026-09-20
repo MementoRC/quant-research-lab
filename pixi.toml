@@ -17,6 +17,7 @@ pyarrow = ">=14.0"
 build-site = "python scripts/build_site.py"
 profile-check = "python scripts/profile_check.py"
 data-check = "python scripts/data_check.py"
+export-ledger = "python scripts/export_ledger.py"
 
 [feature.ci.dependencies]
 ruff = ">=0.8.4"
