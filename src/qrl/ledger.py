@@ -101,6 +101,18 @@ _SELECT_CANDIDATES_BY_RUN = (
     "FROM tests WHERE run_id = ?"
 )
 
+_SELECT_HISTORY_ALL = (
+    "SELECT test_id, family, params_json, universe, passed, failure_reasons, candidate_key "
+    "FROM tests"
+)
+_SELECT_HISTORY_BY_RUN = (
+    "SELECT test_id, family, params_json, universe, passed, failure_reasons, candidate_key "
+    "FROM tests WHERE run_id = ?"
+)
+_SELECT_NOTES_BY_RUN = (
+    "SELECT batch_no, text, created_at FROM notes WHERE run_id = ? ORDER BY note_id"
+)
+
 
 class LedgerError(RuntimeError):
     """Raised when a write would violate a ledger guardrail."""
@@ -377,4 +389,31 @@ class Ledger:
             "SELECT run_id, started_at, ended_at, git_commit, criteria_hash, seed_lane, "
             "seed_description FROM runs ORDER BY run_id"
         ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_tests(self, run_id: int | None = None) -> list[dict]:
+        """Every recorded test (including failures), for the search loop's
+        `qrl.search.propose_batch` history: family, params, passed flag,
+        failure reasons, and the candidate_key used to detect repeats.
+        """
+        if run_id is None:
+            rows = self._conn.execute(_SELECT_HISTORY_ALL).fetchall()
+        else:
+            rows = self._conn.execute(_SELECT_HISTORY_BY_RUN, (run_id,)).fetchall()
+        return [
+            {
+                "test_id": row["test_id"],
+                "family": row["family"],
+                "params": json.loads(row["params_json"]),
+                "universe": row["universe"],
+                "passed": bool(row["passed"]),
+                "failure_reasons": row["failure_reasons"],
+                "candidate_key": row["candidate_key"],
+            }
+            for row in rows
+        ]
+
+    def list_notes(self, run_id: int) -> list[dict]:
+        """Notes recorded between batches for a run, oldest first."""
+        rows = self._conn.execute(_SELECT_NOTES_BY_RUN, (run_id,)).fetchall()
         return [dict(row) for row in rows]
