@@ -20,3 +20,27 @@ If one of these seems wrong, stop and explain the problem to the human instead.
 ## Logging
 - Record every variant tested, including failures. The number of attempts is
   needed to judge whether a winner is real or luck.
+
+## Unattended search protocol (milestone 2.4)
+Driving `scripts/search.py` for an overnight run, repeat per batch:
+
+1. `pixi run search summary --run ID` — read what passed, near-misses, and
+   which parameter regions keep failing.
+2. Read the notes printed by that summary (prior batches' reasoning).
+3. `pixi run search batch --run ID --n N [--max-seconds S]` — propose, test,
+   and record the next batch. `propose_batch` already mutates passing
+   candidates, recombines partial winners, and prunes dead regions; a batch
+   only needs `--families` if you want to widen or narrow the run's set.
+4. `pixi run search note --run ID --batch N --text "..."` — write down what
+   you tried and why before the next batch, so the next agent (or you,
+   tomorrow) does not repeat it.
+
+Rules enforced by `qrl.search` and the ledger, not just this checklist:
+- The search only ever slices `qrl.periods`' `"research"` period. It never
+  calls `slice_period(..., "holdout", unseal_holdout=True)`, and never
+  touches `"validation"` either -- both are milestone 2.5's job.
+- Every candidate tested is recorded, passes and failures alike; a candidate
+  that raises an exception is recorded as a failed test with the error as
+  its failure reason, not silently skipped.
+- `search batch` refuses to run if `config/criteria.yaml`'s hash has changed
+  since the run was seeded (the ledger's own guardrail).
