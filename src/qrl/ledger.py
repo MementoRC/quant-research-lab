@@ -14,7 +14,18 @@ Guardrails enforced here, not just documented:
   hash the run started with (a run must judge every candidate by one fixed
   rulebook).
 - `validation_events` has a UNIQUE constraint on `test_id`: a candidate may be
-  honestly validated only once.
+  honestly validated only once. `is_validated` lets a caller check this
+  before attempting a second validation, rather than relying on catching the
+  resulting error.
+
+Milestone 2.5 addition: `validation_events.validation_config_hash` records
+the hash of `config/validation.yaml` a validation ran under (see
+`qrl.validation`, a new file kept separate from the locked criteria.yaml so
+its own thresholds can evolve without invalidating in-flight runs; PLAN.md
+2.5). Added as a nullable column via an additive migration in `_init_schema`
+so existing ledgers are never dropped or recreated. `trial_sharpes` returns
+one Sharpe per test in a run, the trial distribution the deflated Sharpe
+ratio needs.
 """
 
 from __future__ import annotations
@@ -69,6 +80,7 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE TABLE IF NOT EXISTS validation_events (
     test_id INTEGER PRIMARY KEY REFERENCES tests(test_id),
     metrics_json TEXT NOT NULL,
+    validation_config_hash TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -112,6 +124,8 @@ _SELECT_HISTORY_BY_RUN = (
 _SELECT_NOTES_BY_RUN = (
     "SELECT batch_no, text, created_at FROM notes WHERE run_id = ? ORDER BY note_id"
 )
+_SELECT_METRICS_BY_RUN = "SELECT metrics_json FROM tests WHERE run_id = ?"
+_SELECT_VALIDATED_TEST_ID = "SELECT 1 FROM validation_events WHERE test_id = ?"
 
 
 class LedgerError(RuntimeError):
@@ -195,9 +209,21 @@ class Ledger:
     def _init_schema(self) -> None:
         version = self._conn.execute("PRAGMA user_version").fetchone()[0]
         self._conn.executescript(_SCHEMA_SQL)
+        self._migrate_validation_events_columns()
         if version == 0:
             self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self._conn.commit()
+
+    def _migrate_validation_events_columns(self) -> None:
+        """Additive migration: a ledger created before milestone 2.5 has a
+        `validation_events` table without `validation_config_hash`. Add it as
+        a nullable column rather than dropping or recreating the table (see
+        AGENTS.md and this module's docstring -- no destructive migration)."""
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(validation_events)")}
+        if "validation_config_hash" not in columns:
+            self._conn.execute(
+                "ALTER TABLE validation_events ADD COLUMN validation_config_hash TEXT"
+            )
 
     def __enter__(self) -> Ledger:
         return self
@@ -292,17 +318,25 @@ class Ledger:
         self._conn.commit()
         return _require_rowid(cur)
 
-    def record_validation(self, test_id: int, metrics: dict) -> int:
+    def record_validation(
+        self, test_id: int, metrics: dict, validation_config_hash: str | None = None
+    ) -> int:
         try:
             self._conn.execute(
-                "INSERT INTO validation_events (test_id, metrics_json, created_at) "
-                "VALUES (?, ?, ?)",
-                (test_id, _dumps(metrics), _utcnow()),
+                "INSERT INTO validation_events (test_id, metrics_json, "
+                "validation_config_hash, created_at) VALUES (?, ?, ?, ?)",
+                (test_id, _dumps(metrics), validation_config_hash, _utcnow()),
             )
         except sqlite3.IntegrityError as err:
             raise LedgerError(f"test {test_id} already has a validation event") from err
         self._conn.commit()
         return test_id
+
+    def is_validated(self, test_id: int) -> bool:
+        """True if `test_id` already has a validation event -- check this
+        before validating so a candidate is skipped, never re-validated."""
+        row = self._conn.execute(_SELECT_VALIDATED_TEST_ID, (test_id,)).fetchone()
+        return row is not None
 
     def record_holdout_event(
         self, what_unsealed: str, reason: str, git_commit: str | None = None
@@ -417,3 +451,12 @@ class Ledger:
         """Notes recorded between batches for a run, oldest first."""
         rows = self._conn.execute(_SELECT_NOTES_BY_RUN, (run_id,)).fetchall()
         return [dict(row) for row in rows]
+
+    def trial_sharpes(self, run_id: int) -> list[float]:
+        """One Sharpe per test recorded in the run (0.0 for a test whose
+        metrics have no `sharpe`, e.g. one that errored before a backtest
+        ran), so `len(...)` is the run's total test count -- the multiple
+        testing trial count `qrl.validation.deflated_sharpe_ratio` needs
+        (PLAN.md 2.3-2.5)."""
+        rows = self._conn.execute(_SELECT_METRICS_BY_RUN, (run_id,)).fetchall()
+        return [float(json.loads(row["metrics_json"]).get("sharpe", 0.0)) for row in rows]

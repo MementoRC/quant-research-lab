@@ -19,6 +19,7 @@ profile-check = "python scripts/profile_check.py"
 data-check = "python scripts/data_check.py"
 export-ledger = "python scripts/export_ledger.py"
 search = "python scripts/search.py"
+validate = "python scripts/validate.py"
 
 [feature.ci.dependencies]
 ruff = ">=0.8.4"

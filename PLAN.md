@@ -250,6 +250,24 @@ The loop runs locally, overnight, with the agent. It does not run in Actions.
 - **Acceptance:** a test shows a deliberately overfitted candidate failing the
   neighborhood or deflated Sharpe check.
 
+**Implementation deviation (see `config/validation.yaml`'s header comment):**
+the thresholds above (`min_deflated_sharpe`, `neighborhood.fraction_required`,
+`max_correlation`, `top_n_to_validate`, `rank_by`) live in a new
+`config/validation.yaml` rather than being added to `config/criteria.yaml`.
+`criteria.yaml` is locked (AGENTS.md) and its hash is checked on every
+`Ledger.record_test` call; editing it would change the hash and invalidate
+any research run already in flight. `validation.yaml` is hashed the same way
+(`qrl.validation.load_validation_config`), and every `validation_events` row
+records the hash it was validated under (`validation_config_hash`, an
+additive nullable column on the pre-existing table — no destructive
+migration). Also note: the neighbourhood check's neighbour evaluations
+(`qrl.validation.neighbourhood_check`, driven by `validate_survivors`) are
+logged in the ledger as ordinary research tests via `Ledger.record_test`, so
+they count toward the run's total trial count used by the deflated Sharpe
+ratio, exactly like any other candidate tested during the search loop.
+Implemented in `src/qrl/validation.py` and `scripts/validate.py`
+(`pixi run validate --run ID`).
+
 ### 2.6 Walk-forward sleeve selection
 
 - Starting each quarter, select the sleeve using only data before that date, trade it
