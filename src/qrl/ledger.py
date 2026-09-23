@@ -26,6 +26,20 @@ its own thresholds can evolve without invalidating in-flight runs; PLAN.md
 so existing ledgers are never dropped or recreated. `trial_sharpes` returns
 one Sharpe per test in a run, the trial distribution the deflated Sharpe
 ratio needs.
+
+Milestone 2.6 additions (PLAN.md 2.6, see `qrl.walkforward` and
+`qrl.holdout`):
+- `meta_tests`: every walk-forward meta-setting combination tried by
+  `qrl.walkforward.tune_meta`, logged unconditionally (passing or not --
+  there is no pass/fail concept for a meta-setting), so the record of what
+  was searched is as complete as the `tests` table's record of every
+  candidate. A brand-new table (`CREATE TABLE IF NOT EXISTS`), so opening a
+  pre-2.6 ledger just gains the table -- nothing existing is altered or
+  dropped.
+- `holdout_events.forced`: an additive nullable-default column (same
+  migration style as `validation_config_hash`) flagging a forced repeat
+  unsealing (see `qrl.holdout.unseal`) as distinct from the honest first
+  one.
 """
 
 from __future__ import annotations
@@ -91,6 +105,16 @@ CREATE TABLE IF NOT EXISTS holdout_events (
     reason TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS meta_tests (
+    meta_test_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES runs(run_id),
+    meta_json TEXT NOT NULL,
+    window TEXT NOT NULL,
+    metrics_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_meta_tests_run_id ON meta_tests(run_id);
 """
 
 # Read queries exist in two complete, literal forms (all rows / filtered by a
@@ -126,6 +150,18 @@ _SELECT_NOTES_BY_RUN = (
 )
 _SELECT_METRICS_BY_RUN = "SELECT metrics_json FROM tests WHERE run_id = ?"
 _SELECT_VALIDATED_TEST_ID = "SELECT 1 FROM validation_events WHERE test_id = ?"
+_SELECT_HOLDOUT_EVENTS = (
+    "SELECT event_id, what_unsealed, git_commit, reason, forced, created_at "
+    "FROM holdout_events ORDER BY event_id"
+)
+_SELECT_META_TESTS_ALL = (
+    "SELECT meta_test_id, run_id, meta_json, window, metrics_json, created_at "
+    "FROM meta_tests ORDER BY meta_test_id"
+)
+_SELECT_META_TESTS_BY_RUN = (
+    "SELECT meta_test_id, run_id, meta_json, window, metrics_json, created_at "
+    "FROM meta_tests WHERE run_id = ? ORDER BY meta_test_id"
+)
 
 
 class LedgerError(RuntimeError):
@@ -210,6 +246,7 @@ class Ledger:
         version = self._conn.execute("PRAGMA user_version").fetchone()[0]
         self._conn.executescript(_SCHEMA_SQL)
         self._migrate_validation_events_columns()
+        self._migrate_holdout_events_columns()
         if version == 0:
             self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self._conn.commit()
@@ -224,6 +261,16 @@ class Ledger:
             self._conn.execute(
                 "ALTER TABLE validation_events ADD COLUMN validation_config_hash TEXT"
             )
+
+    def _migrate_holdout_events_columns(self) -> None:
+        """Additive migration (milestone 2.6, same style as
+        `_migrate_validation_events_columns`): a ledger created before
+        `qrl.holdout.unseal` existed has a `holdout_events` table without
+        `forced`. Add it as a nullable column defaulting to 0 rather than
+        dropping or recreating the table."""
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(holdout_events)")}
+        if "forced" not in columns:
+            self._conn.execute("ALTER TABLE holdout_events ADD COLUMN forced INTEGER DEFAULT 0")
 
     def __enter__(self) -> Ledger:
         return self
@@ -339,13 +386,31 @@ class Ledger:
         return row is not None
 
     def record_holdout_event(
-        self, what_unsealed: str, reason: str, git_commit: str | None = None
+        self,
+        what_unsealed: str,
+        reason: str,
+        git_commit: str | None = None,
+        forced: bool = False,
     ) -> int:
         commit = git_commit if git_commit is not None else current_git_commit()
         cur = self._conn.execute(
-            "INSERT INTO holdout_events (what_unsealed, git_commit, reason, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (what_unsealed, commit, reason, _utcnow()),
+            "INSERT INTO holdout_events (what_unsealed, git_commit, reason, forced, "
+            "created_at) VALUES (?, ?, ?, ?, ?)",
+            (what_unsealed, commit, reason, int(bool(forced)), _utcnow()),
+        )
+        self._conn.commit()
+        return _require_rowid(cur)
+
+    def record_meta_test(self, run_id: int, meta: dict, window: str, metrics: dict) -> int:
+        """Log one meta-setting combination tried by `qrl.walkforward.tune_meta`
+        (PLAN.md 2.6: every meta-setting tried must be recorded, not just the
+        winner). `window` is a free-text description of the date range tuned
+        over (e.g. `"2005-01-01:2022-12-31"`), for the reader's benefit --
+        not parsed or validated here."""
+        cur = self._conn.execute(
+            "INSERT INTO meta_tests (run_id, meta_json, window, metrics_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (run_id, _dumps(meta), window, _dumps(metrics), _utcnow()),
         )
         self._conn.commit()
         return _require_rowid(cur)
@@ -451,6 +516,41 @@ class Ledger:
         """Notes recorded between batches for a run, oldest first."""
         rows = self._conn.execute(_SELECT_NOTES_BY_RUN, (run_id,)).fetchall()
         return [dict(row) for row in rows]
+
+    def list_holdout_events(self) -> list[dict]:
+        """Every holdout unsealing ever recorded, oldest first -- lets
+        `qrl.holdout.unseal` name the earlier event when refusing a repeat."""
+        rows = self._conn.execute(_SELECT_HOLDOUT_EVENTS).fetchall()
+        return [
+            {
+                "event_id": row["event_id"],
+                "what_unsealed": row["what_unsealed"],
+                "git_commit": row["git_commit"],
+                "reason": row["reason"],
+                "forced": bool(row["forced"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def list_meta_tests(self, run_id: int | None = None) -> list[dict]:
+        """Every meta-setting combination logged by `record_meta_test`, oldest
+        first, optionally filtered to one run."""
+        if run_id is None:
+            rows = self._conn.execute(_SELECT_META_TESTS_ALL).fetchall()
+        else:
+            rows = self._conn.execute(_SELECT_META_TESTS_BY_RUN, (run_id,)).fetchall()
+        return [
+            {
+                "meta_test_id": row["meta_test_id"],
+                "run_id": row["run_id"],
+                "meta": json.loads(row["meta_json"]),
+                "window": row["window"],
+                "metrics": json.loads(row["metrics_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     def trial_sharpes(self, run_id: int) -> list[float]:
         """One Sharpe per test recorded in the run (0.0 for a test whose
