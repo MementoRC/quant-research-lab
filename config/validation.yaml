@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# VALIDATION CONFIG — milestone 2.5 thresholds for validating research
+# survivors (PLAN.md section 2.5, section 3 "Thousands of candidates
+# guarantee lucky winners").
+#
+# DEVIATION FROM PLAN.md's original wording: PLAN.md's milestone 2.5 draft
+# says to "add max_correlation to criteria". `config/criteria.yaml` is
+# locked (AGENTS.md: "never edit during a research run") and its hash is
+# recorded on every ledger row and checked by `Ledger.record_test` on every
+# write; changing it mid-milestone would change that hash and make
+# `scripts/search.py batch` refuse to continue any run seeded before the
+# change. So the new milestone 2.5 thresholds live here instead, in their
+# own file with their own hash (`qrl.validation.load_validation_config`,
+# hashed exactly like `qrl.criteria.load_criteria` hashes this file's
+# sibling). Every `validation_events` row records which hash of this file it
+# was validated under (`validation_config_hash`, an additive nullable
+# column -- see `qrl.ledger`), so a change here is exactly as visible and
+# auditable as a `criteria.yaml` change would have been.
+#
+# Change it only in its own commit, with a reason in the commit message, and
+# never after looking at validation-period results in order to make
+# something pass (same rule as criteria.yaml).
+# ---------------------------------------------------------------------------
+version: 1
+
+# Deflated Sharpe ratio (Bailey & Lopez de Prado): the probability that the
+# observed Sharpe is not simply the best of many random draws, once the
+# number of trials in the run is accounted for. 0.95 mirrors the
+# conventional 95% confidence threshold used in the papers that introduce
+# this statistic -- strict enough to reject a "best of a thousand tries"
+# lucky winner, not so strict that a small, honestly-run search can never
+# pass it.
+min_deflated_sharpe: 0.95
+
+neighborhood:
+  # Share of a candidate's one-step parameter neighbours (each parameter
+  # varied one step up and down, one parameter at a time, within its own
+  # search space) that must also pass the research-period criteria. A lone
+  # spike surrounded by failing neighbours is overfitting, not a real edge,
+  # and is rejected even if its own Sharpe looks good.
+  fraction_required: 0.6
+
+# Reject a candidate whose validation-period daily returns correlate above
+# this with an already-accepted, stronger survivor's. A highly correlated
+# pair is not two independent strategies for the sleeve -- it is one
+# strategy counted twice.
+max_correlation: 0.7
+
+# How many top research survivors (ranked by `rank_by`) are even run through
+# validation. Keeps validation-period access bounded: only the most
+# promising candidates ever touch validation data, and each only once
+# (enforced by `validation_events`'s UNIQUE constraint on test_id).
+top_n_to_validate: 20
+
+# Metric `Ledger.top_candidates` ranks research survivors by before slicing
+# to `top_n_to_validate`.
+rank_by: sharpe

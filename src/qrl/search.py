@@ -2,10 +2,15 @@
 
 Two pieces live here, both pure and deterministic given a fixed seed:
 
-- `evaluate_candidate`: backtest one (family, params) candidate on the
-  RESEARCH period only and grade it against `config/criteria.yaml`. Never
-  raises -- any exception is caught and reported as a failed test, because
-  one bad parameter combination must not stop an unattended overnight batch.
+- `evaluate_candidate`: backtest one (family, params) candidate on a named
+  period (`"research"` by default) and grade it against
+  `config/criteria.yaml`. `"holdout"` is refused outright with a `ValueError`
+  raised before any backtest runs -- this is the one shared evaluation path
+  the milestone 2.4 search loop and milestone 2.5's `qrl.validation` both
+  call (for the research and validation periods respectively), so it must
+  never become a back door into the sealed holdout. Otherwise never raises:
+  any other exception is caught and reported as a failed test, because one
+  bad parameter combination must not stop an unattended overnight batch.
 - `propose_batch`: given the run's ledger history so far and each family's
   parameter space, deterministically propose the next batch of candidates
   (see its docstring for the exact rules).
@@ -134,21 +139,42 @@ def evaluate_candidate(
     data: SearchData,
     criteria: dict,
     benchmark_metrics: dict | None = None,
+    period: str = "research",
 ) -> dict:
-    """Backtest and grade one (family, params) candidate on the RESEARCH
-    period only, and only the research period -- this function never slices
-    validation or holdout data.
+    """Backtest and grade one (family, params) candidate on `period`
+    (`"research"` by default; `qrl.validation.validate_survivors` also calls
+    this with `period="validation"` for the one-time validation-period
+    check and for neighbour evaluations). This is the ONE place that builds
+    weights, applies delisting exits, slices a period, runs the backtest,
+    and computes metrics -- kept singular on purpose, so a research-period
+    result and a validation-period result are always graded by the exact
+    same cost setting and treatment, never two copies that could drift
+    apart (see PLAN.md 2.5).
+
+    `period="holdout"` is refused outright: raises `ValueError` before any
+    backtest runs, rather than letting `qrl.periods.slice_period`'s
+    `HoldoutSealedError` be caught below and silently turned into an
+    ordinary failed-candidate result. The holdout stays sealed through
+    milestones 2.4 and 2.5; unsealing it is milestone 2.6's job alone, and
+    never through this shared path.
 
     Returns a dict with `metrics`, `passed`, `failure_reasons` (a
-    comma-joined set of short codes, or None if it passed), and `checks`
-    (the raw per-rule results from `qrl.criteria.evaluate`).
+    comma-joined set of short codes, or None if it passed), `checks` (the
+    raw per-rule results from `qrl.criteria.evaluate`), and `returns` (the
+    raw daily return series, for `qrl.validation.correlation_filter`).
 
-    Never raises: any exception raised while building weights, applying
-    delisting exits, or running the backtest (bad params, a strategy with no
-    valid signal in this window, a missing ticker, ...) is caught and
-    returned as a failed candidate with the error text as its failure
-    reason. One bad combination must never kill an unattended overnight run.
+    Otherwise never raises: any exception raised while building weights,
+    applying delisting exits, or running the backtest (bad params, a
+    strategy with no valid signal in this window, a missing ticker, ...) is
+    caught and returned as a failed candidate with the error text as its
+    failure reason. One bad combination must never kill an unattended
+    overnight run.
     """
+    if period == "holdout":
+        raise ValueError(
+            "evaluate_candidate refuses period='holdout' -- the holdout stays "
+            "sealed through milestones 2.4 and 2.5 (see qrl.periods.slice_period)."
+        )
     try:
         spec = _spec_for(family)
         tickers = spec.tickers(params)
@@ -156,7 +182,7 @@ def evaluate_candidate(
         frames = data.fields(spec.fields, tickers)
         weights = spec.weights(*frames, **weight_kwargs)
         weights = exit_before_delisting(weights, data.open_[tickers], data.close[tickers])
-        weights = slice_period(weights, criteria, "research")
+        weights = slice_period(weights, criteria, period)
 
         result = run_backtest(
             data.open_[tickers],
@@ -177,6 +203,7 @@ def evaluate_candidate(
             "passed": passed,
             "failure_reasons": failure_reasons,
             "checks": checks,
+            "returns": result.returns,
         }
     except Exception as exc:  # a bad candidate must never kill an overnight batch
         return {
@@ -184,6 +211,7 @@ def evaluate_candidate(
             "passed": False,
             "failure_reasons": f"error: {exc}",
             "checks": [],
+            "returns": pd.Series(dtype=float),
         }
 
 
