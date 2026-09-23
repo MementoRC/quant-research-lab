@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# THE CHOSEN PORTFOLIO — milestone 2.7 (PLAN.md section 2.7).
+#
+# This file names the ACTUAL core strategy and sleeve members the dashboard
+# builds and shows, plus where they came from (`provenance`). It is not a
+# search space or a pass/fail file like criteria.yaml or validation.yaml;
+# scripts/build_site.py just loads whatever this file says and backtests it.
+# The core/sleeve capital split itself lives in config/profile.yaml
+# (`capital_split`), not here.
+#
+# `core.origin` and `provenance.holdout_unsealed` gate whether holdout-period
+# figures may be shown for an entry (AGENTS.md, PLAN.md section 3, "The
+# holdout was contaminated"):
+#   - A "baseline" core strategy (hand-picked, never searched or tuned --
+#     the same kind of fixed strategy config/strategies.yaml lists) may show
+#     holdout figures, same as today's dashboard.
+#   - A "search" origin core, and every sleeve member (a sleeve member IS
+#     the output of walk-forward selection -- PLAN.md 2.6, so there is no
+#     per-member origin field), is shown on research and validation only,
+#     UNLESS `provenance.holdout_unsealed` is true -- which must only ever
+#     be set after `qrl.holdout.unseal` has actually recorded a
+#     `holdout_events` row in the ledger for THIS chosen process. Never flip
+#     it by hand just to make the holdout figures show up.
+#
+# CURRENT STATE (honest, as of milestone 2.7): no walk-forward search has
+# actually been run yet. The core is the same hand-curated baseline
+# config/strategies.yaml already shows, and the sleeve is empty -- the
+# dashboard should say "no sleeve selected yet", not show a placeholder.
+# ---------------------------------------------------------------------------
+version: 1
+
+core:
+  origin: baseline # baseline | search
+  fn: core_trend
+  params:
+    risk_on: QQQ
+    risk_off: GLD
+    lookback: 200
+
+sleeve:
+  # Each entry: {fn: <REGISTRY or SLEEVE_REGISTRY family name>, params: {...}}.
+  # Empty until milestone 2.6's walk-forward selection has actually chosen
+  # something for the current quarter.
+  strategies: []
+
+provenance:
+  # research/ledger.sqlite run id this core/sleeve came from, if any (null:
+  # hand-picked, not sourced from a search run).
+  ledger_run_id: null
+  # config/validation.yaml's content hash the sleeve was last validated
+  # under (qrl.validation.load_validation_config), if any.
+  validation_config_hash: null
+  # The date this exact core+sleeve combination was chosen, if any.
+  selection_date: null
+  # Whether qrl.holdout.unseal has actually recorded a holdout_events row
+  # for this exact chosen process. Must stay false until that has really
+  # happened -- see this file's header comment.
+  holdout_unsealed: false
