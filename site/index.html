@@ -158,7 +158,8 @@
   ];
 
   function colorFor(strategy, benchIndex) {
-    if (strategy.kind === "strategy") return css("--strategy");
+    if (strategy.kind === "strategy" || strategy.kind === "portfolio_combined") return css("--strategy");
+    if (strategy.kind === "portfolio_core") return css("--bench-2");
     return benchIndex % 2 === 0 ? css("--bench-1") : css("--bench-2");
   }
 
@@ -187,6 +188,9 @@
     app.innerHTML = `
       <div class="notice" id="synthetic-notice" ${data.data_source === "synthetic" ? "" : "hidden"}>
         These results use randomly generated demo prices, not market data. Run the build without <code>--synthetic</code> to see real results.
+      </div>
+      <div class="notice" id="survivorship-notice" ${data.survivorship_biased ? "" : "hidden"}>
+        This universe is <strong>survivorship-biased</strong>: free data only shows tickers that still trade today. Stocks that were delisted, acquired, or went bankrupt during the research period are silently absent, which can inflate backtested returns (PLAN.md section 3).
       </div>
 
       <header class="hero">
@@ -220,6 +224,18 @@
         <ul class="checks" id="checks"></ul>
       </section>
 
+      <section aria-labelledby="sleeve-title">
+        <h2 id="sleeve-title">Sleeve holdings</h2>
+        <p class="section-note" id="sleeve-note"></p>
+        <div class="table-scroll"><table id="sleeve-table" hidden></table></div>
+      </section>
+
+      <section aria-labelledby="funnel-title">
+        <h2 id="funnel-title">Research funnel</h2>
+        <p class="section-note" id="funnel-note"></p>
+        <ul class="checks" id="funnel-list"></ul>
+      </section>
+
       <footer>
         <p>Data through ${fmtDate(data.data_through)} from ${data.data_source === "synthetic" ? "synthetic demo prices" : "Yahoo Finance"}. Built ${new Date(data.generated_at).toLocaleString()}.</p>
         <p>Criteria file version <code>${esc(data.criteria_hash)}</code>. If this code changes unexpectedly, the pass rules were edited.</p>
@@ -240,6 +256,8 @@
 
     drawCharts(data, colors);
     setupPeriods(data);
+    renderSleeveTable(data);
+    renderFunnel(data);
 
     document.getElementById("theme-toggle").addEventListener("click", () => {
       const root = document.documentElement;
@@ -306,7 +324,7 @@
 
     const ds = (key) => data.strategies.map((s) => ({
       label: s.name, data: data.series[key][s.id], borderColor: colors[s.id], backgroundColor: colors[s.id],
-      borderWidth: s.kind === "strategy" ? 2.25 : 1.5,
+      borderWidth: s.kind === "strategy" || s.kind === "portfolio_combined" ? 2.25 : 1.5,
     }));
 
     charts.push(new Chart(document.getElementById("equity-chart"), {
@@ -383,6 +401,42 @@
         <span class="mark" aria-hidden="true">${c.passed ? "✓" : "✗"}</span>
         <span>${esc(c.rule)} <span class="detail">(needs ${esc(c.threshold)})</span></span>
         <span>${c.value ?? "–"} <span class="visually-hidden">${c.passed ? "passed" : "failed"}</span></span>
+      </li>`).join("");
+  }
+
+  function renderSleeveTable(data) {
+    const table = document.getElementById("sleeve-table");
+    const note = document.getElementById("sleeve-note");
+    const holdings = (data.portfolio && data.portfolio.sleeve_holdings) || [];
+    if (holdings.length === 0) {
+      table.hidden = true;
+      table.innerHTML = "";
+      const cash = data.portfolio ? pct(data.portfolio.idle_cash_pct, 0) : "some";
+      note.textContent = `No sleeve selected yet. The core + sleeve line holds ${cash} in cash and trails core alone.`;
+      return;
+    }
+    table.hidden = false;
+    note.textContent = "Target weights for the next open, from the current sleeve selection.";
+    const rows = holdings.map((h) => `<tr><td>${esc(h.ticker)}</td><td>${pct(h.target_weight)}</td></tr>`).join("");
+    table.innerHTML = `<thead><tr><th scope="col">Ticker</th><th scope="col">Target weight</th></tr></thead><tbody>${rows}</tbody>`;
+  }
+
+  function renderFunnel(data) {
+    const list = document.getElementById("funnel-list");
+    const note = document.getElementById("funnel-note");
+    const funnel = data.research_funnel;
+    if (!funnel || !funnel.available) {
+      list.innerHTML = "";
+      note.textContent = "No search has been run yet.";
+      return;
+    }
+    const total = funnel.total_attempts == null ? "an unknown number of" : funnel.total_attempts;
+    note.textContent = `${total} attempts were tested behind this result.`;
+    list.innerHTML = funnel.stages.map((s) => `
+      <li class="pass">
+        <span class="mark" aria-hidden="true">•</span>
+        <span>${esc(s.label)}</span>
+        <span>${s.count == null ? "–" : s.count}</span>
       </li>`).join("");
   }
 
