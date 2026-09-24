@@ -10,12 +10,18 @@ This module is pure, offline, and deterministic: no network calls, no randomness
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
+from qrl.risk import load_risk_limits
+from qrl.strategies import REGISTRY, SLEEVE_REGISTRY
+
 DEFAULT_PROFILE_PATH = Path("config/profile.yaml")
+
+_RISK_EPS = 1e-9
 
 REQUIRED_KEYS = {
     "version",
@@ -27,6 +33,7 @@ REQUIRED_KEYS = {
     "assets",
     "data_budget",
     "capital_split",
+    "risk",
 }
 VALID_GOALS = {"growth", "income", "conservative"}
 VALID_DATA_BUDGETS = {"free", "paid"}
@@ -42,6 +49,7 @@ class ProfileReport:
     implications: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    risk: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -75,6 +83,20 @@ def load_profile(path: str | Path = DEFAULT_PROFILE_PATH) -> dict:
         if sub_missing:
             raise ValueError(f"{field_name} is missing keys: {sorted(sub_missing)}")
     return profile
+
+
+def load_profile_with_hash(path: str | Path = DEFAULT_PROFILE_PATH) -> tuple[dict, str]:
+    """Like `load_profile`, but also returns a short content hash of the raw
+    file bytes, mirroring `qrl.criteria.load_criteria`. Risk limits (the
+    `risk:` block) gate portfolio construction, so an edit to this file
+    should be as visible as an edit to criteria.yaml is to the ledger.
+
+    Additive: `load_profile`'s signature and return shape are unchanged, so
+    every existing caller keeps working exactly as before.
+    """
+    raw = Path(path).read_bytes()
+    profile = load_profile(path)
+    return profile, hashlib.sha256(raw).hexdigest()[:12]
 
 
 def _needs_intraday(profile: dict) -> bool:
@@ -169,6 +191,73 @@ def _check_frequency(profile: dict, report: ProfileReport) -> None:
         )
 
 
+def _families_with_max_positions() -> dict[str, list[int]]:
+    """Registered strategy families (both registries) that declare a
+    `max_positions` search space, keyed by family name."""
+    all_families = {**REGISTRY, **SLEEVE_REGISTRY}
+    return {
+        name: spec.space["max_positions"]
+        for name, spec in all_families.items()
+        if "max_positions" in spec.space
+    }
+
+
+def _check_risk(profile: dict, report: ProfileReport) -> None:
+    """Load and summarize the profile's risk block, appending any conflicts
+    or warnings to `report`, and the summary lines to `report.risk`.
+    """
+    limits = load_risk_limits(profile)
+    report.risk.extend(
+        [
+            f"leverage_ceiling: {limits.leverage_ceiling}",
+            f"max_gross_exposure: {limits.max_gross_exposure}",
+            f"max_loss_per_trade: {limits.max_loss_per_trade}",
+            f"max_open_positions: {limits.max_open_positions}",
+            f"borrowing_cost_bps: {limits.borrowing_cost_bps}",
+        ]
+    )
+
+    # max_gross_exposure > leverage_ceiling is already rejected by
+    # qrl.risk.load_risk_limits before this function runs, so it is not
+    # re-checked here; do not re-add a duplicate check for it.
+
+    if limits.leverage_ceiling > 1.0 + _RISK_EPS:
+        report.conflicts.append(
+            f"risk.leverage_ceiling ({limits.leverage_ceiling}) is above 1.0, but "
+            "src/qrl/engine.py:63-64 rejects any weight set summing above 1.0 "
+            "(no leverage support); lower leverage_ceiling to 1.0 or change the engine."
+        )
+
+    sleeve_share = profile["capital_split"]["sleeve"]
+    families = _families_with_max_positions()
+    if families:
+        smallest_max_positions = min(min(values) for values in families.values())
+        if smallest_max_positions > 0:
+            implied_min_loss = sleeve_share / smallest_max_positions
+            if implied_min_loss > limits.max_loss_per_trade + _RISK_EPS:
+                report.conflicts.append(
+                    f"capital_split.sleeve ({sleeve_share}) / smallest max_positions in any "
+                    f"family's search space ({smallest_max_positions}) = "
+                    f"{implied_min_loss:.4f}, which exceeds risk.max_loss_per_trade "
+                    f"({limits.max_loss_per_trade})."
+                )
+
+        for name, values in families.items():
+            family_max = max(values)
+            if family_max > limits.max_open_positions:
+                report.conflicts.append(
+                    f"strategy family {name!r} search space allows max_positions up to "
+                    f"{family_max}, which exceeds risk.max_open_positions "
+                    f"({limits.max_open_positions})."
+                )
+
+    if limits.borrowing_cost_bps > 0 and abs(limits.leverage_ceiling - 1.0) < _RISK_EPS:
+        report.warnings.append(
+            f"risk.borrowing_cost_bps ({limits.borrowing_cost_bps}) is set but "
+            "leverage_ceiling is 1.0, so it can never be charged."
+        )
+
+
 def analyze_profile(profile: dict, criteria: dict | None = None) -> ProfileReport:
     """Derive implications and flag conflicts in a trader profile.
 
@@ -181,4 +270,5 @@ def analyze_profile(profile: dict, criteria: dict | None = None) -> ProfileRepor
     _check_max_drawdown(profile, criteria, report)
     _check_holding_period(profile, intraday, report)
     _check_frequency(profile, report)
+    _check_risk(profile, report)
     return report
