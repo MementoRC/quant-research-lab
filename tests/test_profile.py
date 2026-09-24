@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from qrl.criteria import load_criteria
-from qrl.profile import analyze_profile, load_profile
+from qrl.profile import analyze_profile, load_profile, load_profile_with_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -65,6 +65,39 @@ def test_holding_period_min_greater_than_max_is_flagged(example_profile, criteri
     assert any("min must be <=" in c for c in report.conflicts)
 
 
+def test_missing_risk_block_raises_value_error(example_profile, tmp_path):
+    profile = copy.deepcopy(example_profile)
+    del profile["risk"]
+    bad_path = tmp_path / "profile.yaml"
+    bad_path.write_text(yaml.safe_dump(profile))
+    with pytest.raises(ValueError, match="risk"):
+        load_profile(bad_path)
+
+
+def test_profile_hash_changes_when_content_changes(example_profile, tmp_path):
+    path_a = tmp_path / "a.yaml"
+    path_a.write_text(yaml.safe_dump(example_profile))
+    _, hash_a = load_profile_with_hash(path_a)
+
+    changed = copy.deepcopy(example_profile)
+    changed["risk"]["max_loss_per_trade"] = 0.02
+    path_b = tmp_path / "b.yaml"
+    path_b.write_text(yaml.safe_dump(changed))
+    _, hash_b = load_profile_with_hash(path_b)
+
+    assert hash_a != hash_b
+
+
+def test_profile_hash_is_stable_for_unchanged_content(example_profile, tmp_path):
+    path = tmp_path / "profile.yaml"
+    path.write_text(yaml.safe_dump(example_profile))
+
+    _, hash_first = load_profile_with_hash(path)
+    _, hash_second = load_profile_with_hash(path)
+
+    assert hash_first == hash_second
+
+
 def test_bad_goal_enum_raises_value_error(example_profile, tmp_path):
     profile = copy.deepcopy(example_profile)
     profile["goal"] = "moonshot"
@@ -91,6 +124,53 @@ def test_cli_exits_nonzero_on_conflicting_profile(example_profile, tmp_path, cap
     assert exit_code == 1
     out = capsys.readouterr().out
     assert "Conflicts" in out
+
+
+def test_leverage_ceiling_above_one_is_flagged_and_cites_engine(example_profile, criteria):
+    profile = copy.deepcopy(example_profile)
+    profile["risk"]["leverage_ceiling"] = 1.5
+    profile["risk"]["max_gross_exposure"] = 1.5
+    report = analyze_profile(profile, criteria)
+    assert not report.ok
+    assert any(
+        "leverage_ceiling" in c and "engine.py" in c and "1.5" in c for c in report.conflicts
+    )
+
+
+def test_sleeve_max_loss_per_trade_exceeded_is_flagged(example_profile, criteria):
+    profile = copy.deepcopy(example_profile)
+    profile["risk"]["max_loss_per_trade"] = 0.001
+    report = analyze_profile(profile, criteria)
+    assert not report.ok
+    assert any("max_loss_per_trade" in c for c in report.conflicts)
+
+
+def test_family_max_positions_above_max_open_positions_is_flagged(example_profile, criteria):
+    profile = copy.deepcopy(example_profile)
+    profile["risk"]["max_open_positions"] = 3
+    report = analyze_profile(profile, criteria)
+    assert not report.ok
+    assert any(
+        "max_open_positions" in c and ("trend_pullback" in c or "low_range_close" in c)
+        for c in report.conflicts
+    )
+
+
+def test_borrowing_cost_with_leverage_ceiling_one_is_warned(example_profile, criteria):
+    profile = copy.deepcopy(example_profile)
+    profile["risk"]["borrowing_cost_bps"] = 5.0
+    report = analyze_profile(profile, criteria)
+    assert report.ok
+    assert any("borrowing_cost_bps" in w for w in report.warnings)
+
+
+def test_risk_summary_lines_present_for_example_profile(example_profile, criteria):
+    report = analyze_profile(example_profile, criteria)
+    assert any("leverage_ceiling" in line for line in report.risk)
+    assert any("max_gross_exposure" in line for line in report.risk)
+    assert any("max_loss_per_trade" in line for line in report.risk)
+    assert any("max_open_positions" in line for line in report.risk)
+    assert any("borrowing_cost_bps" in line for line in report.risk)
 
 
 def test_cli_exits_zero_on_example_profile():

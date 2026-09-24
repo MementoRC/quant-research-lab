@@ -5,7 +5,7 @@ decisions already made, what Phase 1 delivered, and detailed specs for Phases 2 
 It is written so a person or an AI coding agent can pick up the work without the
 original conversation.
 
-Last updated: September 2026, end of Phase 1.
+Last updated: September 2026, Phase 3 milestone 3.1.
 
 ---
 
@@ -304,6 +304,50 @@ Implemented in `src/qrl/validation.py` and `scripts/validate.py`
 - Engine support for leverage (weights summing above 1) with borrowing costs charged
   on the excess, plus per-position and portfolio caps.
 
+**Implementation deviation:**
+owner decision 2026-09-24: no leverage. `leverage_ceiling: 1.0`,
+`max_gross_exposure: 1.0`, `borrowing_cost_bps: 0`. The bullet above asking
+for "engine support for leverage (weights summing above 1)" is therefore
+NOT implemented, deliberately. `src/qrl/engine.py:63-64` still rejects any
+weight row summing above 1.0, and
+`tests/test_engine.py::test_rejects_leverage_and_shorts` is unchanged -- so
+AGENTS.md's lock on `engine.py` was never contested. Enabling leverage
+later is a config decision plus an engine change, in that order.
+
+The risk fields live in a new `risk:` block in `config/profile.yaml`, NOT
+in `config/criteria.yaml`. Same reasoning as the 2.5 deviation:
+`criteria.yaml`'s hash is checked on every `Ledger.record_test` call, so
+editing it would invalidate ledger run 1, which is already recorded.
+`config/profile.yaml` now also has a content hash
+(`qrl.profile.load_profile_with_hash`, mirroring
+`qrl.criteria.load_criteria`) so an edit to the risk limits is visible
+rather than silent.
+
+Values are derived from the existing search space rather than chosen, so
+that nothing already in the ledger becomes retroactively out of policy:
+`max_open_positions: 15` is the top of the sleeve families' declared
+`max_positions` space `[5, 10, 15]`; `max_loss_per_trade: 0.04` is
+`capital_split.sleeve` (0.20) divided by the most concentrated setting
+that space allows (5).
+
+`max_loss_per_trade` is enforced as a cap on single-position WEIGHT, not
+as a stop order: the engine has no stop-loss, so the only honest
+enforceable reading of "largest fraction of capital one position may
+lose" is the conservative worst case of the position going to zero.
+
+Scope split, because it is not obvious: `max_gross_exposure` /
+`leverage_ceiling` are checked against the COMBINED portfolio;
+`max_loss_per_trade` and `max_open_positions` are checked against the
+SLEEVE only. The core is a single deliberate ~80%-of-capital holding that
+rarely trades, so it is exempt from the per-trade cap -- checking it
+against the combined frame would make every real portfolio fail.
+Implemented in `src/qrl/risk.py` (`RiskLimits`, `load_risk_limits`,
+`check_gross_exposure`, `check_sleeve_positions`, `check_portfolio`,
+`assert_portfolio_within_limits`), enforced optionally via
+`combine_portfolio(..., limits=...)` where `limits=None` preserves
+existing behaviour, and surfaced by `pixi run profile-check` through four
+conflict/warning checks in `qrl.profile.analyze_profile`.
+
 ### 3.2 Decay monitoring
 
 - Daily: data arrived, signals computed, no errors.
@@ -315,6 +359,8 @@ Implemented in `src/qrl/validation.py` and `scripts/validate.py`
   rather than starting over.
 
 ### 3.3 News layer (optional)
+
+Skipped per the owner decision of 2026-09-24 -- see section 8, item 6.
 
 - An LLM reads each Fed statement and returns hold, gold, or cash, with low
   temperature and multiple runs checked for agreement.
@@ -349,6 +395,8 @@ These need answers before or during Phase 2:
 5. **Ledger storage:** keep SQLite local only (default), or commit exports to track
    research history on GitHub.
 6. **News layer:** include it as a paper-only experiment, or skip it.
+   **ANSWERED (2026-09-24):** skipped. It cannot be honestly backtested
+   (section 3) and nothing else in Phase 3 depends on it.
 
 ---
 

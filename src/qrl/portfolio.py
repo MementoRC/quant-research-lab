@@ -18,6 +18,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from .risk import RiskLimits, assert_portfolio_within_limits
+
 _EPS = 1e-9
 
 _REQUIRED_CORE_KEYS = {"origin", "fn", "params"}
@@ -94,6 +96,7 @@ def combine_portfolio(
     core_weights: pd.DataFrame,
     sleeve_member_weights: list[pd.DataFrame],
     capital_split: dict[str, float],
+    limits: RiskLimits | None = None,
 ) -> PortfolioWeights:
     """Combine one core strategy's weights and a (possibly empty) list of
     sleeve members' weights into one target-weight portfolio, using
@@ -110,8 +113,19 @@ def combine_portfolio(
     defensive check on top of each component strategy's own contract
     (`qrl/strategies/__init__.py`), not just an assumption.
 
+    `limits`, if given (milestone 3.1's `qrl.risk.RiskLimits`), is applied
+    via `qrl.risk.assert_portfolio_within_limits`, each cap against the
+    frame it was actually derived for: `max_gross_exposure`/
+    `leverage_ceiling` against `combined`, `max_loss_per_trade`/
+    `max_open_positions` against `sleeve` only -- the core is exempt from
+    the latter two (see `qrl.risk`'s module docstring for why). When `None`
+    (the default), behaviour is byte-identical to before milestone 3.1: no
+    risk check runs.
+
     Raises `ValueError` if `capital_split["core"] + capital_split["sleeve"]`
-    is above 1, or if a component frame violates long-only / sum-to-1.
+    is above 1, if a component frame violates long-only / sum-to-1, or if
+    `limits` is given and either the combined or the sleeve frame violates
+    its scoped caps.
     """
     total_split = capital_split["core"] + capital_split["sleeve"]
     if total_split > 1 + _EPS:
@@ -142,5 +156,8 @@ def combine_portfolio(
 
     for name, frame in (("core", core_scaled), ("sleeve", sleeve_scaled), ("combined", combined)):
         _assert_valid(name, frame)
+
+    if limits is not None:
+        assert_portfolio_within_limits(combined=combined, sleeve=sleeve_scaled, limits=limits)
 
     return PortfolioWeights(core=core_scaled, sleeve=sleeve_scaled, combined=combined)

@@ -31,6 +31,8 @@ def _print_section(title: str, lines: list[str]) -> None:
 def _print_report(report: ProfileReport) -> None:
     _print_section("Implications", report.implications)
     print()
+    _print_section("Risk", report.risk)
+    print()
     _print_section("Warnings", report.warnings)
     print()
     _print_section("Conflicts", report.conflicts)

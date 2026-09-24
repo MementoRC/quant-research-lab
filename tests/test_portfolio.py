@@ -14,6 +14,8 @@ import pandas as pd
 import pytest
 
 from qrl.portfolio import combine_portfolio, load_portfolio_config
+from qrl.profile import load_profile
+from qrl.risk import RiskLimits, load_risk_limits
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -96,6 +98,103 @@ def test_combine_portfolio_rejects_split_summing_above_one():
 
     with pytest.raises(ValueError, match="above 1"):
         combine_portfolio(core, [], {"core": 0.9, "sleeve": 0.3})
+
+
+def test_combine_portfolio_with_limits_none_is_unchanged():
+    core = _frame(["QQQ"], 1.0)
+    member = _frame(["AAA"], 1.0)
+
+    pw_without_arg = combine_portfolio(core, [member], SPLIT)
+    pw_explicit_none = combine_portfolio(core, [member], SPLIT, limits=None)
+
+    pd.testing.assert_frame_equal(pw_without_arg.combined, pw_explicit_none.combined)
+    pd.testing.assert_frame_equal(pw_without_arg.core, pw_explicit_none.core)
+    pd.testing.assert_frame_equal(pw_without_arg.sleeve, pw_explicit_none.sleeve)
+
+
+def test_combine_portfolio_with_limits_raises_on_gross_exposure_over_cap():
+    core = _frame(["QQQ"], 1.0)
+    member = _frame(["AAA"], 1.0)
+    limits = RiskLimits(
+        leverage_ceiling=1.0,
+        max_gross_exposure=0.5,  # strict: combined 0.80 + 0.20 = 1.0 above cap
+        borrowing_cost_bps=0,
+        max_loss_per_trade=1.0,
+        max_open_positions=15,
+    )
+
+    with pytest.raises(ValueError, match="Risk limit violations"):
+        combine_portfolio(core, [member], SPLIT, limits=limits)
+
+
+def test_combine_portfolio_with_limits_raises_on_sleeve_position_over_max_loss_per_trade():
+    """A sleeve member above max_loss_per_trade must still be caught -- the
+    scope fix narrows the cap to the sleeve frame, it does not disable it."""
+    core = _frame(["QQQ"], 0.0)
+    member = _frame(["AAA"], 1.0)  # scaled to the full 0.20 sleeve share
+    limits = RiskLimits(
+        leverage_ceiling=1.0,
+        max_gross_exposure=1.0,
+        borrowing_cost_bps=0,
+        max_loss_per_trade=0.10,  # sleeve member weight 0.20 > 0.10
+        max_open_positions=15,
+    )
+
+    with pytest.raises(ValueError, match="Risk limit violations"):
+        combine_portfolio(core, [member], SPLIT, limits=limits)
+
+
+def test_combine_portfolio_with_limits_does_not_raise_on_large_core_only_position():
+    """Regression for the scope bug: a large core-only combined weight
+    (0.80) must not trip max_loss_per_trade, since that cap is sleeve-only
+    and there is no sleeve member here."""
+    core = _frame(["QQQ"], 1.0)  # combined weight 0.80
+    limits = RiskLimits(
+        leverage_ceiling=1.0,
+        max_gross_exposure=1.0,
+        borrowing_cost_bps=0,
+        max_loss_per_trade=0.04,  # the strict cap the old bug applied to combined
+        max_open_positions=15,
+    )
+
+    pw = combine_portfolio(core, [], SPLIT, limits=limits)
+
+    assert pw.combined["QQQ"].to_numpy() == pytest.approx(0.80)
+
+
+def test_combine_portfolio_with_limits_passes_on_compliant_frame():
+    core = _frame(["QQQ"], 1.0)  # combined weight 0.80
+    member = _frame(["AAA"], 1.0)  # sleeve member weight 0.20
+    limits = RiskLimits(
+        leverage_ceiling=1.0,
+        max_gross_exposure=1.0,
+        borrowing_cost_bps=0,
+        max_loss_per_trade=0.20,
+        max_open_positions=15,
+    )
+
+    pw = combine_portfolio(core, [member], SPLIT, limits=limits)
+
+    assert pw.combined["QQQ"].to_numpy() == pytest.approx(0.80)
+
+
+def test_shipped_limits_accept_the_shipped_core_only_portfolio():
+    """Regression for the scope bug this branch fixes: the SHIPPED
+    config/profile.yaml risk limits, applied to the SHIPPED
+    config/portfolio.yaml core (QQQ at capital_split.core, empty sleeve),
+    must not raise. Under the old bug, max_loss_per_trade (0.04) applied to
+    the combined frame and rejected the core's own ~80% holding outright."""
+    profile = load_profile(ROOT / "config" / "profile.yaml")
+    limits = load_risk_limits(profile)
+    portfolio_cfg = load_portfolio_config(ROOT / "config" / "portfolio.yaml")
+    assert portfolio_cfg["sleeve"]["strategies"] == []
+
+    core_asset = portfolio_cfg["core"]["params"]["risk_on"]  # "QQQ"
+    core = _frame([core_asset], 1.0)
+
+    pw = combine_portfolio(core, [], profile["capital_split"], limits=limits)
+
+    assert pw.combined[core_asset].to_numpy() == pytest.approx(profile["capital_split"]["core"])
 
 
 def test_combine_portfolio_never_mutates_its_inputs():

@@ -34,3 +34,24 @@ data_budget: free
 
 # Fraction of capital in each bucket. Must sum to 1.
 capital_split: {core: 0.80, sleeve: 0.20}
+
+# Owner decision, 2026-09-24: no leverage. src/qrl/engine.py:63-64 raises on
+# any weight set summing above 1.0, so these two must stay at 1.0 unless that
+# guard changes -- profile-check flags it if they do not agree.
+risk:
+  leverage_ceiling: 1.0
+  max_gross_exposure: 1.0
+  # Annual bps charged on capital above 1.0. Moot while leverage_ceiling is 1.0;
+  # recorded so that enabling leverage later is a config decision, not a code one.
+  borrowing_cost_bps: 0
+  # Largest fraction of TOTAL capital one sleeve position may lose. The engine has
+  # no stop-loss, so the enforceable reading is the conservative worst case: the
+  # position goes to zero. It is therefore a cap on single-position WEIGHT.
+  # 0.04 = capital_split.sleeve (0.20) / the most concentrated max_positions the
+  # sleeve search space allows (5, see strategies/__init__.py). Lowering it below
+  # 0.04 would put that existing search space out of policy.
+  max_loss_per_trade: 0.04
+  # Portfolio-wide cap on simultaneously held sleeve names. 15 is the top of the
+  # declared max_positions search space [5, 10, 15]; a lower value here would
+  # retroactively put part of ledger run 1's search space out of policy.
+  max_open_positions: 15
