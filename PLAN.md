@@ -5,7 +5,7 @@ decisions already made, what Phase 1 delivered, and detailed specs for Phases 2 
 It is written so a person or an AI coding agent can pick up the work without the
 original conversation.
 
-Last updated: September 2026, Phase 3 milestone 3.1.
+Last updated: September 2026, Phase 3 milestone 3.2.
 
 ---
 
@@ -357,6 +357,62 @@ conflict/warning checks in `qrl.profile.analyze_profile`.
   worst backtested drawdown.
 - When a strategy is removed, rerun the Phase 2 search on top of the existing ledger
   rather than starting over.
+
+**Implementation status:**
+owner decision 2026-09-24: only the *daily* half of this milestone is built.
+The monthly live-versus-expected review, the quarterly sleeve reselection, and
+the kill rule are deliberately NOT implemented, not merely omitted. All three
+need a live or paper track record that does not exist yet, and run 1's
+validation accepted zero candidates, so the sleeve is empty and quarterly
+reselection would have nothing to reselect.
+
+The daily half lives in `src/qrl/health.py` (`CheckResult`, `HealthReport`,
+`expected_last_bar`, `check_data_arrived`, `check_signals_computed`,
+`check_risk`, `check_no_errors`, `run_daily_health`) and is surfaced by
+`pixi run daily-check` through `scripts/daily_check.py`, which does IO,
+wiring, formatting and the exit code only. That split is the milestone 3.1
+postmortem's lesson applied: `pytest --cov=qrl` cannot see `scripts/`, so no
+threshold or check may live there.
+
+Four checks run: data arrived, signals computed, risk caps, no errors. The
+risk check is an addition to the three bullets above, per the same owner
+decision. Five design points that are not obvious:
+
+- **Freshness tolerance is one business day.** There is no trading calendar in
+  the repo, so `expected_last_bar` rolls `as_of` back to the most recent
+  business day and subtracts one more (`pd.offsets.BDay`, matching
+  `synthetic_prices`' existing use of `pd.bdate_range`). One business day
+  absorbs a single US market holiday and a run made before the close; US
+  market holidays are never consecutive. `coverage_report`'s `ended_early` was
+  not reusable: it compares a ticker's last bar to the frame's own last bar,
+  which is frame-relative, not calendar-relative.
+- **A "skipped" check is not a pass.** `HealthReport.ok` is true only when
+  every check is `ok`. A stage that could not run must never look healthy.
+- **The risk check is gated on the data and signals checks, not on NaN.** It
+  would be natural to let `qrl.risk.check_portfolio` speak for itself, but it
+  cannot fail on absent data: its violation tests are `>` comparisons
+  (`NaN > x` is False) and a NaN row sums to 0.0 under pandas' default
+  `skipna`. The live path never even shows it a NaN, because
+  `combine_portfolio`'s `_scaled()` does `weights.fillna(0.0) * share`, so a
+  warm-up portfolio arrives as all zeros and clears every cap truthfully and
+  uselessly. So `check_risk` reports `skipped` unless both upstream checks are
+  `ok`. Its own NaN guard is kept as defence-in-depth for callers that pass
+  unscrubbed frames.
+- **Asymmetry, by design:** the signals check still runs when the data check
+  fails, because "signals computed on stale data" is true and useful. Only the
+  risk check, which asserts policy compliance, goes quiet when its inputs are
+  untrustworthy.
+- **`check_risk` evaluates the latest row only.** A breach in 2009 must not
+  turn today's report red forever. The backtest gates and
+  `pixi run profile-check` own history; the daily monitor owns today.
+
+Output is `reports/daily_health.json`, gitignored, NOT under `site/`. It is
+operator-facing: a risk violation detail embeds the offending ticker and its
+exact weight, inherited verbatim from `qrl.risk`. That is deliberate -- on-call
+needs the number to judge severity -- and it is exactly why the artifact stays
+private. It must never be wired into `scripts/build_site.py` or any public
+page (see 3.4). Exit code is 0 when healthy and 1 otherwise, so cron or CI can
+act on it.
 
 ### 3.3 News layer (optional)
 
