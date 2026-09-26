@@ -330,6 +330,16 @@ that nothing already in the ledger becomes retroactively out of policy:
 `capital_split.sleeve` (0.20) divided by the most concentrated setting
 that space allows (5).
 
+Amended 2026-09-26 (owner decision): the sleeve families' `max_positions` space
+was widened to `[5, 10, 15, 20, 25, 30]` for run 2, which tests whether the 35%
+drawdown cap was binding because holdings were capped at 15. `max_open_positions`
+is therefore raised from 15 to 30 -- this keeps the original derivation rule (the
+top of the declared space) rather than picking a number. `max_loss_per_trade` is
+unchanged at 0.04: it derives from the most concentrated setting the space allows,
+which is still 5 positions. Run 1's 506 recorded trials remain in policy, since
+widening a space cannot retroactively put an already-tested candidate out of
+bounds.
+
 `max_loss_per_trade` is enforced as a cap on single-position WEIGHT, not
 as a stop order: the engine has no stop-loss, so the only honest
 enforceable reading of "largest fraction of capital one position may

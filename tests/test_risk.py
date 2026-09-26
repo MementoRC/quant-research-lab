@@ -58,7 +58,7 @@ def test_load_risk_limits_happy_path(example_profile):
     assert limits.max_gross_exposure == 1.0
     assert limits.borrowing_cost_bps == 0
     assert limits.max_loss_per_trade == 0.04
-    assert limits.max_open_positions == 15
+    assert limits.max_open_positions == 30
 
 
 def test_load_risk_limits_rejects_missing_risk_block(example_profile):
