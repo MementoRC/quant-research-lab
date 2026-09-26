@@ -241,8 +241,19 @@ def pruned_regions(
     }
 
 
-def _has_pruned_value(family: str, params: dict, pruned: set[tuple[str, str, object]]) -> bool:
-    return any((family, key, value) in pruned for key, value in params.items())
+def _has_pruned_value(
+    family: str,
+    params: dict,
+    pruned: set[tuple[str, str, object]],
+    space: dict[str, list],
+) -> bool:
+    # Scoped to the family's declared space keys on purpose: `pruned_regions`
+    # only ever stores triples for keys in `space` (see line 230 above), so a
+    # non-space param (e.g. the sleeve "tickers" list attached after this
+    # check runs, at line 405-406 below) can never match a pruned entry --
+    # and some non-space values (like that list) are not hashable anyway.
+    # Iterating all of `params` here would be both meaningless and crash-prone.
+    return any((family, key, params[key]) in pruned for key in space if key in params)
 
 
 def _random_params(space: dict[str, list], rng: np.random.Generator) -> dict:
@@ -251,8 +262,16 @@ def _random_params(space: dict[str, list], rng: np.random.Generator) -> dict:
 
 def _mutate(row: dict, space: dict[str, list], rng: np.random.Generator) -> dict:
     """Move one parameter of a passing candidate one step up or down in its
-    own space, bouncing back if that step would fall off an edge."""
-    params = dict(row["params"])
+    own space, bouncing back if that step would fall off an edge.
+
+    Returns only the family's space keys (matching `_random_params` and
+    `_recombine`) -- a parent row's non-space keys (e.g. the sleeve
+    "tickers" list) are never carried forward, since `propose_batch`
+    re-attaches "tickers" for sleeve families after this call anyway
+    (line 405-406 below), so carrying a stale copy forward would only ever
+    be overwritten.
+    """
+    params = {k: v for k, v in row["params"].items() if k in space}
     keys = [k for k in space if k in params and params[k] in space[k]]
     if not keys:
         return params
@@ -302,7 +321,7 @@ def _propose_one(
         fam = list(passing_by_family)[int(rng.integers(len(passing_by_family)))]
         rows = passing_by_family[fam]
         params = _mutate(rows[int(rng.integers(len(rows)))], spaces[fam], rng)
-        return None if _has_pruned_value(fam, params, pruned) else (fam, params)
+        return None if _has_pruned_value(fam, params, pruned, spaces[fam]) else (fam, params)
 
     eligible = {f: rows for f, rows in partial_by_family.items() if len(rows) >= 2}
     if not seed_phase and eligible and rng.random() < 0.5:
@@ -310,11 +329,11 @@ def _propose_one(
         rows = eligible[fam]
         i, j = rng.choice(len(rows), size=2, replace=False)
         params = _recombine(rows[int(i)], rows[int(j)], spaces[fam], rng)
-        return None if _has_pruned_value(fam, params, pruned) else (fam, params)
+        return None if _has_pruned_value(fam, params, pruned, spaces[fam]) else (fam, params)
 
     fam = families[int(rng.integers(len(families)))]
     params = _random_params(spaces[fam], rng)
-    return None if _has_pruned_value(fam, params, pruned) else (fam, params)
+    return None if _has_pruned_value(fam, params, pruned, spaces[fam]) else (fam, params)
 
 
 def propose_batch(
