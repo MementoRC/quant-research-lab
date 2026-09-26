@@ -15,6 +15,9 @@ site/data/*.json
 .mypy_cache/
 logs/
 reports/
-research/ledger.sqlite
+# The ledger itself IS tracked: it records every variant ever tested, and the
+# trial count is what makes a candidate's deflated Sharpe auditable (AGENTS.md).
+# A re-run cannot reconstruct it -- different candidates, different history.
+# Its -wal/-shm journals stay ignored; they are transient, not the record.
 research/ledger.sqlite-wal
 research/ledger.sqlite-shm
