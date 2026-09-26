@@ -8,6 +8,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 import yaml
 
@@ -283,6 +284,131 @@ def test_propose_batch_prunes_an_all_failure_parameter_value():
 
 def test_propose_batch_empty_spaces_returns_empty_list():
     assert propose_batch([], {}, n=5, seed=0, universe="u") == []
+
+
+# ---------------------------------------------------------------------------
+# Regression: search.py:245 TypeError: unhashable type: 'list'.
+#
+# A sleeve-family history row's params carry "tickers" as a Python list
+# (search.py:405-406 attaches it, and Ledger JSON round-trips it back as a
+# list on reload). `_mutate` copies a whole history row's params forward, so
+# that list rides along into `_has_pruned_value`, which used to iterate every
+# param unscoped -- hashing a tuple containing that list crashed. `pruned`
+# only ever contains triples for a family's declared *space* keys (see
+# `pruned_regions`), so scoping the check to `space` is both the fix and the
+# only check that is ever meaningful for non-space keys like "tickers".
+# ---------------------------------------------------------------------------
+
+
+def test_mutate_then_prune_check_handles_list_valued_tickers_without_crashing():
+    import qrl.search as search_mod
+
+    space = {"trend_lookback": [100, 150, 200, 250], "short_ma": [5, 10, 15, 20]}
+    spaces = {"trend_pullback": space}
+    row = {
+        "family": "trend_pullback",
+        "params": {"trend_lookback": 150, "short_ma": 10, "tickers": list(TINY_TICKERS)},
+        "passed": True,
+        "failure_reasons": None,
+        "candidate_key": "seed",
+    }
+    passing_by_family = {"trend_pullback": [row]}
+    partial_by_family: dict = {}
+    # Non-empty, and unrelated to this row's own values -- present purely to
+    # exercise the crash path, not to block this particular mutation.
+    pruned = {("trend_pullback", "trend_lookback", 999)}
+
+    class _ForceMutateRNG:
+        def random(self) -> float:
+            return 0.0
+
+        def integers(self, _n: int) -> int:
+            return 0
+
+    proposal = search_mod._propose_one(
+        _ForceMutateRNG(),
+        ["trend_pullback"],
+        spaces,
+        passing_by_family,
+        partial_by_family,
+        False,
+        pruned,
+    )
+
+    assert proposal is not None
+    family, params = proposal
+    assert family == "trend_pullback"
+    assert set(params) <= set(space)
+
+
+def test_has_pruned_value_true_when_a_space_param_matches():
+    import qrl.search as search_mod
+
+    space = {"trend_lookback": [100, 150, 200, 250]}
+    pruned = {("trend_pullback", "trend_lookback", 250)}
+
+    assert (
+        search_mod._has_pruned_value("trend_pullback", {"trend_lookback": 250}, pruned, space)
+        is True
+    )
+
+
+def test_has_pruned_value_false_when_only_a_non_space_key_matches_shape():
+    import qrl.search as search_mod
+
+    space = {"trend_lookback": [100, 150, 200, 250]}
+    pruned = {("trend_pullback", "trend_lookback", 250)}
+    params = {"trend_lookback": 100, "tickers": list(TINY_TICKERS)}
+
+    assert search_mod._has_pruned_value("trend_pullback", params, pruned, space) is False
+
+
+def test_mutate_output_excludes_non_space_keys():
+    import qrl.search as search_mod
+
+    space = {"trend_lookback": [100, 150, 200, 250], "short_ma": [5, 10, 15, 20]}
+    row = {"params": {"trend_lookback": 150, "short_ma": 10, "tickers": list(TINY_TICKERS)}}
+
+    mutated = search_mod._mutate(row, space, np.random.default_rng(0))
+
+    assert set(mutated) <= set(space)
+    assert "tickers" not in mutated
+
+
+def test_propose_batch_excludes_pruned_value_even_via_mutation():
+    space = {"trend_lookback": [100, 150, 200, 250], "short_ma": [5, 10, 15, 20]}
+    spaces = {"trend_pullback": space}
+    base_params = {"trend_lookback": 150, "short_ma": 10, "tickers": TINY_TICKERS}
+    passing_row = {
+        "family": "trend_pullback",
+        "params": base_params,
+        "passed": True,
+        "failure_reasons": None,
+        "candidate_key": candidate_key("trend_pullback", base_params, "u", "research"),
+    }
+    # trend_lookback=200 is a one-step neighbor of the passing row's 150, so
+    # mutation alone could reach it if pruning did not block it too.
+    failing_rows = [
+        {
+            "family": "trend_pullback",
+            "params": {"trend_lookback": 200, "short_ma": 10, "tickers": TINY_TICKERS},
+            "passed": False,
+            "failure_reasons": "min_sharpe,max_drawdown",
+            "candidate_key": f"failed-{i}",
+        }
+        for i in range(6)
+    ]
+    history = [passing_row, *failing_rows]
+
+    pruned = pruned_regions(history, spaces, min_attempts=5)
+    assert ("trend_pullback", "trend_lookback", 200) in pruned
+
+    proposed = propose_batch(
+        history, spaces, n=40, seed=11, universe="u", sleeve_tickers=TINY_TICKERS
+    )
+
+    assert proposed  # the space is not fully exhausted by pruning alone
+    assert not any(params.get("trend_lookback") == 200 for _, params in proposed)
 
 
 # ---------------------------------------------------------------------------
