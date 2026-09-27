@@ -36,6 +36,7 @@ from .buy_and_hold import buy_and_hold
 from .core_trend import core_trend
 from .low_range_close import low_range_close
 from .quiet_pullback import quiet_pullback
+from .regime_pullback import regime_pullback
 from .trend_pullback import trend_pullback
 
 
@@ -108,6 +109,21 @@ SLEEVE_REGISTRY: dict[str, StrategySpec] = {
             "quiet_by": ["volume", "volatility"],
             "exit_days": [3, 5, 8, 10],
             "max_positions": [5, 10, 15, 20, 25, 30],
+        },
+    ),
+    "regime_pullback": StrategySpec(
+        regime_pullback,
+        _sleeve_tickers,
+        fields=("close",),
+        space={
+            "trend_lookback": [100, 150, 200, 250],
+            "short_ma": [5, 10, 15, 20],
+            "pullback_days": [2, 3, 4, 5],
+            "pullback_pct": [0.0, 0.01, 0.02, 0.03],
+            "exit_days": [3, 5, 8, 10],
+            "max_positions": [5, 10, 15, 20, 25, 30],
+            "breadth_ma": [50, 100, 200],
+            "breadth_min": [0.3, 0.4, 0.5, 0.6],
         },
     ),
 }
