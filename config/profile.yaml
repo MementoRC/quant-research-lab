@@ -51,7 +51,7 @@ risk:
   # sleeve search space allows (5, see strategies/__init__.py). Lowering it below
   # 0.04 would put that existing search space out of policy.
   max_loss_per_trade: 0.04
-  # Portfolio-wide cap on simultaneously held sleeve names. 15 is the top of the
-  # declared max_positions search space [5, 10, 15]; a lower value here would
-  # retroactively put part of ledger run 1's search space out of policy.
-  max_open_positions: 15
+  # Portfolio-wide cap on simultaneously held sleeve names. 30 is the top of the
+  # sleeve families' declared max_positions search space [5, 10, 15, 20, 25, 30],
+  # widened 2026-09-26 to test if the 35% drawdown cap was binding at max_open_positions=15.
+  max_open_positions: 30

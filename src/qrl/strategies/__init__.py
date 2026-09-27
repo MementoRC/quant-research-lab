@@ -77,7 +77,7 @@ SLEEVE_REGISTRY: dict[str, StrategySpec] = {
             "pullback_days": [2, 3, 4, 5],
             "pullback_pct": [0.0, 0.01, 0.02, 0.03],
             "exit_days": [3, 5, 8, 10],
-            "max_positions": [5, 10, 15],
+            "max_positions": [5, 10, 15, 20, 25, 30],
         },
     ),
     "low_range_close": StrategySpec(
@@ -88,7 +88,7 @@ SLEEVE_REGISTRY: dict[str, StrategySpec] = {
             "trend_lookback": [100, 150, 200, 250],
             "range_pct": [0.1, 0.15, 0.2, 0.25, 0.3],
             "exit_days": [3, 5, 8, 10],
-            "max_positions": [5, 10, 15],
+            "max_positions": [5, 10, 15, 20, 25, 30],
         },
     ),
     "quiet_pullback": StrategySpec(
@@ -107,7 +107,7 @@ SLEEVE_REGISTRY: dict[str, StrategySpec] = {
             "quiet_ratio": [0.6, 0.7, 0.8, 0.9],
             "quiet_by": ["volume", "volatility"],
             "exit_days": [3, 5, 8, 10],
-            "max_positions": [5, 10, 15],
+            "max_positions": [5, 10, 15, 20, 25, 30],
         },
     ),
 }
