@@ -40,6 +40,17 @@ Milestone 2.6 additions (PLAN.md 2.6, see `qrl.walkforward` and
   migration style as `validation_config_hash`) flagging a forced repeat
   unsealing (see `qrl.holdout.unseal`) as distinct from the honest first
   one.
+
+Data-source tracking addition: `runs.data_source` records a fingerprint
+(`data_source_fingerprint`: the synthetic flag, universe name, and a hash of
+its tickers) of the price data a run was seeded against. `scripts/search.py`,
+`scripts/validate.py`, and `scripts/walkforward.py` each rebuild data from
+their own `--synthetic`/`--universe` flags, so without this a mismatched flag
+would silently pool incommensurable trials under one run id, or validate a
+run against different data than it was searched on. `check_data_source`
+raises if a later call disagrees with what a run started with, but returns
+False (not an error) for a run seeded before this existed -- an unverifiable
+legacy run is flagged, not blocked outright.
 """
 
 from __future__ import annotations
@@ -64,7 +75,8 @@ CREATE TABLE IF NOT EXISTS runs (
     git_commit TEXT,
     criteria_hash TEXT NOT NULL,
     seed_lane TEXT NOT NULL CHECK (seed_lane IN ('A', 'B', 'C')),
-    seed_description TEXT
+    seed_description TEXT,
+    data_source TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tests (
@@ -184,6 +196,15 @@ def _require_rowid(cursor: sqlite3.Cursor) -> int:
     return rowid
 
 
+def data_source_fingerprint(synthetic: bool, universe_name: str, tickers: list[str]) -> dict:
+    """Identify which price data a run is seeded/tested against, so a batch,
+    validate, or walk-forward call started with mismatched
+    `--synthetic`/`--universe` flags can be caught by `Ledger.check_data_source`
+    rather than silently pooling incommensurable trials under one run id."""
+    tickers_hash = hashlib.sha256(",".join(sorted(tickers)).encode("utf-8")).hexdigest()[:16]
+    return {"synthetic": bool(synthetic), "universe": universe_name, "tickers_hash": tickers_hash}
+
+
 def candidate_key(family: str, params: dict, universe: str, period: str = "research") -> str:
     """Stable hash of a candidate's identity, used to detect repeats.
 
@@ -247,6 +268,7 @@ class Ledger:
         self._conn.executescript(_SCHEMA_SQL)
         self._migrate_validation_events_columns()
         self._migrate_holdout_events_columns()
+        self._migrate_runs_columns()
         if version == 0:
             self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self._conn.commit()
@@ -272,6 +294,16 @@ class Ledger:
         if "forced" not in columns:
             self._conn.execute("ALTER TABLE holdout_events ADD COLUMN forced INTEGER DEFAULT 0")
 
+    def _migrate_runs_columns(self) -> None:
+        """Additive migration (same style as `_migrate_validation_events_columns`):
+        a ledger created before data-source tracking existed has a `runs`
+        table without `data_source`. Add it as a nullable column -- a
+        pre-existing run's rows keep `data_source` unset, which
+        `check_data_source` treats as unverifiable rather than a mismatch."""
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(runs)")}
+        if "data_source" not in columns:
+            self._conn.execute("ALTER TABLE runs ADD COLUMN data_source TEXT")
+
     def __enter__(self) -> Ledger:
         return self
 
@@ -294,13 +326,21 @@ class Ledger:
         seed_lane: str,
         seed_description: str | None = None,
         git_commit: str | None = None,
+        data_source: dict | None = None,
     ) -> int:
         commit = git_commit if git_commit is not None else current_git_commit()
         try:
             cur = self._conn.execute(
                 "INSERT INTO runs (started_at, git_commit, criteria_hash, seed_lane, "
-                "seed_description) VALUES (?, ?, ?, ?, ?)",
-                (_utcnow(), commit, criteria_hash, seed_lane, seed_description),
+                "seed_description, data_source) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    _utcnow(),
+                    commit,
+                    criteria_hash,
+                    seed_lane,
+                    seed_description,
+                    _dumps(data_source) if data_source is not None else None,
+                ),
             )
         except sqlite3.IntegrityError as err:
             raise LedgerError(str(err)) from err
@@ -486,9 +526,35 @@ class Ledger:
     def list_runs(self) -> list[dict]:
         rows = self._conn.execute(
             "SELECT run_id, started_at, ended_at, git_commit, criteria_hash, seed_lane, "
-            "seed_description FROM runs ORDER BY run_id"
+            "seed_description, data_source FROM runs ORDER BY run_id"
         ).fetchall()
-        return [dict(row) for row in rows]
+        runs = []
+        for row in rows:
+            run = dict(row)
+            run["data_source"] = json.loads(run["data_source"]) if run["data_source"] else None
+            runs.append(run)
+        return runs
+
+    def check_data_source(self, run_id: int, data_source: dict) -> bool:
+        """True if `data_source` matches the fingerprint the run was seeded
+        with. False if the run predates data-source tracking (unverifiable,
+        not a mismatch -- see this module's docstring). Raises LedgerError if
+        `run_id` is unknown, or if the fingerprints disagree: a run's trials
+        must all be tested against the same data."""
+        row = self._conn.execute(
+            "SELECT data_source FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            raise LedgerError(f"unknown run_id {run_id}")
+        if row["data_source"] is None:
+            return False
+        recorded = json.loads(row["data_source"])
+        if recorded != data_source:
+            raise LedgerError(
+                f"data source mismatch for run {run_id}: run started with {recorded!r}, "
+                f"got {data_source!r}"
+            )
+        return True
 
     def list_tests(self, run_id: int | None = None) -> list[dict]:
         """Every recorded test (including failures), for the search loop's

@@ -21,7 +21,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from qrl.criteria import load_criteria  # noqa: E402
-from qrl.ledger import DEFAULT_LEDGER_PATH, Ledger  # noqa: E402
+from qrl.ledger import (  # noqa: E402
+    DEFAULT_LEDGER_PATH,
+    Ledger,
+    LedgerError,
+    data_source_fingerprint,
+)
 from qrl.periods import period_bounds  # noqa: E402
 from qrl.search import SearchData, compute_benchmark_metrics  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
@@ -48,6 +53,24 @@ def _get_run(ledger: Ledger, run_id: int) -> dict | None:
     return None
 
 
+def _check_data_source(ledger: Ledger, run_id: int, data_source: dict) -> int | None:
+    """Returns an exit code if the check fails outright, or None if the
+    caller should proceed (a match, or a legacy run with no recorded data
+    source, which is unverifiable rather than a mismatch)."""
+    try:
+        matched = ledger.check_data_source(run_id, data_source)
+    except LedgerError as err:
+        print(str(err), file=sys.stderr)
+        return 2
+    if not matched:
+        print(
+            f"Run {run_id} has no recorded data source (seeded before it was tracked); "
+            "cannot verify --synthetic/--universe match.",
+            file=sys.stderr,
+        )
+    return None
+
+
 def _load_candidate_specs(ledger: Ledger, run_id: int, top_n: int) -> list[dict]:
     survivors = [
         c for c in ledger.top_candidates(run_id=run_id, n=top_n, order_by="sharpe") if c["passed"]
@@ -57,14 +80,18 @@ def _load_candidate_specs(ledger: Ledger, run_id: int, top_n: int) -> list[dict]
     ]
 
 
-def _load_context(args: argparse.Namespace) -> tuple[dict, SearchData, dict]:
+def _load_criteria_and_universe(args: argparse.Namespace) -> tuple[dict, dict]:
     criteria, _criteria_hash = load_criteria(args.criteria)
     universe = load_universe(args.universe)
+    return criteria, universe
+
+
+def _load_data(args: argparse.Namespace, criteria: dict, universe: dict) -> tuple[SearchData, dict]:
     sleeve_tickers = list(universe["tickers"])
     needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
     data = SearchData.load(sorted(needed), synthetic=args.synthetic)
     bench = compute_benchmark_metrics(data, criteria)
-    return criteria, data, bench
+    return data, bench
 
 
 def _research_validation_bounds(criteria: dict) -> tuple:
@@ -74,8 +101,10 @@ def _research_validation_bounds(criteria: dict) -> tuple:
 
 
 def cmd_tune(args: argparse.Namespace) -> int:
-    criteria, data, bench = _load_context(args)
-    start, end = _research_validation_bounds(criteria)
+    criteria, universe = _load_criteria_and_universe(args)
+    data_source = data_source_fingerprint(
+        args.synthetic, universe["name"], list(universe["tickers"])
+    )
     search_space = DEFAULT_META_SEARCH_SPACE
     if args.search_space:
         search_space = json.loads(Path(args.search_space).read_text())
@@ -85,10 +114,15 @@ def cmd_tune(args: argparse.Namespace) -> int:
         if run is None:
             print(f"Unknown run {args.run}", file=sys.stderr)
             return 2
+        check_result = _check_data_source(ledger, args.run, data_source)
+        if check_result is not None:
+            return check_result
         candidate_specs = _load_candidate_specs(ledger, args.run, args.top)
         if not candidate_specs:
             print("No passing research candidates to walk-forward.", file=sys.stderr)
             return 2
+        data, bench = _load_data(args, criteria, universe)
+        start, end = _research_validation_bounds(criteria)
         tried = tune_meta(
             candidate_specs,
             data,
@@ -113,8 +147,10 @@ def cmd_tune(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    criteria, data, bench = _load_context(args)
-    start, end = _research_validation_bounds(criteria)
+    criteria, universe = _load_criteria_and_universe(args)
+    data_source = data_source_fingerprint(
+        args.synthetic, universe["name"], list(universe["tickers"])
+    )
     meta = {
         "n_strategies": args.n_strategies,
         "lookback_days": args.lookback_days,
@@ -128,10 +164,16 @@ def cmd_run(args: argparse.Namespace) -> int:
         if run is None:
             print(f"Unknown run {args.run}", file=sys.stderr)
             return 2
+        check_result = _check_data_source(ledger, args.run, data_source)
+        if check_result is not None:
+            return check_result
         candidate_specs = _load_candidate_specs(ledger, args.run, args.top)
         if not candidate_specs:
             print("No passing research candidates to walk-forward.", file=sys.stderr)
             return 2
+
+    data, bench = _load_data(args, criteria, universe)
+    start, end = _research_validation_bounds(criteria)
 
     result = walk_forward(
         candidate_specs,
