@@ -488,12 +488,19 @@ class Ledger:
         }
 
     def top_candidates(
-        self, run_id: int | None = None, n: int = 20, order_by: str = "sharpe"
+        self,
+        run_id: int | None = None,
+        n: int = 20,
+        order_by: str = "sharpe",
+        passed_only: bool = False,
     ) -> list[dict]:
         """The n candidates with the highest `order_by` metric.
 
         Sorting happens in Python (not `json_extract`) so this does not
         depend on the SQLite build having the JSON1 extension compiled in.
+        When `passed_only` is True, failing candidates are dropped before
+        sorting and slicing to `n`, so a high-metric failure can't consume a
+        window slot that a passing candidate would otherwise backfill.
         """
         if run_id is None:
             rows = self._conn.execute(_SELECT_CANDIDATES_ALL).fetchall()
@@ -505,6 +512,8 @@ class Ledger:
 
         candidates = []
         for row in rows:
+            if passed_only and not row["passed"]:
+                continue
             metrics = json.loads(row["metrics_json"])
             if order_by not in metrics:
                 continue

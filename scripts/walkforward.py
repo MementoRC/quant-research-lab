@@ -72,9 +72,7 @@ def _check_data_source(ledger: Ledger, run_id: int, data_source: dict) -> int | 
 
 
 def _load_candidate_specs(ledger: Ledger, run_id: int, top_n: int) -> list[dict]:
-    survivors = [
-        c for c in ledger.top_candidates(run_id=run_id, n=top_n, order_by="sharpe") if c["passed"]
-    ]
+    survivors = ledger.top_candidates(run_id=run_id, n=top_n, order_by="sharpe", passed_only=True)
     return [
         {"family": c["family"], "params": c["params"], "test_id": c["test_id"]} for c in survivors
     ]

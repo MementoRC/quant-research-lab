@@ -377,9 +377,7 @@ def validate_survivors(
     min_dsr = validation_config["min_deflated_sharpe"]
     max_corr = validation_config["max_correlation"]
 
-    survivors = [
-        c for c in ledger.top_candidates(run_id=run_id, n=top_n, order_by=rank_by) if c["passed"]
-    ]
+    survivors = ledger.top_candidates(run_id=run_id, n=top_n, order_by=rank_by, passed_only=True)
 
     funnel = {
         "survivors": len(survivors),
