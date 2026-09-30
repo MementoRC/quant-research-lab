@@ -46,7 +46,18 @@ def _seed_and_batch(
 ) -> tuple[Path, int]:
     ledger_path = tmp_path / "ledger.sqlite"
     universe_path = _write_tiny_universe(tmp_path / "universe.yaml")
-    seed_argv = ["--ledger", str(ledger_path), "seed", "--lane", "A", "--synthetic"]
+    # Seed pins the run's data source (qrl.ledger.data_source_fingerprint), so
+    # its --universe must match the one the batch step below uses.
+    seed_argv = [
+        "--ledger",
+        str(ledger_path),
+        "seed",
+        "--lane",
+        "A",
+        "--synthetic",
+        "--universe",
+        str(universe_path),
+    ]
     assert search_main(seed_argv) == 0
 
     with Ledger(ledger_path) as ledger:
@@ -476,6 +487,45 @@ def test_seed_lane_c_with_confirmation_starts_a_run(tmp_path):
     assert exit_code == 0
     with Ledger(ledger_path) as ledger:
         assert len(ledger.list_runs()) == 1
+
+
+def test_batch_data_source_mismatch_refuses_and_records_nothing(tmp_path):
+    ledger_path = tmp_path / "ledger.sqlite"
+    universe_path = _write_tiny_universe(tmp_path / "universe.yaml")
+
+    seed_argv = [
+        "--ledger",
+        str(ledger_path),
+        "seed",
+        "--lane",
+        "A",
+        "--synthetic",
+        "--universe",
+        str(universe_path),
+    ]
+    assert search_main(seed_argv) == 0
+
+    with Ledger(ledger_path) as ledger:
+        run_id = ledger.list_runs()[-1]["run_id"]
+
+    # Same run, but without --synthetic: a mismatched data source must be
+    # refused, not silently pooled into the run's trials.
+    batch_argv = [
+        "--ledger",
+        str(ledger_path),
+        "batch",
+        "--run",
+        str(run_id),
+        "--n",
+        "5",
+        "--universe",
+        str(universe_path),
+    ]
+    exit_code = search_main(batch_argv)
+    assert exit_code == 2
+
+    with Ledger(ledger_path) as ledger:
+        assert ledger.list_tests(run_id) == []
 
 
 @pytest.mark.parametrize("bad_family", ["not_a_family"])

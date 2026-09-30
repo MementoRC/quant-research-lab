@@ -23,7 +23,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from qrl.criteria import load_criteria  # noqa: E402
-from qrl.ledger import DEFAULT_LEDGER_PATH, Ledger  # noqa: E402
+from qrl.ledger import (  # noqa: E402
+    DEFAULT_LEDGER_PATH,
+    Ledger,
+    LedgerError,
+    data_source_fingerprint,
+)
 from qrl.search import SearchData, compute_benchmark_metrics  # noqa: E402
 from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
@@ -49,6 +54,24 @@ def _get_run(ledger: Ledger, run_id: int) -> dict | None:
     for run in ledger.list_runs():
         if run["run_id"] == run_id:
             return run
+    return None
+
+
+def _check_data_source(ledger: Ledger, run_id: int, data_source: dict) -> int | None:
+    """Returns an exit code if the check fails outright, or None if the
+    caller should proceed (a match, or a legacy run with no recorded data
+    source, which is unverifiable rather than a mismatch)."""
+    try:
+        matched = ledger.check_data_source(run_id, data_source)
+    except LedgerError as err:
+        print(str(err), file=sys.stderr)
+        return 2
+    if not matched:
+        print(
+            f"Run {run_id} has no recorded data source (seeded before it was tracked); "
+            "cannot verify --synthetic/--universe match.",
+            file=sys.stderr,
+        )
     return None
 
 
@@ -82,6 +105,13 @@ def cmd_validate(args: argparse.Namespace) -> int:
             return 2
 
         universe = load_universe(args.universe)
+        data_source = data_source_fingerprint(
+            args.synthetic, universe["name"], list(universe["tickers"])
+        )
+        check_result = _check_data_source(ledger, args.run, data_source)
+        if check_result is not None:
+            return check_result
+
         sleeve_tickers = list(universe["tickers"])
         needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
         data = SearchData.load(sorted(needed), synthetic=args.synthetic)

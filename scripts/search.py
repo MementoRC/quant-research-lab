@@ -7,10 +7,16 @@ Usage:
     python scripts/search.py seed --lane A --synthetic
     python scripts/search.py seed --lane B --families trend_pullback,quiet_pullback --synthetic
     python scripts/search.py seed --lane C --confirm-lane-c --synthetic
+    python scripts/search.py seed --lane A --universe config/universe.yaml
     python scripts/search.py batch --run 1 --n 200 --synthetic
     python scripts/search.py batch --run 1 --n 200 --max-seconds 1800
     python scripts/search.py summary --run 1
     python scripts/search.py note --run 1 --batch 2 --text "mutated the winners"
+
+Every `seed` records a data-source fingerprint (`--synthetic` + `--universe`);
+a later `batch` (and `validate.py`/`walkforward.py`) against the same run
+must match it, or the ledger refuses to continue -- see
+`qrl.ledger.data_source_fingerprint` and `Ledger.check_data_source`.
 """
 
 from __future__ import annotations
@@ -25,7 +31,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from qrl.criteria import load_criteria  # noqa: E402
-from qrl.ledger import DEFAULT_LEDGER_PATH, SEED_LANES, Ledger, candidate_key  # noqa: E402
+from qrl.ledger import (  # noqa: E402
+    DEFAULT_LEDGER_PATH,
+    SEED_LANES,
+    Ledger,
+    LedgerError,
+    candidate_key,
+    data_source_fingerprint,
+)
 from qrl.profile import ProfileReport, analyze_profile, load_profile  # noqa: E402
 from qrl.search import (  # noqa: E402
     SearchData,
@@ -65,6 +78,24 @@ def _get_run(ledger: Ledger, run_id: int) -> dict | None:
     for run in ledger.list_runs():
         if run["run_id"] == run_id:
             return run
+    return None
+
+
+def _check_data_source(ledger: Ledger, run_id: int, data_source: dict) -> int | None:
+    """Returns an exit code if the check fails outright, or None if the
+    caller should proceed (a match, or a legacy run with no recorded data
+    source, which is unverifiable rather than a mismatch)."""
+    try:
+        matched = ledger.check_data_source(run_id, data_source)
+    except LedgerError as err:
+        print(str(err), file=sys.stderr)
+        return 2
+    if not matched:
+        print(
+            f"Run {run_id} has no recorded data source (seeded before it was tracked); "
+            "cannot verify --synthetic/--universe match.",
+            file=sys.stderr,
+        )
     return None
 
 
@@ -120,12 +151,24 @@ def cmd_seed(args: argparse.Namespace) -> int:
         print("No families to seed.", file=sys.stderr)
         return 2
 
+    universe = load_universe(args.universe)
+    data_source = data_source_fingerprint(
+        args.synthetic, universe["name"], list(universe["tickers"])
+    )
+
     description = args.description or f"lane {args.lane}: {', '.join(families)}"
     with Ledger(args.ledger) as ledger:
         run_id = ledger.start_run(
-            criteria_hash, args.lane, _encode_seed_description(description, families)
+            criteria_hash,
+            args.lane,
+            _encode_seed_description(description, families),
+            data_source=data_source,
         )
-    print(f"Started run {run_id} (lane {args.lane}, families: {', '.join(families)})")
+    data_label = "synthetic" if args.synthetic else "real"
+    print(
+        f"Started run {run_id} (lane {args.lane}, families: {', '.join(families)}, "
+        f"data: {data_label}, universe {universe['name']})"
+    )
     return 0
 
 
@@ -180,10 +223,10 @@ def _run_batch(
     criteria: dict,
     criteria_hash: str,
     families: list[str],
+    universe: dict,
     args: argparse.Namespace,
 ) -> tuple[int, int, int]:
     spaces = {f: SEARCHABLE_SPACES[f] for f in families}
-    universe = load_universe(args.universe)
     sleeve_tickers = list(universe["tickers"])
     universe_name = universe["name"]
 
@@ -235,6 +278,10 @@ def _run_batch(
 
 def cmd_batch(args: argparse.Namespace) -> int:
     criteria, criteria_hash = load_criteria(args.criteria)
+    universe = load_universe(args.universe)
+    data_source = data_source_fingerprint(
+        args.synthetic, universe["name"], list(universe["tickers"])
+    )
     with Ledger(args.ledger) as ledger:
         run = _get_run(ledger, args.run)
         if run is None:
@@ -246,12 +293,15 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 2
+        check_result = _check_data_source(ledger, args.run, data_source)
+        if check_result is not None:
+            return check_result
         families = _resolve_families(run, args)
         if not families:
             print("No searchable families for this run; pass --families.", file=sys.stderr)
             return 2
         tested, passed, failed = _run_batch(
-            ledger, args.run, criteria, criteria_hash, families, args
+            ledger, args.run, criteria, criteria_hash, families, universe, args
         )
     print(f"Batch complete: tested {tested}, passed {passed}, failed {failed}.")
     return 0
@@ -275,6 +325,12 @@ def cmd_summary(args: argparse.Namespace) -> int:
         f"Run {args.run} (lane {run['seed_lane']}): tested {summary['tested']}, "
         f"passed {summary['passed']}, validated {summary['validated']}"
     )
+    data_source = run.get("data_source")
+    if data_source:
+        label = "synthetic" if data_source.get("synthetic") else "real"
+        print(f"Data: {label}, universe {data_source.get('universe')}")
+    else:
+        print("Data: not recorded")
     print("By family:")
     for fam, counts in sorted(summary["by_family"].items()):
         print(f"  {fam:<16} tested {counts['tested']:>4}  passed {counts['passed']:>4}")
@@ -311,10 +367,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_seed.add_argument("--families", default=None, help="comma-separated family names")
     p_seed.add_argument("--profile", default=str(ROOT / "config" / "profile.yaml"))
     p_seed.add_argument("--confirm-lane-c", action="store_true")
-    # Accepted for CLI symmetry with batch: seeding never touches price data
-    # (lane C only reads config/profile.yaml and criteria.yaml), so it is a
-    # no-op here, but the flag keeps `seed`/`batch` scriptable the same way.
+    # This seed pins the run's data source: every later `batch` (and
+    # `validate.py`/`walkforward.py`) call against this run_id must pass a
+    # matching --synthetic/--universe, or Ledger.check_data_source refuses to
+    # continue (see qrl.ledger.data_source_fingerprint).
     p_seed.add_argument("--synthetic", action="store_true")
+    p_seed.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
     p_seed.set_defaults(func=cmd_seed)
 
     p_batch = sub.add_parser("batch", help="Propose, test, and record a batch of candidates.")

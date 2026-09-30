@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from qrl.ledger import Ledger, LedgerError, candidate_key
+from qrl.ledger import Ledger, LedgerError, candidate_key, data_source_fingerprint
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -280,3 +280,113 @@ def test_export_writes_expected_json_and_csv(tmp_path):
 def test_export_missing_ledger_is_a_noop(tmp_path):
     exit_code = export_main(["--ledger", str(tmp_path / "nope.sqlite")])
     assert exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Data-source tracking: fingerprint, start_run/list_runs round trip,
+# check_data_source, and the additive runs.data_source migration.
+# ---------------------------------------------------------------------------
+
+
+def test_data_source_fingerprint_stable_across_ticker_order():
+    fp_a = data_source_fingerprint(True, "tiny", ["AAA", "BBB", "CCC"])
+    fp_b = data_source_fingerprint(True, "tiny", ["CCC", "AAA", "BBB"])
+    assert fp_a == fp_b
+
+
+def test_data_source_fingerprint_differs_on_synthetic_or_universe():
+    base = data_source_fingerprint(True, "tiny", ["AAA", "BBB"])
+    assert data_source_fingerprint(False, "tiny", ["AAA", "BBB"]) != base
+    assert data_source_fingerprint(True, "other", ["AAA", "BBB"]) != base
+
+
+def test_start_run_stores_data_source_and_list_runs_returns_it(tmp_path):
+    fp = data_source_fingerprint(True, "tiny", ["AAA", "BBB"])
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        run_id = ledger.start_run(CRITERIA_HASH, "A", "seed description", data_source=fp)
+        runs = ledger.list_runs()
+    run = next(r for r in runs if r["run_id"] == run_id)
+    assert run["data_source"] == fp
+
+
+def test_start_run_without_data_source_leaves_it_none(tmp_path):
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        run_id = _make_run(ledger)
+        runs = ledger.list_runs()
+    run = next(r for r in runs if r["run_id"] == run_id)
+    assert run["data_source"] is None
+
+
+def test_check_data_source_true_on_match(tmp_path):
+    fp = data_source_fingerprint(True, "tiny", ["AAA", "BBB"])
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        run_id = ledger.start_run(CRITERIA_HASH, "A", "seed description", data_source=fp)
+        assert ledger.check_data_source(run_id, fp) is True
+
+
+def test_check_data_source_raises_on_synthetic_mismatch(tmp_path):
+    fp = data_source_fingerprint(True, "tiny", ["AAA", "BBB"])
+    other = data_source_fingerprint(False, "tiny", ["AAA", "BBB"])
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        run_id = ledger.start_run(CRITERIA_HASH, "A", "seed description", data_source=fp)
+        with pytest.raises(LedgerError, match="data source mismatch"):
+            ledger.check_data_source(run_id, other)
+
+
+def test_check_data_source_raises_on_universe_mismatch(tmp_path):
+    fp = data_source_fingerprint(True, "tiny", ["AAA", "BBB"])
+    other = data_source_fingerprint(True, "other_universe", ["AAA", "BBB"])
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        run_id = ledger.start_run(CRITERIA_HASH, "A", "seed description", data_source=fp)
+        with pytest.raises(LedgerError, match="data source mismatch"):
+            ledger.check_data_source(run_id, other)
+
+
+def test_check_data_source_false_for_run_with_none_recorded(tmp_path):
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        run_id = _make_run(ledger)
+        assert ledger.check_data_source(run_id, data_source_fingerprint(True, "tiny", [])) is False
+
+
+def test_check_data_source_unknown_run_raises(tmp_path):
+    with (
+        Ledger(tmp_path / "ledger.sqlite") as ledger,
+        pytest.raises(LedgerError, match="unknown run_id"),
+    ):
+        ledger.check_data_source(999, data_source_fingerprint(True, "tiny", []))
+
+
+def test_runs_data_source_migration_adds_column_to_legacy_ledger(tmp_path):
+    ledger_path = tmp_path / "legacy.sqlite"
+    conn = sqlite3.connect(str(ledger_path))
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE runs (
+                run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                git_commit TEXT,
+                criteria_hash TEXT NOT NULL,
+                seed_lane TEXT NOT NULL CHECK (seed_lane IN ('A', 'B', 'C')),
+                seed_description TEXT
+            );
+            """
+        )
+        conn.execute(
+            "INSERT INTO runs (started_at, criteria_hash, seed_lane, seed_description) "
+            "VALUES ('2020-01-01T00:00:00+00:00', ?, 'A', 'old run')",
+            (CRITERIA_HASH,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    with Ledger(ledger_path) as ledger:
+        columns = {row[1] for row in ledger._conn.execute("PRAGMA table_info(runs)")}
+        assert "data_source" in columns
+        runs = ledger.list_runs()
+
+    assert len(runs) == 1
+    assert runs[0]["seed_description"] == "old run"
+    assert runs[0]["data_source"] is None
