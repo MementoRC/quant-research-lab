@@ -261,6 +261,59 @@ def test_validate_survivors_skips_an_already_validated_candidate(tmp_path):
         assert count == 1
 
 
+def test_validate_survivors_backfills_past_a_failed_top_ranked_candidate(tmp_path):
+    """A failed research test with a higher sharpe than the real survivor
+    must not consume the single validation slot when top_n_to_validate=1."""
+    criteria, criteria_hash = load_criteria(ROOT / "config" / "criteria.yaml")
+    validation_config, validation_hash = load_validation_config(ROOT / "config" / "validation.yaml")
+    validation_config = {**validation_config, "top_n_to_validate": 1}
+    data = SearchData.load(["QQQ", "GLD", "SPY"], synthetic=True)
+    bench = compute_benchmark_metrics(data, criteria)
+
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        run_id = ledger.start_run(criteria_hash, "A", "backfill past a failed top-ranked candidate")
+
+        # Highest sharpe in the run, but failed -- must not consume the
+        # single top_n_to_validate=1 slot ahead of the real passing survivor.
+        ledger.record_test(
+            run_id,
+            criteria_hash,
+            "core_trend",
+            {"lookback": 50, "risk_off": "GLD"},
+            "qqq_gld",
+            {"sharpe": 99.0, "trades": 1},
+            False,
+            "max_drawdown",
+        )
+
+        params = {"lookback": 200, "risk_off": "GLD"}
+        outcome = evaluate_candidate("core_trend", params, data, criteria, bench)
+        test_id = ledger.record_test(
+            run_id,
+            criteria_hash,
+            "core_trend",
+            params,
+            "qqq_gld",
+            outcome["metrics"],
+            True,  # force survivor status regardless of the real research outcome
+            None,
+        )
+
+        kwargs = {
+            "criteria_hash": criteria_hash,
+            "universe_name": "qqq_gld",
+            "spaces": {},  # no neighbours to vary -> deterministic vacuous pass
+            "benchmark_metrics": bench,
+        }
+        report = validate_survivors(
+            ledger, run_id, data, criteria, validation_config, validation_hash, **kwargs
+        )
+
+        assert report["funnel"]["survivors"] == 1
+        assert report["funnel"]["validated"] == 1
+        assert ledger.is_validated(test_id)
+
+
 # ---------------------------------------------------------------------------
 # The holdout stays sealed: no unseal_holdout=True anywhere in the new code,
 # including comments and docstrings.

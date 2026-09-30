@@ -223,6 +223,50 @@ def test_top_candidates_ordering_and_limit(tmp_path):
         assert top[0]["metrics"]["sharpe"] == 2.1
 
 
+def test_top_candidates_passed_only_backfills_window(tmp_path):
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        run_id = _make_run(ledger)
+        # Highest sharpe of the three, but failed -- must not consume a slot.
+        ledger.record_test(
+            run_id,
+            CRITERIA_HASH,
+            "trend_pullback",
+            {"lookback": 10},
+            "sp500",
+            {"sharpe": 5.0, "trades": 40},
+            passed=False,
+            failure_reasons="max_drawdown",
+        )
+        ledger.record_test(
+            run_id,
+            CRITERIA_HASH,
+            "trend_pullback",
+            {"lookback": 20},
+            "sp500",
+            {"sharpe": 1.8, "trades": 40},
+            passed=True,
+        )
+        ledger.record_test(
+            run_id,
+            CRITERIA_HASH,
+            "low_range_close",
+            {"k": 5},
+            "sp500",
+            {"sharpe": 1.2, "trades": 60},
+            passed=True,
+        )
+
+        filtered = ledger.top_candidates(run_id=run_id, n=2, order_by="sharpe", passed_only=True)
+        assert [c["metrics"]["sharpe"] for c in filtered] == [1.8, 1.2]
+        assert all(c["passed"] for c in filtered)
+
+        # Default behaviour (export_ledger's use case) is unchanged: the
+        # failed high-sharpe row still occupies the top slot.
+        unfiltered = ledger.top_candidates(run_id=run_id, n=2, order_by="sharpe")
+        assert unfiltered[0]["metrics"]["sharpe"] == 5.0
+        assert unfiltered[0]["passed"] is False
+
+
 def test_candidate_key_stable_across_dict_order():
     key_a = candidate_key("trend_pullback", {"lookback": 20, "drop_pct": 0.03}, "sp500", "research")
     key_b = candidate_key("trend_pullback", {"drop_pct": 0.03, "lookback": 20}, "sp500", "research")
