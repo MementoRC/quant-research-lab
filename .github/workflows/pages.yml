@@ -35,6 +35,9 @@ jobs:
       - name: Run tests (engine timing, costs, look-ahead checks)
         run: pixi run -e ci test
 
+      - name: Export research ledger
+        run: pixi run -e ci export-ledger
+
       - name: Backtest and build results
         run: pixi run -e ci build-site --refresh
 
