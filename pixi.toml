@@ -21,6 +21,7 @@ daily-check = "python scripts/daily_check.py"
 export-ledger = "python scripts/export_ledger.py"
 search = "python scripts/search.py"
 validate = "python scripts/validate.py"
+rebuild-validation = "python scripts/rebuild_validation.py"
 walk-forward = "python scripts/walkforward.py"
 unseal-holdout = "python scripts/unseal_holdout.py"
 
