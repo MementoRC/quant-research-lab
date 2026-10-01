@@ -38,7 +38,7 @@ _ALL_SPECS = {**REGISTRY, **SLEEVE_REGISTRY}
 _FUNNEL_STAGES = (
     ("tested", "Tested"),
     ("passed_research", "Passed research"),
-    ("passed_validation", "Passed validation"),
+    ("passed_validation", "Evaluated on validation"),
     ("passed_robustness", "Passed robustness"),
     ("selected", "Selected"),
 )
