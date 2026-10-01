@@ -5,6 +5,10 @@ other agent must follow them. Humans should too.
 
 ## Never edit during a research run
 - `config/criteria.yaml` — pass rules are fixed before testing.
+- `config/combined.yaml` — the combined pass rule (PLAN.md 2.5, amendment
+  2026-10-01). Its hash also covers `profile.yaml`'s `capital_split` and
+  `portfolio.yaml`'s core, so do not change those during a combined run
+  either; `search batch` and `validate` refuse if the hash changed.
 - `src/qrl/engine.py`, `src/qrl/metrics.py`, `src/qrl/periods.py`, `src/qrl/checks.py`.
 - Existing tests in `tests/`. You may add tests; do not weaken or delete them.
 

@@ -8,6 +8,7 @@ Usage:
     python scripts/search.py seed --lane B --families trend_pullback,quiet_pullback --synthetic
     python scripts/search.py seed --lane C --confirm-lane-c --synthetic
     python scripts/search.py seed --lane A --universe config/universe.yaml
+    python scripts/search.py seed --lane A --pass-rule combined --description "..."
     python scripts/search.py batch --run 1 --n 200 --synthetic
     python scripts/search.py batch --run 1 --n 200 --max-seconds 1800
     python scripts/search.py summary --run 1
@@ -17,6 +18,12 @@ Every `seed` records a data-source fingerprint (`--synthetic` + `--universe`);
 a later `batch` (and `validate.py`/`walkforward.py`) against the same run
 must match it, or the ledger refuses to continue -- see
 `qrl.ledger.data_source_fingerprint` and `Ledger.check_data_source`.
+
+`seed --pass-rule combined` (default `standalone`) pre-registers the combined
+pass rule for the run (PLAN.md 2.5, amendment 2026-10-01; `qrl.combined`):
+candidates are graded by whether they improve core + sleeve over the core
+alone, and every later `batch` refuses if `config/combined.yaml`, the
+profile's capital split, or the portfolio's core has changed since seeding.
 """
 
 from __future__ import annotations
@@ -30,6 +37,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from qrl.combined import (  # noqa: E402
+    PASS_RULES,
+    combined_config_for_run,
+    core_tickers,
+    load_combined_config,
+)
 from qrl.criteria import load_criteria  # noqa: E402
 from qrl.ledger import (  # noqa: E402
     DEFAULT_LEDGER_PATH,
@@ -156,6 +169,10 @@ def cmd_seed(args: argparse.Namespace) -> int:
         args.synthetic, universe["name"], list(universe["tickers"])
     )
 
+    combined_hash = None
+    if args.pass_rule == "combined":
+        _, combined_hash = load_combined_config(args.combined_config, args.profile, args.portfolio)
+
     description = args.description or f"lane {args.lane}: {', '.join(families)}"
     with Ledger(args.ledger) as ledger:
         run_id = ledger.start_run(
@@ -163,12 +180,16 @@ def cmd_seed(args: argparse.Namespace) -> int:
             args.lane,
             _encode_seed_description(description, families),
             data_source=data_source,
+            pass_rule=args.pass_rule,
+            combined_config_hash=combined_hash,
         )
     data_label = "synthetic" if args.synthetic else "real"
     print(
         f"Started run {run_id} (lane {args.lane}, families: {', '.join(families)}, "
         f"data: {data_label}, universe {universe['name']})"
     )
+    if combined_hash is not None:
+        print(f"Pass rule: combined (config hash {combined_hash})")
     return 0
 
 
@@ -189,8 +210,10 @@ def _test_one_candidate(
     criteria: dict,
     bench: dict,
     history: list[dict],
+    combined: tuple[dict, str] | None = None,
 ) -> bool:
-    outcome = evaluate_candidate(family, params, data, criteria, bench)
+    combined_cfg, combined_hash = combined if combined is not None else (None, None)
+    outcome = evaluate_candidate(family, params, data, criteria, bench, combined_cfg=combined_cfg)
     ledger.record_test(
         run_id,
         criteria_hash,
@@ -200,6 +223,7 @@ def _test_one_candidate(
         outcome["metrics"],
         outcome["passed"],
         outcome["failure_reasons"],
+        combined_config_hash=combined_hash,
     )
     history.append(
         {
@@ -225,12 +249,15 @@ def _run_batch(
     families: list[str],
     universe: dict,
     args: argparse.Namespace,
+    combined: tuple[dict, str] | None = None,
 ) -> tuple[int, int, int]:
     spaces = {f: SEARCHABLE_SPACES[f] for f in families}
     sleeve_tickers = list(universe["tickers"])
     universe_name = universe["name"]
 
     needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
+    if combined is not None:
+        needed |= set(core_tickers(combined[0]["core"]))
     data = SearchData.load(sorted(needed), synthetic=args.synthetic)
     bench = compute_benchmark_metrics(data, criteria)
     history = ledger.list_tests(run_id)
@@ -267,6 +294,7 @@ def _run_batch(
                 criteria,
                 bench,
                 history,
+                combined,
             )
             tested += 1
             passed += int(ok)
@@ -293,6 +321,13 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 2
+        try:
+            combined = combined_config_for_run(
+                run, args.combined_config, args.profile, args.portfolio
+            )
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 2
         check_result = _check_data_source(ledger, args.run, data_source)
         if check_result is not None:
             return check_result
@@ -301,7 +336,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
             print("No searchable families for this run; pass --families.", file=sys.stderr)
             return 2
         tested, passed, failed = _run_batch(
-            ledger, args.run, criteria, criteria_hash, families, universe, args
+            ledger, args.run, criteria, criteria_hash, families, universe, args, combined
         )
     print(f"Batch complete: tested {tested}, passed {passed}, failed {failed}.")
     return 0
@@ -331,6 +366,11 @@ def cmd_summary(args: argparse.Namespace) -> int:
         print(f"Data: {label}, universe {data_source.get('universe')}")
     else:
         print("Data: not recorded")
+    pass_rule = run.get("pass_rule") or "standalone"
+    if pass_rule == "combined":
+        print(f"Pass rule: combined (config hash {run.get('combined_config_hash')})")
+    else:
+        print(f"Pass rule: {pass_rule}")
     print("By family:")
     for fam, counts in sorted(summary["by_family"].items()):
         print(f"  {fam:<16} tested {counts['tested']:>4}  passed {counts['passed']:>4}")
@@ -353,6 +393,13 @@ def cmd_note(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_combined_args(parser: argparse.ArgumentParser, *, profile: bool) -> None:
+    parser.add_argument("--combined-config", default=str(ROOT / "config" / "combined.yaml"))
+    parser.add_argument("--portfolio", default=str(ROOT / "config" / "portfolio.yaml"))
+    if profile:
+        parser.add_argument("--profile", default=str(ROOT / "config" / "profile.yaml"))
+
+
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -373,6 +420,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # continue (see qrl.ledger.data_source_fingerprint).
     p_seed.add_argument("--synthetic", action="store_true")
     p_seed.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
+    # Pre-registered per run (PLAN.md 2.5 amendment 2026-10-01): 'combined'
+    # binds config/combined.yaml + the capital split + the core spec by hash.
+    p_seed.add_argument("--pass-rule", choices=PASS_RULES, default="standalone")
+    _add_combined_args(p_seed, profile=False)
     p_seed.set_defaults(func=cmd_seed)
 
     p_batch = sub.add_parser("batch", help="Propose, test, and record a batch of candidates.")
@@ -383,6 +434,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_batch.add_argument("--synthetic", action="store_true")
     p_batch.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
     p_batch.add_argument("--families", default=None, help="override the run's seeded families")
+    _add_combined_args(p_batch, profile=True)
     p_batch.set_defaults(func=cmd_batch)
 
     p_summary = sub.add_parser("summary", help="Print funnel, near-misses, pruned regions, notes.")

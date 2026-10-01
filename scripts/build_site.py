@@ -20,6 +20,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from qrl.combined import build_core_weights  # noqa: E402
 from qrl.criteria import evaluate, load_criteria  # noqa: E402
 from qrl.data import load_ohlcv, load_prices, synthetic_ohlcv, synthetic_prices  # noqa: E402
 from qrl.engine import run_backtest  # noqa: E402
@@ -135,10 +136,7 @@ def _portfolio_entries(
     selected (0.0 once a sleeve is chosen).
     """
     core = portfolio_cfg["core"]
-    core_spec = _ALL_SPECS[core["fn"]]
-    core_tickers = core_spec.tickers(core["params"])
-    core_weight_kwargs = {k: v for k, v in core["params"].items() if k != "tickers"}
-    core_weights = core_spec.weights(close[core_tickers], **core_weight_kwargs)
+    core_tickers, core_weights = build_core_weights(core, close)
 
     sleeve_members = portfolio_cfg["sleeve"]["strategies"]
     field_frames: dict[str, pd.DataFrame] = {"close": close}

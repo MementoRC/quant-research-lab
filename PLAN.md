@@ -268,6 +268,50 @@ ratio, exactly like any other candidate tested during the search loop.
 Implemented in `src/qrl/validation.py` and `scripts/validate.py`
 (`pixi run validate --run ID`).
 
+**Amendment 2026-10-01: combined pass rule (run 4 onward, opt-in):**
+an owner-approved alternative pass rule, `combined`, pre-registered in
+`config/combined.yaml` before any run uses it. A sleeve candidate passes if
+adding it as the 20% sleeve next to the 80% core (`config/profile.yaml`'s
+`capital_split`, `config/portfolio.yaml`'s core: `core_trend` QQQ/GLD/200)
+improves the combined portfolio relative to the core alone at 100%, both
+backtested with the same engine, costs, timing and period
+(`qrl.combined.combined_evaluation`). Thresholds: the sleeve makes at least
+10 trades (`sleeve_min_trades`); combined Sharpe >= core-alone Sharpe + 0.05
+(`min_sharpe_improvement`); combined max drawdown <= 0.35 and no worse than
+the core alone's (`max_drawdown`, `drawdown_no_worse_than_core`); combined
+CAGR >= core-alone CAGR - 0.01 (`max_cagr_shortfall`). Survivors are ranked
+by `improvement_sharpe`, the annualised Sharpe of the daily improvement
+series (combined minus core-alone returns). Validation keeps
+`validation.yaml`'s neighbourhood and `min_deflated_sharpe` thresholds, but
+for combined runs neighbours are graded by the combined rule, the deflated
+Sharpe uses the validation-period improvement Sharpe deflated against the
+run's trial `improvement_sharpe`s, and the correlation filter compares
+improvement series.
+
+Why: runs 1-3 failed `beat_benchmark` at research and the deflated Sharpe at
+validation. A sleeve does not need to beat QQQ on its own; the owner's goal
+is a sleeve that improves the portfolio it sits in, which the standalone rule
+does not measure.
+
+It is pre-registered and opt-in: only runs seeded with `search seed
+--pass-rule combined` (run 4 onward) use it. Runs 1-3, and any run whose
+`runs.pass_rule` is NULL, keep `criteria.yaml`'s standalone rule and their
+recorded verdicts. The run 4 seed description must disclose runs 1-3 and
+their 1297 trials, so the earlier attempts stay visible next to any run 4
+winner.
+
+It lives outside `config/criteria.yaml` for the same reason as
+`validation.yaml`: `criteria.yaml` is locked and hash-bound to every run.
+`criteria.yaml`'s hash still binds combined runs (costs, periods and
+benchmarks come from it). `qrl.combined.load_combined_config` hashes
+`combined.yaml`'s raw bytes together with the capital split and core spec
+actually used; the ledger stores that hash on the run
+(`runs.combined_config_hash`, with `runs.pass_rule`, both additive nullable
+columns) and `Ledger.record_test` refuses any write whose hash differs, so
+`search batch` and `validate` stop if the file, the 80/20 split or the core
+changes. `scripts/rebuild_validation.py` does not support combined runs yet
+and exits 2 for them.
+
 ### 2.6 Walk-forward sleeve selection
 
 - Starting each quarter, select the sleeve using only data before that date, trade it

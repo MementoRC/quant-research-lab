@@ -51,6 +51,13 @@ run against different data than it was searched on. `check_data_source`
 raises if a later call disagrees with what a run started with, but returns
 False (not an error) for a run seeded before this existed -- an unverifiable
 legacy run is flagged, not blocked outright.
+
+Combined pass rule addition (PLAN.md 2.5, amendment 2026-10-01; see
+`qrl.combined`): `runs.pass_rule` and `runs.combined_config_hash`, both
+additive nullable columns. NULL `pass_rule` means 'standalone', so runs 1-3
+keep their rule. A combined run stores `config/combined.yaml`'s bound hash at
+seed time, and `record_test` refuses a write whose combined hash differs from
+the run's (NULL for standalone runs), mirroring the criteria-hash guard.
 """
 
 from __future__ import annotations
@@ -76,7 +83,9 @@ CREATE TABLE IF NOT EXISTS runs (
     criteria_hash TEXT NOT NULL,
     seed_lane TEXT NOT NULL CHECK (seed_lane IN ('A', 'B', 'C')),
     seed_description TEXT,
-    data_source TEXT
+    data_source TEXT,
+    pass_rule TEXT,
+    combined_config_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tests (
@@ -303,6 +312,13 @@ class Ledger:
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(runs)")}
         if "data_source" not in columns:
             self._conn.execute("ALTER TABLE runs ADD COLUMN data_source TEXT")
+        # Combined pass rule (PLAN.md 2.5 amendment 2026-10-01): both nullable,
+        # so every pre-existing run keeps NULL, which `pass_rule` reads as
+        # 'standalone' -- runs 1-3 keep their rule and verdicts untouched.
+        if "pass_rule" not in columns:
+            self._conn.execute("ALTER TABLE runs ADD COLUMN pass_rule TEXT")
+        if "combined_config_hash" not in columns:
+            self._conn.execute("ALTER TABLE runs ADD COLUMN combined_config_hash TEXT")
 
     def __enter__(self) -> Ledger:
         return self
@@ -327,12 +343,23 @@ class Ledger:
         seed_description: str | None = None,
         git_commit: str | None = None,
         data_source: dict | None = None,
+        pass_rule: str | None = None,
+        combined_config_hash: str | None = None,
     ) -> int:
+        """Start a run. `pass_rule` is None/'standalone' (criteria.yaml's
+        rule) or 'combined', which requires `combined_config_hash`
+        (`qrl.combined.load_combined_config`); that hash then binds every
+        later `record_test` for the run, like `criteria_hash` does."""
+        if pass_rule not in (None, "standalone", "combined"):
+            raise LedgerError(f"unknown pass_rule {pass_rule!r}")
+        if (pass_rule == "combined") != (combined_config_hash is not None):
+            raise LedgerError("combined_config_hash is required for, and only for, combined runs")
         commit = git_commit if git_commit is not None else current_git_commit()
         try:
             cur = self._conn.execute(
                 "INSERT INTO runs (started_at, git_commit, criteria_hash, seed_lane, "
-                "seed_description, data_source) VALUES (?, ?, ?, ?, ?, ?)",
+                "seed_description, data_source, pass_rule, combined_config_hash) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     _utcnow(),
                     commit,
@@ -340,6 +367,8 @@ class Ledger:
                     seed_lane,
                     seed_description,
                     _dumps(data_source) if data_source is not None else None,
+                    pass_rule,
+                    combined_config_hash,
                 ),
             )
         except sqlite3.IntegrityError as err:
@@ -362,9 +391,10 @@ class Ledger:
         passed: bool,
         failure_reasons: str | None = None,
         period: str = "research",
+        combined_config_hash: str | None = None,
     ) -> int:
         run_row = self._conn.execute(
-            "SELECT criteria_hash FROM runs WHERE run_id = ?", (run_id,)
+            "SELECT criteria_hash, combined_config_hash FROM runs WHERE run_id = ?", (run_id,)
         ).fetchone()
         if run_row is None:
             raise LedgerError(f"unknown run_id {run_id}")
@@ -372,6 +402,11 @@ class Ledger:
             raise LedgerError(
                 f"criteria hash mismatch for run {run_id}: run started with "
                 f"{run_row['criteria_hash']!r}, got {criteria_hash!r}"
+            )
+        if run_row["combined_config_hash"] != combined_config_hash:
+            raise LedgerError(
+                f"combined config hash mismatch for run {run_id}: run started with "
+                f"{run_row['combined_config_hash']!r}, got {combined_config_hash!r}"
             )
         key = candidate_key(family, params, universe, period)
         try:
@@ -535,7 +570,8 @@ class Ledger:
     def list_runs(self) -> list[dict]:
         rows = self._conn.execute(
             "SELECT run_id, started_at, ended_at, git_commit, criteria_hash, seed_lane, "
-            "seed_description, data_source FROM runs ORDER BY run_id"
+            "seed_description, data_source, pass_rule, combined_config_hash "
+            "FROM runs ORDER BY run_id"
         ).fetchall()
         runs = []
         for row in rows:
@@ -627,11 +663,22 @@ class Ledger:
             for row in rows
         ]
 
-    def trial_sharpes(self, run_id: int) -> list[float]:
+    def pass_rule(self, run_id: int) -> str:
+        """The run's pass rule: 'combined', or 'standalone' (also for a NULL
+        `pass_rule`, i.e. every run seeded before the combined rule existed).
+        Raises LedgerError for an unknown run."""
+        row = self._conn.execute(
+            "SELECT pass_rule FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            raise LedgerError(f"unknown run_id {run_id}")
+        return row["pass_rule"] or "standalone"
+
+    def trial_sharpes(self, run_id: int, key: str = "sharpe") -> list[float]:
         """One Sharpe per test recorded in the run (0.0 for a test whose
-        metrics have no `sharpe`, e.g. one that errored before a backtest
+        metrics have no `key`, e.g. one that errored before a backtest
         ran), so `len(...)` is the run's total test count -- the multiple
         testing trial count `qrl.validation.deflated_sharpe_ratio` needs
-        (PLAN.md 2.3-2.5)."""
+        (PLAN.md 2.3-2.5). Combined-rule runs pass `key="improvement_sharpe"`."""
         rows = self._conn.execute(_SELECT_METRICS_BY_RUN, (run_id,)).fetchall()
-        return [float(json.loads(row["metrics_json"]).get("sharpe", 0.0)) for row in rows]
+        return [float(json.loads(row["metrics_json"]).get(key, 0.0)) for row in rows]

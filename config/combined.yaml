@@ -1,0 +1,47 @@
+# ---------------------------------------------------------------------------
+# COMBINED PASS RULE — written BEFORE any combined-rule results are viewed
+# (PLAN.md section 2.5, "Amendment 2026-10-01: combined pass rule").
+#
+# A sleeve candidate passes if adding it as the sleeve share of
+# config/profile.yaml's capital_split (20%) next to config/portfolio.yaml's
+# core (80%) improves the combined portfolio relative to the core alone at
+# 100% of capital. Opt-in per run: only runs seeded with
+# `search seed --pass-rule combined` (run 4 onward) are judged by this file.
+# Runs 1-3, and any run whose pass_rule is NULL, keep criteria.yaml's
+# standalone rule and their recorded verdicts.
+#
+# Why a separate file: config/criteria.yaml is locked and its hash is bound
+# to every run (same reasoning as config/validation.yaml's header comment).
+# Costs, periods and benchmarks still come from criteria.yaml, whose hash
+# still binds every combined run too.
+#
+# Rules for this file:
+#   * Change it only in its own commit, with a reason in the commit message.
+#   * Never change it after looking at results in order to make something pass.
+#   * Its hash (qrl.combined.load_combined_config) also covers the capital
+#     split and the core spec actually used, and is bound to each combined run
+#     at seed time: any change here, to profile.yaml's capital_split, or to
+#     portfolio.yaml's core makes `search batch` and `validate` refuse.
+# ---------------------------------------------------------------------------
+version: 1
+
+# Minimum trade days of the sleeve candidate on its own (same meaning as
+# criteria.yaml's min_trades): too few trades means too little evidence.
+sleeve_min_trades: 10
+
+# Combined Sharpe must be >= core-alone Sharpe + this.
+min_sharpe_improvement: 0.05
+
+# Combined portfolio max drawdown cap (positive fraction; 0.35 = 35%).
+max_drawdown: 0.35
+
+# Combined max drawdown must also be no worse than the core alone's.
+drawdown_no_worse_than_core: true
+
+# Combined CAGR must be >= core-alone CAGR - this.
+max_cagr_shortfall: 0.01
+
+# Metric research survivors are ranked by before validation (replaces
+# validation.yaml's rank_by for combined runs). Validation keeps
+# validation.yaml's neighbourhood and min_deflated_sharpe thresholds.
+rank_by: improvement_sharpe
