@@ -30,6 +30,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from .combined import combined_evaluation
 from .criteria import evaluate as evaluate_criteria
 from .data import load_ohlcv, synthetic_ohlcv
 from .engine import run_backtest
@@ -140,6 +141,8 @@ def evaluate_candidate(
     criteria: dict,
     benchmark_metrics: dict | None = None,
     period: str = "research",
+    *,
+    combined_cfg: dict | None = None,
 ) -> dict:
     """Backtest and grade one (family, params) candidate on `period`
     (`"research"` by default; `qrl.validation.validate_survivors` also calls
@@ -169,6 +172,15 @@ def evaluate_candidate(
     caught and returned as a failed candidate with the error text as its
     failure reason. One bad combination must never kill an unattended
     overnight run.
+
+    `combined_cfg` (from `qrl.combined.load_combined_config`) switches to the
+    combined pass rule for runs seeded with it: the standalone metrics are
+    still computed and stored as above, `metrics` gains `combined_*`,
+    `core_*` and `improvement_sharpe` keys, the result gains `improvement`
+    (the combined-minus-core daily series), and `passed`/`failure_reasons`/
+    `checks` come from `qrl.combined.combined_evaluation` only -- the
+    standalone criteria are not graded. When None (the default) behaviour is
+    exactly as before.
     """
     if period == "holdout":
         raise ValueError(
@@ -182,15 +194,19 @@ def evaluate_candidate(
         frames = data.fields(spec.fields, tickers)
         weights = spec.weights(*frames, **weight_kwargs)
         weights = exit_before_delisting(weights, data.open_[tickers], data.close[tickers])
-        weights = slice_period(weights, criteria, period)
+        sliced = slice_period(weights, criteria, period)
 
         result = run_backtest(
             data.open_[tickers],
             data.close[tickers],
-            weights,
+            sliced,
             cost_bps=criteria["costs"]["bps_per_unit_turnover"],
         )
         metrics = compute_metrics(result.returns, result.turnover, result.executed)
+        if combined_cfg is not None:
+            return _combined_outcome(
+                metrics, result.returns, weights, data, criteria, combined_cfg, period
+            )
         checks = evaluate_criteria(metrics, benchmark_metrics, criteria)
         passed = all(c["passed"] for c in checks)
         failure_reasons = (
@@ -206,13 +222,55 @@ def evaluate_candidate(
             "returns": result.returns,
         }
     except Exception as exc:  # a bad candidate must never kill an overnight batch
-        return {
+        failed: dict = {
             "metrics": {"error": str(exc)},
             "passed": False,
             "failure_reasons": f"error: {exc}",
             "checks": [],
             "returns": pd.Series(dtype=float),
         }
+        if combined_cfg is not None:
+            failed["improvement"] = pd.Series(dtype=float)
+        return failed
+
+
+def _combined_outcome(
+    metrics: dict,
+    returns: pd.Series,
+    weights: pd.DataFrame,
+    data: SearchData,
+    criteria: dict,
+    combined_cfg: dict,
+    period: str,
+) -> dict:
+    """`evaluate_candidate`'s result under the combined pass rule: the
+    standalone `metrics` plus prefixed combined/core metrics and
+    `improvement_sharpe`; pass/fail from the combined checks only."""
+    ce = combined_evaluation(
+        weights,
+        data.open_,
+        data.close,
+        combined_cfg["core"],
+        combined_cfg["capital_split"],
+        criteria,
+        combined_cfg,
+        period=period,
+        sleeve_trades=int(metrics.get("trades", 0)),
+    )
+    merged = {
+        **metrics,
+        **{f"combined_{k}": v for k, v in ce["combined_metrics"].items()},
+        **{f"core_{k}": v for k, v in ce["core_metrics"].items()},
+        "improvement_sharpe": ce["improvement_sharpe"],
+    }
+    return {
+        "metrics": merged,
+        "passed": ce["passed"],
+        "failure_reasons": ce["failure_reasons"],
+        "checks": ce["checks"],
+        "returns": returns,
+        "improvement": ce["improvement"],
+    }
 
 
 def pruned_regions(

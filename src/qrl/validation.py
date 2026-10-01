@@ -348,6 +348,8 @@ def validate_survivors(
     universe_name: str,
     spaces: dict[str, dict[str, list]],
     benchmark_metrics: dict | None = None,
+    combined_cfg: dict | None = None,
+    combined_hash: str | None = None,
 ) -> dict:
     """Rank `run_id`'s research survivors, take the top
     `validation_config["top_n_to_validate"]`, and for each in order (best
@@ -370,9 +372,25 @@ def validate_survivors(
     neighbourhood, validated, passed deflated Sharpe, passed correlation,
     accepted); `rejected` entries carry the stage and reason each candidate
     stopped at, in survivor rank order.
+
+    Combined-rule runs pass `combined_cfg`/`combined_hash`
+    (`qrl.combined.load_combined_config`; PLAN.md 2.5 amendment
+    2026-10-01). Then survivors are ranked by `combined_cfg["rank_by"]`,
+    neighbours and the validation-period evaluation are graded by the
+    combined rule (via `evaluate_candidate(..., combined_cfg=...)`), and the
+    deflated Sharpe and correlation filter both use the validation-period
+    improvement series (combined minus core-alone daily returns) and
+    `improvement_sharpe`, deflated against `Ledger.trial_sharpes(run,
+    key="improvement_sharpe")`. Thresholds still come from
+    `validation_config`. Accepted entries additionally carry
+    `validation_improvement_sharpe`; `validation_sharpe` stays the
+    standalone Sharpe. With both None, behaviour is exactly as before.
     """
     top_n = validation_config["top_n_to_validate"]
-    rank_by = validation_config["rank_by"]
+    is_combined = combined_cfg is not None
+    rank_by = combined_cfg["rank_by"] if combined_cfg is not None else validation_config["rank_by"]
+    sharpe_key = "improvement_sharpe" if is_combined else "sharpe"
+    series_key = "improvement" if is_combined else "returns"
     fraction_required = validation_config["neighborhood"]["fraction_required"]
     min_dsr = validation_config["min_deflated_sharpe"]
     max_corr = validation_config["max_correlation"]
@@ -409,7 +427,13 @@ def validate_survivors(
 
         def _eval_and_record(fam: str, p: dict) -> dict:
             outcome = evaluate_candidate(
-                fam, p, data, criteria, benchmark_metrics, period="research"
+                fam,
+                p,
+                data,
+                criteria,
+                benchmark_metrics,
+                period="research",
+                combined_cfg=combined_cfg,
             )
             ledger.record_test(
                 run_id,
@@ -420,6 +444,7 @@ def validate_survivors(
                 outcome["metrics"],
                 outcome["passed"],
                 outcome["failure_reasons"],
+                combined_config_hash=combined_hash,
             )
             return outcome
 
@@ -440,13 +465,19 @@ def validate_survivors(
         funnel["passed_neighbourhood"] += 1
 
         val_outcome = evaluate_candidate(
-            family, params, data, criteria, benchmark_metrics, period="validation"
+            family,
+            params,
+            data,
+            criteria,
+            benchmark_metrics,
+            period="validation",
+            combined_cfg=combined_cfg,
         )
         ledger.record_validation(test_id, val_outcome["metrics"], validation_hash)
         funnel["validated"] += 1
 
-        daily_returns = val_outcome["returns"].dropna()
-        val_sharpe = val_outcome["metrics"].get("sharpe")
+        daily_returns = val_outcome[series_key].dropna()
+        val_sharpe = val_outcome["metrics"].get(sharpe_key)
         if val_sharpe is None or len(daily_returns) < 3:
             _reject(
                 rejected,
@@ -457,7 +488,7 @@ def validate_survivors(
             )
             continue
 
-        trial_srs = ledger.trial_sharpes(run_id)
+        trial_srs = ledger.trial_sharpes(run_id, key=sharpe_key)
         skew = float(daily_returns.skew())
         # pandas' .kurtosis() is EXCESS kurtosis (normal = 0); the deflated
         # Sharpe formula wants regular kurtosis (normal = 3).
@@ -495,6 +526,9 @@ def validate_survivors(
             "validation_sharpe": val_sharpe,
             "deflated_sharpe": dsr,
         }
+        if is_combined:
+            entry["validation_sharpe"] = val_outcome["metrics"].get("sharpe")
+            entry["validation_improvement_sharpe"] = val_sharpe
         accepted.append(entry)
         funnel_order.append({**entry, "stage": "accepted", "reason": None})
         accepted_returns.append(daily_returns)

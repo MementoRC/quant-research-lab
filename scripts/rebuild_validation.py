@@ -34,6 +34,8 @@ none of this is stored):
 - Concurrent writers to the same run during an invocation would break the
   contiguity assumption; it is reported as "unknown"/integrity diffs, never
   guessed.
+- Standalone runs only: a run seeded with the combined pass rule (PLAN.md
+  2.5, amendment 2026-10-01) is refused with exit 2.
 
 Usage:
     python scripts/rebuild_validation.py --run 3 --synthetic
@@ -593,6 +595,13 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
         run, code = _verify(conn, args, criteria_hash, universe)
         if code is not None:
             return code
+        if run is not None and run.get("pass_rule") == "combined":
+            print(
+                f"Run {args.run} uses the combined pass rule; rebuild_validation is "
+                "not supported for combined runs yet.",
+                file=sys.stderr,
+            )
+            return 2
         rows = load_rows(conn, args.run)
         events = load_events(conn, args.run)
         notes = conn.execute(
