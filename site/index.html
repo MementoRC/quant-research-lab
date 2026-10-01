@@ -431,7 +431,7 @@
       return;
     }
     const total = funnel.total_attempts == null ? "an unknown number of" : funnel.total_attempts;
-    note.textContent = `${total} attempts were tested behind this result.`;
+    note.textContent = `${total} attempts were tested behind this result. "Evaluated on validation" counts candidates scored on the validation period, not candidates accepted.`;
     list.innerHTML = funnel.stages.map((s) => `
       <li class="pass">
         <span class="mark" aria-hidden="true">•</span>
