@@ -1,0 +1,90 @@
+RECONSTRUCTED RECORD -- not the original validate output.
+Run 3 was validated on 2026-09-30 (17:58-18:00 UTC) by `pixi run validate --run 3`,
+whose per-candidate outcomes were printed but never persisted. This file was
+regenerated on 2026-10-01 by `pixi run rebuild-validation --run 3 --timeline`
+(scripts/rebuild_validation.py), read-only against research/ledger.sqlite.
+All 14 validation-period backtests were re-run and cross-checked against the
+stored validation_events metrics (all MATCH); no rows were written.
+
+Run 3: 283 test rows, 14 validation events; mode backtest
+
+Invocation 1: 2026-09-30T17:58:14.284988+00:00 .. 2026-09-30T18:00:22.538611+00:00, validation config 72453894641e, survivors drawn from the first 50 run rows
+Validation funnel:
+  Survivors (top research candidates) 19
+  Passed neighbourhood check         14
+  Evaluated on validation period     14
+  Passed deflated Sharpe             0
+  Passed correlation filter          0
+  Accepted                           0
+Per-candidate outcome:
+  test 1046   regime_pullback  deflated_sharpe -- deflated Sharpe 0.714 < required 0.95 [exact]
+      DSR 0.714 (threshold 0.95, trials 62, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1026   regime_pullback  deflated_sharpe -- deflated Sharpe 0.435 < required 0.95 [exact]
+      DSR 0.435 (threshold 0.95, trials 75, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1030   regime_pullback  deflated_sharpe -- deflated Sharpe 0.684 < required 0.95 [exact]
+      DSR 0.684 (threshold 0.95, trials 87, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1022   regime_pullback  deflated_sharpe -- deflated Sharpe 0.673 < required 0.95 [exact]
+      DSR 0.673 (threshold 0.95, trials 100, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1031   regime_pullback  deflated_sharpe -- deflated Sharpe 0.427 < required 0.95 [exact]
+      DSR 0.427 (threshold 0.95, trials 111, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1033   regime_pullback  deflated_sharpe -- deflated Sharpe 0.231 < required 0.95 [exact]
+      DSR 0.231 (threshold 0.95, trials 124, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1051   regime_pullback  deflated_sharpe -- deflated Sharpe 0.260 < required 0.95 [exact]
+      DSR 0.260 (threshold 0.95, trials 137, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1061   regime_pullback  deflated_sharpe -- deflated Sharpe 0.556 < required 0.95 [exact]
+      DSR 0.556 (threshold 0.95, trials 152, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1064   regime_pullback  neighbourhood -- only 50% of neighbours passed research criteria (need 60%) [exact]
+  test 1056   regime_pullback  deflated_sharpe -- deflated Sharpe 0.576 < required 0.95 [exact]
+      DSR 0.576 (threshold 0.95, trials 172, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1025   regime_pullback  deflated_sharpe -- deflated Sharpe 0.613 < required 0.95 [exact]
+      DSR 0.613 (threshold 0.95, trials 188, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1054   regime_pullback  neighbourhood -- only 44% of neighbours passed research criteria (need 60%) [exact]
+  test 1048   regime_pullback  deflated_sharpe -- deflated Sharpe 0.670 < required 0.95 [exact]
+      DSR 0.670 (threshold 0.95, trials 212, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1021   regime_pullback  neighbourhood -- only 42% of neighbours passed research criteria (need 60%) [exact]
+  test 1016   regime_pullback  deflated_sharpe -- deflated Sharpe 0.576 < required 0.95 [exact]
+      DSR 0.576 (threshold 0.95, trials 236, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1047   regime_pullback  deflated_sharpe -- deflated Sharpe 0.558 < required 0.95 [exact]
+      DSR 0.558 (threshold 0.95, trials 249, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  test 1058   regime_pullback  neighbourhood -- only 42% of neighbours passed research criteria (need 60%) [exact]
+  test 1029   regime_pullback  neighbourhood -- only 55% of neighbours passed research criteria (need 60%) [exact]
+  test 1018   regime_pullback  deflated_sharpe -- deflated Sharpe 0.639 < required 0.95 [exact]
+      DSR 0.639 (threshold 0.95, trials 283, n_obs 1007) [exact]
+      backtest cross-check: MATCH
+  Integrity: OK (replayed validation set == stored validation_events)
+
+Overall integrity: OK
+
+Timeline (test rows clustered by created_at gaps > 300s):
+  cluster 1: 30 rows, tests 1015-1044, 2026-09-30T17:12:08.243477+00:00 .. 2026-09-30T17:12:23.145459+00:00, passed 10, validation-neighbour rows 0, search-batch rows 30, validation events inside 0
+      min_sharpe,beat_benchmark      13
+      beat_benchmark                 4
+      max_drawdown                   1
+      max_drawdown,beat_benchmark    1
+      min_sharpe,max_drawdown,beat_benchmark 1
+  cluster 2 (gap 1765s): 20 rows, tests 1045-1064, 2026-09-30T17:41:48.554719+00:00 .. 2026-09-30T17:41:57.875717+00:00, passed 9, validation-neighbour rows 0, search-batch rows 20, validation events inside 0
+      beat_benchmark                 4
+      min_sharpe,beat_benchmark      4
+      max_drawdown                   2
+      max_drawdown,beat_benchmark    1
+  cluster 3 (gap 971s): 233 rows, tests 1065-1297, 2026-09-30T17:58:08.527754+00:00 .. 2026-09-30T18:00:21.925310+00:00, passed 170, validation-neighbour rows 233, search-batch rows 0, validation events inside 13
+      beat_benchmark                 41
+      max_drawdown,beat_benchmark    9
+      max_drawdown                   7
+      min_sharpe,beat_benchmark      6
+Notes (batch -> created_at):
+  [batch 1] 2026-09-30T17:12:37.535708+00:00  Batch 1, 30 trials, proposer default: 10 passed, 33 percent, similar to runs 1 a
+  [batch 2] 2026-09-30T17:42:09.692703+00:00  Batch 2, 20 trials, proposer default so mutating and recombining the batch 1 pas
