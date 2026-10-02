@@ -21,6 +21,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import warnings
 from collections.abc import Callable, Iterable, Sequence
@@ -115,20 +116,41 @@ def sec_user_agent(config_path: Path = SEC_CONFIG_PATH) -> str:
 
 _last_request = 0.0
 
+ALLOWED_HOSTS = frozenset({"www.sec.gov", "data.sec.gov"})
+
+
+def _validate_url(url: str) -> None:
+    """Raise ValueError unless url is https on an allowlisted SEC host."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or parts.hostname not in ALLOWED_HOSTS:
+        raise ValueError(f"refusing URL (https on {sorted(ALLOWED_HOSTS)} only): {url}")
+
+
+class _AllowlistRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validate every redirect target against the same allowlist."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        _validate_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_AllowlistRedirectHandler())
+
 
 def _http_get(url: str, user_agent: str) -> bytes:
     """GET with throttling (<= ~8 req/s) and backoff on 429/5xx. 404 raises HTTPError."""
     global _last_request
-    if not url.startswith("https://"):
-        raise ValueError(f"refusing non-https URL: {url}")
+    _validate_url(url)
     for attempt in range(MAX_RETRIES):
         wait = MIN_REQUEST_INTERVAL - (time.monotonic() - _last_request)
         if wait > 0:
             time.sleep(wait)
         _last_request = time.monotonic()
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- URL validated against ALLOWED_HOSTS (https only) above
         req = urllib.request.Request(url, headers={"User-Agent": user_agent})  # noqa: S310
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- URL validated against ALLOWED_HOSTS (https only) above
+            with _OPENER.open(req, timeout=60) as resp:  # noqa: S310
                 body: bytes = resp.read()
                 return body
         except urllib.error.HTTPError as err:

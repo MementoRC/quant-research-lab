@@ -182,3 +182,46 @@ def test_parser_handles_missing_concept_and_instant_facts():
     assert empty.empty
     panel = fd.pit_panel(df, "GrossProfit", DATES, ["AAA"])
     assert panel.isna().all().all()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "http://www.sec.gov/files/company_tickers.json",
+        "https://evil.example.com/x.json",
+    ],
+)
+def test_http_get_rejects_disallowed_urls(monkeypatch, url):
+    def boom(*_a, **_k):
+        raise AssertionError("network touched")
+
+    monkeypatch.setattr(fd._OPENER, "open", boom)
+    with pytest.raises(ValueError, match="refusing URL"):
+        fd._http_get(url, "ua")
+
+
+def test_redirect_handler_rejects_non_allowlisted_host():
+    import urllib.request
+
+    handler = fd._AllowlistRedirectHandler()
+    req = urllib.request.Request("https://data.sec.gov/a")
+    with pytest.raises(ValueError, match="evil.example.com"):
+        handler.redirect_request(req, None, 302, "Found", {}, "https://evil.example.com/b")
+    with pytest.raises(ValueError, match="http://data.sec.gov/b"):
+        handler.redirect_request(req, None, 302, "Found", {}, "http://data.sec.gov/b")
+
+
+def test_http_get_allowed_url_returns_bytes(monkeypatch):
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def read(self):
+            return b"payload"
+
+    monkeypatch.setattr(fd._OPENER, "open", lambda *_a, **_k: FakeResp())
+    assert fd._http_get("https://data.sec.gov/x.json", "ua") == b"payload"
