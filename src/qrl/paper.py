@@ -160,7 +160,9 @@ def status_for(
         return f"dropped ({kill[0]}, {kill[1].date()})", next_review
     promote = cfg["promote_rule"]
     if last >= start + pd.DateOffset(months=promote["review_month"]):
-        return ("eligible" if excess > promote["min_excess"] else "review due"), next_review
+        if excess > promote["min_excess"]:
+            return "eligible", next_review
+        return "not eligible (behind baseline at 12 months)", next_review
     passed = [r for r in reviews if r <= last]
     if passed and (last - passed[-1]).days <= _DUE_WINDOW_DAYS:
         return "review due", next_review

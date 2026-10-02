@@ -96,7 +96,14 @@ def test_status_rules():
     assert status_for(pd.Timestamp("2026-11-02"), 0.1, None, cfg)[0] == "tracking"
     assert status_for(pd.Timestamp("2027-01-04"), 0.1, None, cfg)[0] == "review due"
     assert status_for(pd.Timestamp("2027-10-04"), 0.01, None, cfg)[0] == "eligible"
-    assert status_for(pd.Timestamp("2027-10-04"), -0.01, None, cfg)[0] == "review due"
+    assert (
+        status_for(pd.Timestamp("2027-10-04"), -0.01, None, cfg)[0]
+        == "not eligible (behind baseline at 12 months)"
+    )
+    assert (
+        status_for(pd.Timestamp("2027-10-04"), 0.0, None, cfg)[0]
+        == "not eligible (behind baseline at 12 months)"
+    )
     kill = ("drawdown", start)
     assert status_for(pd.Timestamp("2027-10-04"), 0.5, kill, cfg)[0].startswith("dropped")
 

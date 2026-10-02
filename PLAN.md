@@ -496,8 +496,8 @@ act on it.
 run 5), 1369 (low_range_close, run 5), 1046 (regime_pullback, run 3), start
 2026-10-02. Forward-only: weights before start_date are zero, so no earlier
 return is produced; the 2023-01-01..2026-10-01 holdout is untouched. Baseline:
-equal-weight of the candidate's tickers. Kill: paper max drawdown > 1.5x research
-max drawdown, or excess vs baseline < -5pp at 6 months. Ahead of baseline at 12
+equal-weight (daily rebalanced) of the same stocks, not buy-and-hold. Kill: paper
+max drawdown > 1.5x the strategy's standalone research-period max drawdown, or excess vs baseline < -5pp at 6 months. Ahead of baseline at 12
 months and not dropped = eligible for real-money consideration. `pixi run paper-track`.
 
 ### 3.3 News layer (optional)

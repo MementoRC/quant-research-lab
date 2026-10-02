@@ -42,7 +42,7 @@ def _print_table(results: list[dict]) -> None:
         )
         if "cumulative_return" in r:
             print(
-                f"  return {_pct(r['cumulative_return'])} vs baseline "
+                f"  return {_pct(r['cumulative_return'])} vs equal-weight baseline "
                 f"{_pct(r['baseline_cumulative_return'])} (excess {_pct(r['excess'])})"
             )
             print(
