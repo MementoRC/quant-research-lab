@@ -390,6 +390,63 @@ def test_foreign_filer_is_not_a_domestic_filer():
     assert rec["domestic_filer"] is False
 
 
+# ----------------------------------------------------------------------- class equivalents
+
+
+def test_class_equivalent_ticker_uses_a_equivalent_shares_and_the_price_ticker_close():
+    wa = {"start": "2019-01-01", "end": "2019-03-31", "filed": "2019-05-04", "val": 1.6e6}
+    payload = {
+        "facts": {
+            "us-gaap": {fd.WA_SHARES: {"units": {"shares": [{**wa, "form": "10-Q"}]}}},
+            "dei": {  # Class A only: a different basis, must be ignored
+                fd.DEI_SHARES: {
+                    "units": {
+                        "shares": [
+                            {"end": "2019-04-30", "val": 999, "filed": "2019-05-04", "accn": "x"}
+                        ]
+                    }
+                }
+            },
+        }
+    }
+    idx = pd.bdate_range("2019-01-01", "2022-12-30")
+    close_a = pd.Series(100_000.0, index=idx)  # the BRK-A close
+    me = pu.month_end_dates(idx, pd.Timestamp("2019-01-01"))
+    out = pu.company_features("BRK-B", payload, close_a, me, None, None).set_index("month_end")
+    assert np.isnan(out.loc["2019-04-30", "shares"])  # not filed yet
+    last = out.iloc[-1]  # > 3 years after the last count: carried, not stale
+    assert last["shares"] == 1.6e6
+    assert last["market_cap"] == pytest.approx(1.6e11)
+    assert last["shares_source"] == pu.CLASS_EQ_SOURCE
+    assert pu.CLASS_EQUIVALENTS["BRK-B"]["price_ticker"] == "BRK-A"
+
+
+# ----------------------------------------------------------------------- stale-run detector
+
+
+def test_stale_run_detector_flags_internal_gaps_over_six_months_only():
+    months = pd.date_range("2020-01-31", periods=24, freq="ME")
+
+    def feats(ticker: str, ok: list[bool]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "month_end": months,
+                "ticker": ticker,
+                "has_price": True,
+                "shares": [1.0 if o else np.nan for o in ok],
+            }
+        )
+
+    long_gap = [False] * 3 + [True] * 5 + [False] * 8 + [True] * 8  # leading gap ignored
+    short_gap = [True] * 5 + [False] * 6 + [True] * 13  # exactly 6: not flagged
+    features = pd.concat([feats("LONG", long_gap), feats("SHORT", short_gap)])
+    pool = pd.DataFrame({"ticker": ["LONG", "SHORT"], "cik": [1, 2], "market_cap": [60e9, 60e9]})
+    hits = pu.shares_stale_detector(features, pool)
+    assert hits["ticker"].tolist() == ["LONG"]
+    assert hits.iloc[0]["months"] == 8
+    assert pu.shares_stale_detector(features, pool.assign(market_cap=1e9)).empty
+
+
 # ----------------------------------------------------------------------- scale guard
 
 

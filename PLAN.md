@@ -543,9 +543,11 @@ Skipped per the owner decision of 2026-09-24 -- see section 8, item 6.
   `research/pit_coverage.txt`). Remaining bias: survivors only (no delisted companies), the
   pool is picked on today's size (loosely). Share counts come from a dei / us-gaap /
   weighted-average chain (source column in the CSV) and a `CIK_PREDECESSORS` map stitches
-  re-organised companies (XOM, GOOGL, AVGO, DIS, ...). Still missing: BRK-B entirely (SEC
-  companyfacts has no count after 2015), and mid-caps before the 2011 XBRL phase-in (see the
-  detector list in the coverage report). Yahoo closes are dividend-adjusted, so early caps
+  re-organised companies (XOM, GOOGL, AVGO, DIS, ...). BRK-B is sized as Class A-equivalent
+  shares x the BRK-A close (`CLASS_EQUIVALENTS`; SEC has no count after 2015-09, so the last
+  one is carried: late caps run up to ~12% high). Still missing: mid-caps before the 2011 XBRL
+  phase-in and a few firms with long tagging gaps (CRWD, BE, WBD, MPLX, BKR...; see the
+  detector lists in the coverage report). Yahoo closes are dividend-adjusted, so early caps
   run a few percent low.
 
 ---

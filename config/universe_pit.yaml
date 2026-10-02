@@ -15,8 +15,8 @@ method: 'Top-N US NYSE/Nasdaq common stocks by point-in-time market cap, re-rank
 survivorship_biased: true
 top_n: 300
 pool_min_market_cap: 2000000000.0
-pool_size: 1567
+pool_size: 1568
 first_month_end: '2009-04-30'
 last_month_end: '2026-09-30'
 membership_file: config/universes/us_large_cap_pit.csv
-membership_sha256: e14929d8c8dbfd8b9c60b0c56f9e1c6c4f257b77ed4dc85c1b98bb072fd1fc08
+membership_sha256: 4ede8b2b2ac96e975f9dc2251e4c49ed15b15f2ed52f89959759bde0c8751f9c

@@ -81,6 +81,23 @@ FEATURE_CONCEPTS: dict[str, Iterable[str]] = {
     ),
     "dei": (fd.DEI_SHARES,),
 }
+# Share classes whose economic size is not (class-B shares x class-B price). Berkshire
+# reports its share counts as Class A equivalents (1 Class A = 1,500 Class B) and has no
+# companyfacts share count after 2015-09, so BRK-B's market cap is
+# (Class A-equivalent weighted-average basic count) x (BRK-A close). The member stays BRK-B
+# (the more liquid class). Rules for these tickers: only the listed `concepts` supply shares
+# (the dei cover count is Class A only, a different basis); the last count is carried
+# forward without a staleness limit (A-equivalents fall only ~1%/yr through buybacks, so the
+# carried count overstates a late-year cap by at most ~10-15%); prices, splits and the
+# volume-sanity check are skipped for the B class (BRK-A has no splits and thin volume).
+# Verified: BRK-B (CIK 1067983) WeightedAverageNumberOfSharesOutstandingBasic is ~1.6 million
+# (Class A equivalents) from 2007-12 to 2015-09; no share-count concept exists after that.
+CLASS_EQUIVALENTS: dict[str, dict] = {
+    "BRK-B": {"price_ticker": "BRK-A", "concepts": [fd.WA_SHARES]},
+}
+CLASS_EQ_SOURCE = "class-eq"
+CLASS_EQ_STALENESS_DAYS = 10**6
+
 # Companies whose SEC history sits under an older CIK than the one SEC lists today
 # (ticker -> predecessor CIKs). Predecessor facts are used only before the successor's
 # first filing. Each entry was checked against https://data.sec.gov/submissions/CIK<cik>.json
@@ -259,10 +276,13 @@ def effective_shares_sourced(
     tickers: Sequence[str],
     splits: Mapping[str, pd.Series] | None = None,
     volume: pd.DataFrame | None = None,
+    staleness_days: int = fd.STALENESS_DAYS,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """`(effective shares, source)`: as `effective_shares`, plus which chain step
     ("dei" / "us-gaap" / "wavg") supplied each count (None where no usable count)."""
-    shares, _, filed, source = fd.total_shares_sourced_panels(facts, month_ends, list(tickers))
+    shares, _, filed, source = fd.total_shares_sourced_panels(
+        facts, month_ends, list(tickers), staleness_days
+    )
     eff = split_adjust_shares(shares, filed, splits or {})
     if volume is not None:
         eff = fix_share_scale(eff, monthly_median_volume(volume, month_ends))
@@ -607,9 +627,17 @@ def company_features(
         facts = merge_predecessor_facts(facts, old_facts)
     px = close.to_frame(ticker)
     vol = None if volume is None else volume.to_frame(ticker)
-    shares, source = effective_shares_sourced(
-        facts, month_ends, [ticker], {ticker: splits} if splits is not None else {}, vol
-    )
+    class_eq = CLASS_EQUIVALENTS.get(ticker)
+    if class_eq is None:
+        shares, source = effective_shares_sourced(
+            facts, month_ends, [ticker], {ticker: splits} if splits is not None else {}, vol
+        )
+    else:  # `close` is the price_ticker's close; see CLASS_EQUIVALENTS
+        own = facts[facts["concept"].isin(class_eq["concepts"])]
+        shares, source = effective_shares_sourced(
+            own, month_ends, [ticker], None, None, CLASS_EQ_STALENESS_DAYS
+        )
+        source = source.mask(source.notna(), CLASS_EQ_SOURCE)
     cap = shares * _month_end_prices(px, month_ends)
     ni = fd.ttm_panel(facts, "NetIncomeLoss", month_ends, [ticker])[ticker]
     gp = fd.ttm_panel(facts, "GrossProfit", month_ends, [ticker])[ticker]
@@ -673,6 +701,28 @@ def latest_market_caps(
     return out
 
 
+def apply_class_equivalents(full: pd.DataFrame, close: pd.DataFrame) -> pd.DataFrame:
+    """Re-price `CLASS_EQUIVALENTS` tickers present in `full`: latest class-equivalent share
+    count (any age) x latest close of the price ticker; never stale."""
+    out = full.copy()
+    for t, ce in CLASS_EQUIVALENTS.items():
+        rows = out.index[out["ticker"] == t]
+        if rows.empty or ce["price_ticker"] not in close:
+            continue
+        payload = fd.load_company_payload(int(out.loc[rows[0], "cik"]))
+        if payload is None:
+            continue
+        facts = fd.parse_companyfacts(t, payload, FEATURE_CONCEPTS)
+        own = facts[facts["concept"].isin(ce["concepts"])]
+        far = pd.DatetimeIndex([pd.Timestamp("2100-01-01")])
+        shares = fd.total_shares_panel(own, far, [t], CLASS_EQ_STALENESS_DAYS).iloc[0, 0]
+        last_close = close[ce["price_ticker"]].dropna().iloc[-1]
+        out.loc[rows, "shares"] = shares
+        out.loc[rows, "market_cap"] = shares * last_close
+        out.loc[rows, "stale"] = False
+    return out
+
+
 def build_pool(
     min_cap: float, refresh: bool, cache_dir: Path, log: Log
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, pd.Series], dict]:
@@ -699,7 +749,7 @@ def build_pool(
     candidates = rough.loc[rough["market_cap"] >= min_cap * SPLIT_FETCH_FRACTION, "ticker"]
     splits, failed = fetch_splits(sorted(candidates), cache_dir, refresh, log)
     diag["split_fetch_failed"] = failed
-    full = latest_market_caps(table, screen, close, splits)
+    full = apply_class_equivalents(latest_market_caps(table, screen, close, splits), close)
     diag["stale_dropped"] = int(((full["market_cap"] >= min_cap) & full["stale"]).sum())
     pool = full[(full["market_cap"] >= min_cap) & ~full["stale"]].reset_index(drop=True)
     diag["pool_size"] = len(pool)
@@ -722,14 +772,16 @@ def build_features(
         payload = fd.load_company_payload(int(cik))
         if payload is not None:
             old = [fd.load_company_payload(c) for c in CIK_PREDECESSORS.get(t, [])]
+            ce = CLASS_EQUIVALENTS.get(t)
+            pt = t if ce is None else ce["price_ticker"]
             frames.append(
                 company_features(
                     t,
                     payload,
-                    close[t],
+                    close[pt],
                     month_ends,
-                    splits.get(t),
-                    volume[t],
+                    splits.get(pt),
+                    None if ce else volume[t],
                     [p for p in old if p is not None],
                 )
             )
@@ -855,6 +907,67 @@ def shares_gap_detector(
     return pd.DataFrame(out.sort_values("market_cap", ascending=False).reset_index(drop=True))
 
 
+def _true_runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    """(start, end) index pairs, end inclusive, of each run of True in a bool array."""
+    padded = np.concatenate([[0], mask.astype(int), [0]])
+    edges = np.diff(padded)
+    return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1) - 1, strict=True))
+
+
+def shares_stale_detector(
+    features: pd.DataFrame,
+    pool_info: pd.DataFrame,
+    min_cap: float = 50e9,
+    max_months: int = 6,
+) -> pd.DataFrame:
+    """Internal and trailing gaps: pool companies worth >= `min_cap` today whose share count
+    is unusable (NaN) for more than `max_months` consecutive month-ends, after the first
+    usable count, while the Yahoo price continues."""
+    big = pool_info[pool_info["market_cap"] >= min_cap]
+    caps = dict(zip(big["ticker"], big["market_cap"], strict=True))
+    ciks = dict(zip(big["ticker"], big["cik"], strict=True))
+    rows = []
+    for t, g in features[features["ticker"].isin(caps)].groupby("ticker"):
+        g = g.sort_values("month_end")
+        ok = g["shares"].notna().to_numpy()
+        if not ok.any():
+            continue
+        bad = ~ok & g["has_price"].fillna(False).to_numpy(bool)
+        bad[: int(ok.argmax())] = False  # leading gap: see shares_gap_detector
+        months = g["month_end"].to_numpy()
+        for a, b in _true_runs(bad):
+            if b - a + 1 > max_months:
+                rows.append(
+                    {
+                        "ticker": t,
+                        "cik": ciks[t],
+                        "market_cap": caps[t],
+                        "run_start": pd.Timestamp(months[a]),
+                        "run_end": pd.Timestamp(months[b]),
+                        "months": int(b - a + 1),
+                    }
+                )
+    cols = ["ticker", "cik", "market_cap", "run_start", "run_end", "months"]
+    out = pd.DataFrame(rows, columns=cols)
+    return pd.DataFrame(out.sort_values("market_cap", ascending=False).reset_index(drop=True))
+
+
+def format_stale(stale: pd.DataFrame) -> list[str]:
+    lines = [
+        "",
+        "Share-count stale-run detector (pool companies >= $50B today with a usable count that "
+        "later goes missing for > 6 consecutive month-ends while the price continues):",
+    ]
+    if stale.empty:
+        return [*lines, "  none"]
+    for r in stale.to_dict("records"):
+        lines.append(
+            f"  {r['ticker']:<7} cik {int(r['cik']):>8}  cap ${r['market_cap'] / 1e9:,.0f}B  "
+            f"no count {r['run_start']:%Y-%m} .. {r['run_end']:%Y-%m} ({r['months']} months)"
+        )
+    return lines
+
+
 def format_gaps(gaps: pd.DataFrame) -> list[str]:
     lines = [
         "",
@@ -878,6 +991,7 @@ def format_coverage(
     today_tickers: Sequence[str],
     meta: Mapping,
     gaps: pd.DataFrame | None = None,
+    stale: pd.DataFrame | None = None,
 ) -> str:
     today = {fd.normalize_ticker(t) for t in today_tickers}
     ever = set(membership["ticker"])
@@ -905,4 +1019,5 @@ def format_coverage(
         f"{len(set(latest['ticker']) & today)} in today's list.",
     ]
     gap_lines = [] if gaps is None else format_gaps(gaps)
-    return "\n".join([*head, table.to_string(), *tail, *gap_lines]) + "\n"
+    stale_lines = [] if stale is None else format_stale(stale)
+    return "\n".join([*head, table.to_string(), *tail, *gap_lines, *stale_lines]) + "\n"

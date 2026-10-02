@@ -58,8 +58,12 @@ def cmd_coverage(_: argparse.Namespace) -> int:
     today = load_universe(ROOT / "config" / "universe.yaml")["tickers"]
     table = pu.coverage_table(membership, features, today)
     pool_path = pu.PIT_CACHE_DIR / "pool.csv"
-    gaps = pu.shares_gap_detector(features, pd.read_csv(pool_path)) if pool_path.exists() else None
-    text = pu.format_coverage(table, membership, today, meta, gaps)
+    gaps = stale = None
+    if pool_path.exists():
+        pool_info = pd.read_csv(pool_path)
+        gaps = pu.shares_gap_detector(features, pool_info)
+        stale = pu.shares_stale_detector(features, pool_info)
+    text = pu.format_coverage(table, membership, today, meta, gaps, stale)
     REPORT_PATH.write_text(text)
     print(text)
     return 0
