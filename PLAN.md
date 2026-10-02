@@ -523,6 +523,22 @@ Skipped per the owner decision of 2026-09-24 -- see section 8, item 6.
 
 ---
 
+## Phase 4: EDGAR factor sleeve (owner decisions 2026-10-02)
+
+- An addition to the existing sleeves, not a replacement.
+- Factor research on 2009-2018 (XBRL era) via a future locked `config/factor.yaml`;
+  `slice_period` takes the criteria dict, so no locked file is edited.
+- Validation and holdout periods are unchanged.
+- No delisted companies: the list stays `survivorship_biased`.
+- Universe: top-300 by point-in-time size, drawn from ~1,000 surviving names.
+- Factors: `value_ey`, `profitability`, `low_investment`.
+- About 40 trials, judged under `combined_null`.
+- Milestones: (1) point-in-time filings data layer `qrl.fundamentals` (IN PROGRESS),
+  (2) point-in-time size universe, (3) factor strategies, (4) locked factor config,
+  (5) search and validation.
+
+---
+
 ## 8. Open decisions for the owner
 
 These need answers before or during Phase 2:
