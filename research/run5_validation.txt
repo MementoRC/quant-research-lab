@@ -1,0 +1,17 @@
+✨ Pixi task (validate in default): python scripts/validate.py --run 5
+Pass rule: combined_null (config hash cc548b10d697)
+Validation funnel:
+  Survivors (top research candidates) 7
+  Passed neighbourhood check         2
+  Evaluated on validation period     2
+  Passed deflated Sharpe             0
+  Passed correlation filter          0
+  Accepted                           0
+Per-candidate outcome:
+  test 1393   low_range_close  neighbourhood -- only 57% of neighbours passed research criteria (need 60%)
+  test 1369   low_range_close  deflated_sharpe -- deflated Sharpe 0.046 < required 0.95
+  test 1380   trend_pullback   deflated_sharpe -- deflated Sharpe 0.060 < required 0.95
+  test 1347   trend_pullback   neighbourhood -- only 20% of neighbours passed research criteria (need 60%)
+  test 1409   low_range_close  neighbourhood -- only 40% of neighbours passed research criteria (need 60%)
+  test 1413   trend_pullback   neighbourhood -- only 40% of neighbours passed research criteria (need 60%)
+  test 1400   low_range_close  neighbourhood -- only 17% of neighbours passed research criteria (need 60%)
