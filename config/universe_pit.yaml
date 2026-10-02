@@ -9,13 +9,14 @@ method: 'Top-N US NYSE/Nasdaq common stocks by point-in-time market cap, re-rank
   splits and scale-checked against trading volume, x Yahoo close at t); a month-end''s membership applies
   from the next trading day to the next month-end. Candidate pool: today''s listed 10-K/10-Q filers with
   us-gaap Assets facts (no 20-F/40-F filers) and a current market cap above pool_min_market_cap, one ticker
-  per CIK (most liquid class). Companies whose history sits under a predecessor CIK, or whose pre-2014
-  share counts are not in SEC companyfacts, are missing in those years.'
+  per CIK (most liquid class). Share counts: dei cover page, else us-gaap CommonStockSharesOutstanding,
+  else weighted-average basic (source column in the CSV); a small CIK_PREDECESSORS map stitches histories
+  split across CIKs. Companies SEC companyfacts has no count for are missing in those years.'
 survivorship_biased: true
 top_n: 300
 pool_min_market_cap: 2000000000.0
-pool_size: 1469
+pool_size: 1567
 first_month_end: '2009-04-30'
 last_month_end: '2026-09-30'
 membership_file: config/universes/us_large_cap_pit.csv
-membership_sha256: 1e9524ae9284375e7b4225a66a7781b2af22b59c1106a1c4010af9c5a0790415
+membership_sha256: e14929d8c8dbfd8b9c60b0c56f9e1c6c4f257b77ed4dc85c1b98bb072fd1fc08

@@ -55,6 +55,10 @@ CONCEPTS: dict[str, tuple[str, ...]] = {
         "Assets",
         "StockholdersEquity",
         "CommonStockSharesOutstanding",
+        "WeightedAverageNumberOfSharesOutstandingBasic",
+        "CostOfGoodsAndServicesSold",
+        "CostOfGoodsSold",
+        "OperatingIncomeLoss",
     ),
     "dei": ("EntityCommonStockSharesOutstanding",),
 }
@@ -559,42 +563,75 @@ def _date_panel(days: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+WA_SHARES = "WeightedAverageNumberOfSharesOutstandingBasic"
+SHARE_SOURCES = ("dei", "us-gaap", "wavg")
+
+
+def _layer_panels(
+    frame: pd.DataFrame,
+    concept: str,
+    dates: pd.DatetimeIndex,
+    tickers: Sequence[str],
+    duration: str,
+    staleness_days: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """(value, end-day, filed-day) panels of one share-count layer."""
+    end_days = filed_days = frame
+    if not frame.empty:
+        end_days = frame.assign(val=(frame["end"] - _EPOCH) / pd.Timedelta(days=1))
+        filed_days = frame.assign(val=(frame["filed"] - _EPOCH) / pd.Timedelta(days=1))
+    return (
+        pit_panel(frame, concept, dates, tickers, duration, staleness_days),
+        pit_panel(end_days, concept, dates, tickers, duration, staleness_days),
+        pit_panel(filed_days, concept, dates, tickers, duration, staleness_days),
+    )
+
+
+def total_shares_sourced_panels(
+    facts: pd.DataFrame,
+    dates: pd.Index,
+    tickers: Sequence[str],
+    staleness_days: int = STALENESS_DAYS,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """`(shares, ends, filed, source)` dates x tickers panels.
+
+    Cell-wise priority chain: (1) dei cover-page counts summed per (accn, end) across
+    classes, (2) us-gaap `CommonStockSharesOutstanding`, (3) us-gaap
+    `WeightedAverageNumberOfSharesOutstandingBasic`, the latest quarterly (80-100 day)
+    fact, else the annual one. All obey filed < t and `staleness_days`. `source` holds
+    "dei" / "us-gaap" / "wavg" (None where no count is known). `ends` is the date a
+    count refers to and `filed` the date it was filed (NaT where unknown); a count filed
+    after a stock split is already post-split, so split adjustment compares ex-dates
+    with `filed`.
+    """
+    idx = pd.DatetimeIndex(dates)
+    wa = facts[facts["concept"] == WA_SHARES]
+    layers = (
+        ("dei", total_shares_facts(facts), DEI_SHARES, "instant"),
+        ("us-gaap", facts[facts["concept"] == GAAP_SHARES], GAAP_SHARES, "instant"),
+        ("wavg", wa, WA_SHARES, "quarterly"),
+        ("wavg", wa, WA_SHARES, "annual"),
+    )
+    shares = pd.DataFrame(np.nan, index=idx, columns=list(tickers))
+    end_days = shares.copy()
+    filed_days = shares.copy()
+    source = pd.DataFrame(None, index=idx, columns=list(tickers), dtype=object)
+    for name, frame, concept, duration in layers:
+        v, e, f = _layer_panels(frame, concept, idx, tickers, duration, staleness_days)
+        fill = shares.isna() & v.notna()
+        source = source.mask(fill, name)
+        shares, end_days, filed_days = shares.fillna(v), end_days.fillna(e), filed_days.fillna(f)
+    return shares, _date_panel(end_days), _date_panel(filed_days), source
+
+
 def total_shares_dated_panels(
     facts: pd.DataFrame,
     dates: pd.Index,
     tickers: Sequence[str],
     staleness_days: int = STALENESS_DAYS,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """`(shares, ends, filed)` dates x tickers panels (dei total first, then us-gaap).
-
-    `ends` is the date each count refers to and `filed` the date it was filed (NaT where
-    unknown). A count filed after a stock split is already on the post-split basis, so
-    split adjustment must compare ex-dates with `filed`, not `ends`.
-    """
-    idx = pd.DatetimeIndex(dates)
-    parts: list[tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]] = []
-    for frame, concept in (
-        (total_shares_facts(facts), DEI_SHARES),
-        (facts[facts["concept"] == GAAP_SHARES], GAAP_SHARES),
-    ):
-        shares = pit_panel(frame, concept, idx, tickers, "instant", staleness_days)
-        end_days = filed_days = frame
-        if not frame.empty:
-            end_days = frame.assign(val=(frame["end"] - _EPOCH) / pd.Timedelta(days=1))
-            filed_days = frame.assign(val=(frame["filed"] - _EPOCH) / pd.Timedelta(days=1))
-        parts.append(
-            (
-                shares,
-                pit_panel(end_days, concept, idx, tickers, "instant", staleness_days),
-                pit_panel(filed_days, concept, idx, tickers, "instant", staleness_days),
-            )
-        )
-    first, second = parts
-    return (
-        first[0].fillna(second[0]),
-        _date_panel(first[1].fillna(second[1])),
-        _date_panel(first[2].fillna(second[2])),
-    )
+    """`(shares, ends, filed)` of `total_shares_sourced_panels` (source dropped)."""
+    return total_shares_sourced_panels(facts, dates, tickers, staleness_days)[:3]
 
 
 def total_shares_panel(
@@ -607,7 +644,7 @@ def total_shares_panel(
 
     Uses dei cover-page counts summed per (accn, end) across share classes
     (`total_shares_facts`), falling back cell-wise to us-gaap
-    `CommonStockSharesOutstanding` where no cover-page count is known. Same
-    point-in-time and staleness rules as `pit_panel`.
+    `CommonStockSharesOutstanding`, then to the weighted-average basic count (see
+    `total_shares_sourced_panels`). Same point-in-time and staleness rules as `pit_panel`.
     """
     return total_shares_dated_panels(facts, dates, tickers, staleness_days)[0]

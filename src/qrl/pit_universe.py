@@ -47,26 +47,83 @@ EXCHANGES = frozenset({"NYSE", "Nasdaq"})
 DEFAULT_TOP_N = 300
 DEFAULT_MIN_CAP = 2_000_000_000.0
 FIRST_MONTH = pd.Timestamp("2009-01-01")
-MEMBERSHIP_COLUMNS = ["month_end", "ticker", "market_cap", "rank"]
+MEMBERSHIP_COLUMNS = ["month_end", "ticker", "market_cap", "rank", "source"]
 FEATURE_COLUMNS = [
     "month_end",
     "ticker",
     "has_price",
     "shares",
+    "shares_source",
     "market_cap",
     "ni_ttm",
     "gp_ttm",
+    "gp_derivable",
+    "op_inc_ttm",
     "assets",
     "assets_1y",
     "ytd_only",
 ]
 SCREEN_CONCEPTS: dict[str, Iterable[str]] = {
-    "us-gaap": ("Assets", fd.GAAP_SHARES),
+    "us-gaap": ("Assets", fd.GAAP_SHARES, fd.WA_SHARES),
     "dei": (fd.DEI_SHARES,),
 }
+COST_CONCEPTS = ("CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold")
 FEATURE_CONCEPTS: dict[str, Iterable[str]] = {
-    "us-gaap": ("NetIncomeLoss", "GrossProfit", "Assets", fd.GAAP_SHARES),
+    "us-gaap": (
+        "NetIncomeLoss",
+        "GrossProfit",
+        "OperatingIncomeLoss",
+        "Assets",
+        fd.GAAP_SHARES,
+        fd.WA_SHARES,
+        *fd.REVENUE_CONCEPTS,
+        *COST_CONCEPTS,
+    ),
     "dei": (fd.DEI_SHARES,),
+}
+# Companies whose SEC history sits under an older CIK than the one SEC lists today
+# (ticker -> predecessor CIKs). Predecessor facts are used only before the successor's
+# first filing. Each entry was checked against https://data.sec.gov/submissions/CIK<cik>.json
+# (entity name, formerNames) and the cached companyfacts (share counts under the old CIK).
+CIK_PREDECESSORS: dict[str, list[int]] = {
+    # ExxonMobil Holdings Corp (CIK 2115436, ticker XOM, facts from 2026) succeeded
+    # EXXON MOBIL CORP (CIK 34088, formerly EXXON CORP), which holds the 2009-2026 filings.
+    "XOM": [34088],
+    # Alphabet Inc. (CIK 1652044, GOOGL/GOOG, facts from 2014-12) succeeded GOOGLE INC.
+    # (CIK 1288776) in the 2015 holding-company reorganization.
+    "GOOGL": [1288776],
+    "GOOG": [1288776],
+    # The rest came from the coverage report's share-count gap detector (cap >= $50B,
+    # first usable shares > 2 years after the Yahoo price history starts). Each was checked
+    # the same way: the old CIK's submissions JSON names the same business (entity name or
+    # formerNames), its companyfacts carry share counts from 2009-2012 up to about when the
+    # successor CIK's facts begin, and the ticker's Yahoo history is continuous across it.
+    # Lists are newest predecessor first.
+    # Broadcom Inc (1730168, 2018-06) <- Broadcom Pte. Ltd. (1649338, formerly Broadcom Ltd,
+    # filings 2016-03..2018-03) <- Avago Technologies Ltd (1441634, filings to 2015-12).
+    "AVGO": [1649338, 1441634],
+    # Marvell Technology, Inc. (1835632, 2021-06) <- Marvell Technology Group Ltd (1058057).
+    "MRVL": [1058057],
+    # Linde plc (1707925, 2017-10) <- Linde Inc, formerly Praxair Inc (884905).
+    "LIN": [884905],
+    # Walt Disney Co (1744489, 2019-05, formerly TWDC Holdco 613) <- TWDC Enterprises 18 Corp,
+    # formerly The Walt Disney Co (1001039).
+    "DIS": [1001039],
+    # Eaton Corp plc (1551182, 2012-11) <- Eaton Corp (31277).
+    "ETN": [31277],
+    # Medtronic plc (1613103, 2015-02) <- Medtronic Inc (64670).
+    "MDT": [64670],
+    # Intercontinental Exchange, Inc. (1571949, 2013-08) <- Intercontinental Exchange Holdings,
+    # formerly IntercontinentalExchange Inc (1174746).
+    "ICE": [1174746],
+    # Cigna Group (1739940, 2019-02) <- Cigna Holding Co, formerly Cigna Corp (701221).
+    "CI": [701221],
+    # Apollo Global Management, Inc. (1858681, 2022-05) <- Apollo Asset Management, Inc.,
+    # formerly Apollo Global Management, Inc. / LLC (1411494).
+    "APO": [1411494],
+    # Baker Hughes Co (1701605, 2017-07) <- Baker Hughes Holdings LLC, formerly Baker Hughes
+    # Inc (808362).
+    "BKR": [808362],
 }
 VOLUME_WINDOW = 252
 MIN_VOLUME_BARS = 60
@@ -193,11 +250,23 @@ def effective_shares(
 ) -> pd.DataFrame:
     """month_ends x tickers total shares known at t (filed < t), adjusted for later
     splits and, when `volume` (daily, split-adjusted) is given, scale-checked."""
-    shares, _, filed = fd.total_shares_dated_panels(facts, month_ends, list(tickers))
+    return effective_shares_sourced(facts, month_ends, tickers, splits, volume)[0]
+
+
+def effective_shares_sourced(
+    facts: pd.DataFrame,
+    month_ends: pd.DatetimeIndex,
+    tickers: Sequence[str],
+    splits: Mapping[str, pd.Series] | None = None,
+    volume: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """`(effective shares, source)`: as `effective_shares`, plus which chain step
+    ("dei" / "us-gaap" / "wavg") supplied each count (None where no usable count)."""
+    shares, _, filed, source = fd.total_shares_sourced_panels(facts, month_ends, list(tickers))
     eff = split_adjust_shares(shares, filed, splits or {})
     if volume is not None:
         eff = fix_share_scale(eff, monthly_median_volume(volume, month_ends))
-    return eff
+    return eff, source.mask(eff.isna())
 
 
 def market_cap_panel(
@@ -216,13 +285,19 @@ def market_cap_panel(
 # --------------------------------------------------------------------------- ranking
 
 
-def rank_membership(caps: pd.DataFrame, top_n: int = DEFAULT_TOP_N) -> pd.DataFrame:
-    """Long table (month_end, ticker, market_cap, rank): the `top_n` largest market caps
-    in each row of `caps` (rank 1 = largest; ties broken by ticker; NaN/<=0 excluded)."""
+def rank_membership(
+    caps: pd.DataFrame, top_n: int = DEFAULT_TOP_N, sources: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """Long table (month_end, ticker, market_cap, rank, source): the `top_n` largest market
+    caps in each row of `caps` (rank 1 = largest; ties broken by ticker; NaN/<=0 excluded).
+    `source` is the share-count source from `sources` (same shape as `caps`), else ""."""
     rows = []
-    for month_end, row in caps.iterrows():
-        s = row.dropna()
+    aligned = None if sources is None else sources.reindex(index=caps.index, columns=caps.columns)
+    for i in range(len(caps)):
+        month_end = caps.index[i]
+        s = caps.iloc[i].dropna()
         s = s[s > 0].sort_index().sort_values(ascending=False, kind="stable").head(top_n)
+        src = [""] * len(s) if aligned is None else aligned.iloc[i].reindex(s.index)
         rows.append(
             pd.DataFrame(
                 {
@@ -230,6 +305,7 @@ def rank_membership(caps: pd.DataFrame, top_n: int = DEFAULT_TOP_N) -> pd.DataFr
                     "ticker": s.index,
                     "market_cap": s.to_numpy(),
                     "rank": np.arange(1, len(s) + 1),
+                    "source": np.asarray(src, dtype=object),
                 }
             )
         )
@@ -264,7 +340,8 @@ def file_sha256(path: Path) -> str:
 
 def write_membership(membership: pd.DataFrame, path: Path = MEMBERSHIP_PATH) -> str:
     """Write the long table as a deterministic CSV (integer-dollar caps); returns its sha256."""
-    out = membership[MEMBERSHIP_COLUMNS].copy()
+    out = membership.reindex(columns=MEMBERSHIP_COLUMNS)
+    out["source"] = out["source"].fillna("")
     out["market_cap"] = out["market_cap"].round(0).astype("int64")
     out["month_end"] = pd.to_datetime(out["month_end"]).dt.strftime("%Y-%m-%d")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -315,8 +392,11 @@ def screen_payload(payload: Mapping) -> dict:
     has_assets = not assets.empty
     domestic = bool(assets["form"].fillna("").str.startswith(("10-K", "10-Q")).any())
     far = pd.DatetimeIndex([pd.Timestamp("2100-01-01")])
-    shares, ends, filed = fd.total_shares_dated_panels(facts, far, ["X"], staleness_days=10**9)
+    shares, ends, filed, source = fd.total_shares_sourced_panels(
+        facts, far, ["X"], staleness_days=10**9
+    )
     value = float(shares.to_numpy(dtype=float)[0, 0])
+    src = source.iloc[0, 0]
     end = pd.Timestamp(ends.to_numpy(dtype="datetime64[ns]")[0, 0])
     filed_on = pd.Timestamp(filed.to_numpy(dtype="datetime64[ns]")[0, 0])
     return {
@@ -325,6 +405,7 @@ def screen_payload(payload: Mapping) -> dict:
         "shares": None if np.isnan(value) else value,
         "shares_end": None if pd.isna(end) else end.strftime("%Y-%m-%d"),
         "shares_filed": None if pd.isna(filed_on) else filed_on.strftime("%Y-%m-%d"),
+        "shares_source": None if pd.isna(src) else str(src),
     }
 
 
@@ -341,7 +422,7 @@ def screen_ciks(
     done: dict[str, dict] = {}
     if path.exists() and not refresh:
         done = json.loads(path.read_text())
-    todo = [c for c in ciks if "shares_filed" not in done.get(str(c), {})]
+    todo = [c for c in ciks if "shares_source" not in done.get(str(c), {})]
     log(f"screen: {len(ciks) - len(todo)} cached, {len(todo)} to screen")
     cache_dir.mkdir(parents=True, exist_ok=True)
     for i, cik in enumerate(todo, 1):
@@ -355,6 +436,7 @@ def screen_ciks(
                 "shares": None,
                 "shares_end": None,
                 "shares_filed": None,
+                "shares_source": None,
             }
         )
         if i % 250 == 0:
@@ -485,6 +567,27 @@ def _ytd_only(facts: pd.DataFrame, ni_ttm: pd.Series) -> pd.Series:
     return pd.Series(ni_ttm.isna().to_numpy() & (hi > lo), index=ni_ttm.index)
 
 
+def merge_predecessor_facts(facts: pd.DataFrame, predecessor: pd.DataFrame) -> pd.DataFrame:
+    """Facts of a company's own CIK plus its predecessor CIK's facts filed strictly before
+    the successor's first filing (the predecessor's later filings, if any, are dropped so
+    the two histories never overlap). Both frames must carry the same `ticker` label."""
+    if facts.empty:
+        return predecessor
+    cutoff = facts["filed"].min()
+    kept = predecessor[predecessor["filed"] < cutoff]
+    return pd.DataFrame(pd.concat([kept, facts], ignore_index=True))
+
+
+def _ttm_chain(
+    facts: pd.DataFrame, concepts: Sequence[str], month_ends: pd.DatetimeIndex, ticker: str
+) -> pd.Series:
+    """TTM of the first concept in priority order that has a value (cell-wise)."""
+    out = fd.ttm_panel(facts, concepts[0], month_ends, [ticker])
+    for c in concepts[1:]:
+        out = out.fillna(fd.ttm_panel(facts, c, month_ends, [ticker]))
+    return out[ticker]
+
+
 def company_features(
     ticker: str,
     payload: Mapping,
@@ -492,17 +595,26 @@ def company_features(
     month_ends: pd.DatetimeIndex,
     splits: pd.Series | None,
     volume: pd.Series | None = None,
+    predecessors: Sequence[Mapping] = (),
 ) -> pd.DataFrame:
     """One row per month-end (`FEATURE_COLUMNS`) for one company, point-in-time. `shares`
-    is the split-adjusted, scale-checked total (today's share basis)."""
+    is the split-adjusted, scale-checked total (today's share basis) and `shares_source`
+    the chain step that supplied it. `gp_derivable`: GrossProfit TTM, else revenue TTM
+    minus cost-of-revenue TTM, is available. `predecessors`: payloads of older CIKs."""
     facts = fd.parse_companyfacts(ticker, dict(payload), FEATURE_CONCEPTS)
+    for old in predecessors:
+        old_facts = fd.parse_companyfacts(ticker, dict(old), FEATURE_CONCEPTS)
+        facts = merge_predecessor_facts(facts, old_facts)
     px = close.to_frame(ticker)
     vol = None if volume is None else volume.to_frame(ticker)
-    shares = effective_shares(
+    shares, source = effective_shares_sourced(
         facts, month_ends, [ticker], {ticker: splits} if splits is not None else {}, vol
     )
     cap = shares * _month_end_prices(px, month_ends)
     ni = fd.ttm_panel(facts, "NetIncomeLoss", month_ends, [ticker])[ticker]
+    gp = fd.ttm_panel(facts, "GrossProfit", month_ends, [ticker])[ticker]
+    revenue = _ttm_chain(facts, fd.REVENUE_CONCEPTS, month_ends, ticker)
+    cost = _ttm_chain(facts, COST_CONCEPTS, month_ends, ticker)
     prior = fd.pit_panel(facts, "Assets", month_ends - pd.DateOffset(years=1), [ticker])
     prior.index = month_ends
     return pd.DataFrame(
@@ -511,9 +623,14 @@ def company_features(
             "ticker": ticker,
             "has_price": _month_end_prices(px, month_ends)[ticker].notna().to_numpy(),
             "shares": shares[ticker].to_numpy(),
+            "shares_source": source[ticker].to_numpy(),
             "market_cap": cap[ticker].to_numpy(),
             "ni_ttm": ni.to_numpy(),
-            "gp_ttm": fd.ttm_panel(facts, "GrossProfit", month_ends, [ticker])[ticker].to_numpy(),
+            "gp_ttm": gp.to_numpy(),
+            "gp_derivable": (gp.notna() | (revenue.notna() & cost.notna())).to_numpy(),
+            "op_inc_ttm": fd.ttm_panel(facts, "OperatingIncomeLoss", month_ends, [ticker])[
+                ticker
+            ].to_numpy(),
             "assets": fd.pit_panel(facts, "Assets", month_ends, [ticker])[ticker].to_numpy(),
             "assets_1y": prior[ticker].to_numpy(),
             "ytd_only": _ytd_only(facts, ni).to_numpy(),
@@ -604,8 +721,17 @@ def build_features(
     for i, (t, cik) in enumerate(zip(pool["ticker"], pool["cik"], strict=True), 1):
         payload = fd.load_company_payload(int(cik))
         if payload is not None:
+            old = [fd.load_company_payload(c) for c in CIK_PREDECESSORS.get(t, [])]
             frames.append(
-                company_features(t, payload, close[t], month_ends, splits.get(t), volume[t])
+                company_features(
+                    t,
+                    payload,
+                    close[t],
+                    month_ends,
+                    splits.get(t),
+                    volume[t],
+                    [p for p in old if p is not None],
+                )
             )
         if i % 100 == 0:
             log(f"features: {i}/{len(pool)}")
@@ -625,9 +751,10 @@ def make_meta(
             "x Yahoo close at t); a month-end's membership applies from the next trading day to "
             "the next month-end. Candidate pool: today's listed 10-K/10-Q filers with us-gaap "
             "Assets facts (no 20-F/40-F filers) and a current market cap above "
-            "pool_min_market_cap, one ticker per CIK (most liquid class). Companies whose "
-            "history sits under a predecessor CIK, or whose pre-2014 share counts are not in "
-            "SEC companyfacts, are missing in those years."
+            "pool_min_market_cap, one ticker per CIK (most liquid class). Share counts: dei "
+            "cover page, else us-gaap CommonStockSharesOutstanding, else weighted-average basic "
+            "(source column in the CSV); a small CIK_PREDECESSORS map stitches histories split "
+            "across CIKs. Companies SEC companyfacts has no count for are missing in those years."
         ),
         "survivorship_biased": True,
         "top_n": top_n,
@@ -652,8 +779,13 @@ def run_build(
     month_ends = month_end_dates(pd.DatetimeIndex(close.index))
     features = build_features(pool, close, volume, splits, month_ends, log)
     caps = features.pivot(index="month_end", columns="ticker", values="market_cap")
-    membership = rank_membership(caps, top_n)
+    sources = features.pivot(index="month_end", columns="ticker", values="shares_source")
+    membership = rank_membership(caps, top_n, sources)
     sha = write_membership(membership)
+    info = pool[["ticker", "cik", "market_cap"]].assign(
+        first_price=[close[t].first_valid_index() for t in pool["ticker"]]
+    )
+    info.to_csv(cache_dir / "pool.csv", index=False)
     as_of = close.index[-1].strftime("%Y-%m-%d")
     write_universe_meta(make_meta(membership, sha, top_n, min_cap, len(pool), as_of))
     features.to_parquet(cache_dir / "features.parquet")
@@ -679,6 +811,11 @@ def coverage_table(
             "shares": m["shares"].notna(),
             "net_income_ttm": m["ni_ttm"].notna(),
             "gross_profit_ttm": m["gp_ttm"].notna(),
+            "gp_derivable": m["gp_derivable"].fillna(False).astype(bool),
+            "op_income_ttm": m["op_inc_ttm"].notna(),
+            "src_dei": m["source"] == "dei",
+            "src_gaap": m["source"] == "us-gaap",
+            "src_wavg": m["source"] == "wavg",
             "assets": m["assets"].notna(),
             "assets_1y_ago": m["assets_1y"].notna(),
             "ytd_only_10q": m["ytd_only"].fillna(False).astype(bool),
@@ -698,8 +835,49 @@ def coverage_table(
     return out.drop(columns=["in_today_list"])
 
 
+def shares_gap_detector(
+    features: pd.DataFrame,
+    pool_info: pd.DataFrame,
+    min_cap: float = 50e9,
+    gap_years: float = 2.0,
+) -> pd.DataFrame:
+    """Pool companies worth >= `min_cap` today whose first usable share count comes more
+    than `gap_years` after their Yahoo price history starts (price start clipped to the
+    first month-end), or never: likely CIK changes or tagging gaps in SEC companyfacts."""
+    first_ok = features.loc[features["shares"].notna()].groupby("ticker")["month_end"].min()
+    floor = features["month_end"].min()
+    info = pool_info[pool_info["market_cap"] >= min_cap].copy()
+    info["first_price"] = pd.to_datetime(info["first_price"])
+    info["first_shares"] = info["ticker"].map(first_ok)
+    start = info["first_price"].clip(lower=floor)
+    late = (info["first_shares"] - start).dt.days.gt(gap_years * 365.25)
+    out = info[late | info["first_shares"].isna()]
+    return pd.DataFrame(out.sort_values("market_cap", ascending=False).reset_index(drop=True))
+
+
+def format_gaps(gaps: pd.DataFrame) -> list[str]:
+    lines = [
+        "",
+        "Share-count gap detector (pool companies >= $50B today whose first usable share count "
+        "is > 2 years after their Yahoo price history starts, or never):",
+    ]
+    if gaps.empty:
+        return [*lines, "  none"]
+    for r in gaps.to_dict("records"):
+        first = "never" if pd.isna(r["first_shares"]) else f"{r['first_shares']:%Y-%m}"
+        lines.append(
+            f"  {r['ticker']:<7} cik {int(r['cik']):>8}  cap ${r['market_cap'] / 1e9:,.0f}B  "
+            f"price from {r['first_price']:%Y-%m}  shares from {first}"
+        )
+    return lines
+
+
 def format_coverage(
-    table: pd.DataFrame, membership: pd.DataFrame, today_tickers: Sequence[str], meta: Mapping
+    table: pd.DataFrame,
+    membership: pd.DataFrame,
+    today_tickers: Sequence[str],
+    meta: Mapping,
+    gaps: pd.DataFrame | None = None,
 ) -> str:
     today = {fd.normalize_ticker(t) for t in today_tickers}
     ever = set(membership["ticker"])
@@ -710,7 +888,8 @@ def format_coverage(
         f"membership {meta['first_month_end']} .. {meta['last_month_end']}, {len(membership)} rows, "
         f"survivorship_biased={meta['survivorship_biased']}",
         "Per year, averaged over its month-ends. Columns after members_avg are % of members "
-        "(ytd_only_10q: TTM NaN although 10-Qs were filed in the prior year);",
+        "(ytd_only_10q: TTM NaN although 10-Qs were filed in the prior year; gp_derivable: "
+        "GrossProfit TTM, else revenue TTM minus cost-of-revenue TTM; src_*: share-count source).",
         "in_today_avg / not_in_today_avg: members inside / outside config/universe.yaml.",
         "shares/price are 100% for members by construction (no value, no rank). "
         "pool_shares_pct: % of ALL pool companies with a usable total share count; the gap to "
@@ -725,4 +904,5 @@ def format_coverage(
         f"Latest month-end ({meta['last_month_end']}): {len(latest)} members, "
         f"{len(set(latest['ticker']) & today)} in today's list.",
     ]
-    return "\n".join([*head, table.to_string(), *tail]) + "\n"
+    gap_lines = [] if gaps is None else format_gaps(gaps)
+    return "\n".join([*head, table.to_string(), *tail, *gap_lines]) + "\n"

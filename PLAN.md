@@ -536,15 +536,17 @@ Skipped per the owner decision of 2026-09-24 -- see section 8, item 6.
 - Milestones: (1) point-in-time filings data layer `qrl.fundamentals` (DONE),
   (2) point-in-time size universe `qrl.pit_universe` (DONE), (3) factor strategies,
   (4) locked factor config, (5) search and validation.
-- Milestone 2 result: pool of 1,469 surviving NYSE/Nasdaq companies (>= $2B current
+- Milestone 2 result: pool of 1,567 surviving NYSE/Nasdaq companies (>= $2B current
   market cap, 10-K/10-Q us-gaap filers, one ticker per CIK); `config/universes/
   us_large_cap_pit.csv` holds the top-300 by point-in-time market cap for each month-end
   2009-04 to 2026-09 (`config/universe_pit.yaml`, sha256-bound; coverage in
   `research/pit_coverage.txt`). Remaining bias: survivors only (no delisted companies), the
-  pool is picked on today's size (loosely), and some large names are missing in years where
-  SEC companyfacts has no share count (META, BRK-B, GOOGL before 2014; XOM before its 2026
-  new-CIK holding company); Yahoo closes are dividend-adjusted, so early caps run a few
-  percent low.
+  pool is picked on today's size (loosely). Share counts come from a dei / us-gaap /
+  weighted-average chain (source column in the CSV) and a `CIK_PREDECESSORS` map stitches
+  re-organised companies (XOM, GOOGL, AVGO, DIS, ...). Still missing: BRK-B entirely (SEC
+  companyfacts has no count after 2015), and mid-caps before the 2011 XBRL phase-in (see the
+  detector list in the coverage report). Yahoo closes are dividend-adjusted, so early caps
+  run a few percent low.
 
 ---
 

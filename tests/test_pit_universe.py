@@ -82,6 +82,77 @@ def test_total_shares_falls_back_to_us_gaap_and_prefers_dei():
     assert only_gaap.loc["2020-04-21", "BBB"] == 50.0
 
 
+def _wavg(start: str, end: str, filed: str, val: float, ticker: str = "WWW") -> dict:
+    return {
+        "ticker": ticker,
+        "taxonomy": "us-gaap",
+        "concept": fd.WA_SHARES,
+        "start": start,
+        "end": end,
+        "filed": filed,
+        "val": val,
+    }
+
+
+def test_weighted_average_fallback_prefers_latest_quarter_then_annual():
+    facts = _facts(
+        [
+            _wavg("2019-01-01", "2019-12-31", "2020-02-20", 90.0),  # annual
+            _wavg("2020-01-01", "2020-03-31", "2020-05-01", 100.0),  # quarterly
+        ]
+    )
+    shares, _, _, source = fd.total_shares_sourced_panels(facts, INDEX, ["WWW"])
+    assert shares.loc["2020-03-02", "WWW"] == 90.0  # only the annual is public yet
+    assert shares.loc["2020-05-01", "WWW"] == 90.0  # filing day itself: not usable
+    assert shares.loc["2020-05-04", "WWW"] == 100.0  # quarter public -> preferred
+    assert source.loc["2020-05-04", "WWW"] == "wavg"
+    assert pd.isna(source.loc["2020-02-20", "WWW"])
+
+
+def test_share_source_priority_is_dei_then_gaap_then_weighted_average():
+    gaap = {
+        "ticker": "AAA",
+        "taxonomy": "us-gaap",
+        "concept": fd.GAAP_SHARES,
+        "end": "2020-02-01",
+        "filed": "2020-02-10",
+        "val": 50.0,
+        "accn": "g",
+    }
+    facts = _facts(
+        [
+            _wavg("2019-10-01", "2019-12-31", "2020-01-15", 40.0, "AAA"),
+            gaap,
+            _dei("AAA", "2020-03-10", "2020-03-12", 60.0),
+        ]
+    )
+    shares, _, _, source = fd.total_shares_sourced_panels(facts, INDEX, ["AAA"])
+    assert (shares.loc["2020-01-16", "AAA"], source.loc["2020-01-16", "AAA"]) == (40.0, "wavg")
+    assert (shares.loc["2020-02-11", "AAA"], source.loc["2020-02-11", "AAA"]) == (50.0, "us-gaap")
+    assert (shares.loc["2020-03-13", "AAA"], source.loc["2020-03-13", "AAA"]) == (60.0, "dei")
+
+
+def test_predecessor_facts_are_used_only_before_the_successor_first_filing():
+    old = _facts(
+        [
+            _dei("AAA", "2020-01-05", "2020-01-10", 100.0, "o1"),
+            _dei("AAA", "2020-04-05", "2020-04-10", 999.0, "o2"),  # after successor began: dropped
+        ]
+    )
+    new = _facts([_dei("AAA", "2020-03-05", "2020-03-10", 120.0, "n1")])
+    merged = pu.merge_predecessor_facts(new, old)
+    assert sorted(merged["val"]) == [100.0, 120.0]
+    s = fd.total_shares_panel(merged, INDEX, ["AAA"])["AAA"]
+    assert s.loc["2020-02-03"] == 100.0  # from the predecessor CIK
+    assert s.loc["2020-03-11"] == 120.0  # successor takes over
+    assert s.loc["2020-04-13"] == 120.0  # predecessor's later filing is ignored
+
+
+def test_predecessor_map_entries_are_ticker_to_int_ciks():
+    assert pu.CIK_PREDECESSORS["XOM"] == [34088]
+    assert all(isinstance(c, int) for v in pu.CIK_PREDECESSORS.values() for c in v)
+
+
 def test_total_shares_ignores_filings_not_yet_public():
     facts = _facts([_dei("AAA", "2020-02-10", "2020-02-12", 10.0)])
     s = fd.total_shares_panel(facts, INDEX, ["AAA"])["AAA"]
@@ -306,6 +377,7 @@ def test_screen_payload_reports_assets_and_total_shares():
         "shares": 10.0,
         "shares_end": "2020-04-20",
         "shares_filed": "2020-05-01",
+        "shares_source": "dei",
     }
     assert pu.screen_payload({"facts": {}})["has_assets"] is False
 

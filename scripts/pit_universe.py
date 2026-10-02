@@ -57,7 +57,9 @@ def cmd_coverage(_: argparse.Namespace) -> int:
     features = pd.read_parquet(features_path)
     today = load_universe(ROOT / "config" / "universe.yaml")["tickers"]
     table = pu.coverage_table(membership, features, today)
-    text = pu.format_coverage(table, membership, today, meta)
+    pool_path = pu.PIT_CACHE_DIR / "pool.csv"
+    gaps = pu.shares_gap_detector(features, pd.read_csv(pool_path)) if pool_path.exists() else None
+    text = pu.format_coverage(table, membership, today, meta, gaps)
     REPORT_PATH.write_text(text)
     print(text)
     return 0
