@@ -1,0 +1,21 @@
+# Point-in-time size-ranked universe (Phase 4, milestone 2). Written by
+# `pixi run build-pit-universe`; loaded by `qrl.pit_universe.load_pit_universe`,
+# which refuses a membership CSV whose sha256 differs from the one below.
+# An ADDITION beside config/universe.yaml, which is unchanged.
+name: us_large_cap_pit
+as_of: '2026-10-02'
+method: 'Top-N US NYSE/Nasdaq common stocks by point-in-time market cap, re-ranked at each month-end from
+  2009 (total shares from SEC filings with filed < t, summed across share classes, adjusted for later
+  splits and scale-checked against trading volume, x Yahoo close at t); a month-end''s membership applies
+  from the next trading day to the next month-end. Candidate pool: today''s listed 10-K/10-Q filers with
+  us-gaap Assets facts (no 20-F/40-F filers) and a current market cap above pool_min_market_cap, one ticker
+  per CIK (most liquid class). Companies whose history sits under a predecessor CIK, or whose pre-2014
+  share counts are not in SEC companyfacts, are missing in those years.'
+survivorship_biased: true
+top_n: 300
+pool_min_market_cap: 2000000000.0
+pool_size: 1469
+first_month_end: '2009-04-30'
+last_month_end: '2026-09-30'
+membership_file: config/universes/us_large_cap_pit.csv
+membership_sha256: 1e9524ae9284375e7b4225a66a7781b2af22b59c1106a1c4010af9c5a0790415
