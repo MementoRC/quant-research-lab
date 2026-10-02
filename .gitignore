@@ -6,6 +6,7 @@ data/cache/
 site/data/*.json
 !site/data/.gitkeep
 .env
+config/sec.local.yaml
 .pytest_cache/
 .claude/
 .mcp.json
