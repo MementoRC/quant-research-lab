@@ -30,7 +30,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .combined import combined_evaluation
+from .combined import baseline_label, combined_evaluation
 from .criteria import evaluate as evaluate_criteria
 from .data import load_ohlcv, synthetic_ohlcv
 from .engine import run_backtest
@@ -245,7 +245,9 @@ def _combined_outcome(
 ) -> dict:
     """`evaluate_candidate`'s result under the combined pass rule: the
     standalone `metrics` plus prefixed combined/core metrics and
-    `improvement_sharpe`; pass/fail from the combined checks only."""
+    `improvement_sharpe`; pass/fail from the combined checks only. Baseline
+    metrics are prefixed `core_` (combined) or `null_` (combined_null)."""
+    label = baseline_label(combined_cfg)
     ce = combined_evaluation(
         weights,
         data.open_,
@@ -260,7 +262,7 @@ def _combined_outcome(
     merged = {
         **metrics,
         **{f"combined_{k}": v for k, v in ce["combined_metrics"].items()},
-        **{f"core_{k}": v for k, v in ce["core_metrics"].items()},
+        **{f"{label}_{k}": v for k, v in ce[f"{label}_metrics"].items()},
         "improvement_sharpe": ce["improvement_sharpe"],
     }
     return {

@@ -312,6 +312,29 @@ columns) and `Ledger.record_test` refuses any write whose hash differs, so
 changes. `scripts/rebuild_validation.py` does not support combined runs yet
 and exits 2 for them.
 
+**Amendment 2026-10-02: beat-the-null rule (run 5 onward, opt-in):** an
+owner-approved pass rule, `combined_null`, pre-registered in
+`config/combined_null.yaml` (`baseline: null_equal_weight`) before any run
+uses it. Same 80/20 portfolio and machinery as `combined`, but the baseline
+is the core plus the equal-weight null sleeve
+(`qrl.controls.null_sleeve_weights(..., "equal_weight")`, with the same
+delisting exits candidates get) over the run's universe, instead of the core
+alone. Thresholds: sleeve trades >= 10; combined Sharpe >= null-combined
+Sharpe + 0.05; combined max drawdown <= 0.35 and no worse than the
+null-combined one's; combined CAGR >= null-combined CAGR - 0.01. The
+improvement series is candidate-combined minus null-combined daily returns;
+ranking (`improvement_sharpe`), the deflated Sharpe and the correlation
+filter use it exactly as the combined rule uses combined minus core.
+Hash-bound the same way (raw YAML + capital split + core spec, stored in
+`runs.combined_config_hash` with `runs.pass_rule = 'combined_null'`); the
+holdout stays refused.
+
+Why: run 4's equal-weight null sleeve passed the combined rule and ranked at
+percentile 71 of its passing candidates (`scripts/null_sleeve.py`), so that
+rule could not separate strategy from a universe that drifted up. Beating the
+null is the minimum evidence of entry skill. Run 4 keeps its rule and
+verdicts.
+
 ### 2.6 Walk-forward sleeve selection
 
 - Starting each quarter, select the sleeve using only data before that date, trade it

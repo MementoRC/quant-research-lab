@@ -58,6 +58,9 @@ additive nullable columns. NULL `pass_rule` means 'standalone', so runs 1-3
 keep their rule. A combined run stores `config/combined.yaml`'s bound hash at
 seed time, and `record_test` refuses a write whose combined hash differs from
 the run's (NULL for standalone runs), mirroring the criteria-hash guard.
+Amendment 2026-10-02 (run 5) adds pass_rule 'combined_null' ("beat the
+null", `config/combined_null.yaml`), stored and guarded the same way in the
+same `combined_config_hash` column.
 """
 
 from __future__ import annotations
@@ -73,6 +76,8 @@ DEFAULT_LEDGER_PATH = Path("research/ledger.sqlite")
 SCHEMA_VERSION = 1
 
 SEED_LANES = ("A", "B", "C")
+# Pass rules whose config hash is bound to the run (`combined_config_hash`).
+COMBINED_PASS_RULES = ("combined", "combined_null")
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -347,12 +352,13 @@ class Ledger:
         combined_config_hash: str | None = None,
     ) -> int:
         """Start a run. `pass_rule` is None/'standalone' (criteria.yaml's
-        rule) or 'combined', which requires `combined_config_hash`
-        (`qrl.combined.load_combined_config`); that hash then binds every
-        later `record_test` for the run, like `criteria_hash` does."""
-        if pass_rule not in (None, "standalone", "combined"):
+        rule) or 'combined'/'combined_null', which require
+        `combined_config_hash` (`qrl.combined.load_combined_config`); that
+        hash then binds every later `record_test` for the run, like
+        `criteria_hash` does."""
+        if pass_rule not in (None, "standalone", *COMBINED_PASS_RULES):
             raise LedgerError(f"unknown pass_rule {pass_rule!r}")
-        if (pass_rule == "combined") != (combined_config_hash is not None):
+        if (pass_rule in COMBINED_PASS_RULES) != (combined_config_hash is not None):
             raise LedgerError("combined_config_hash is required for, and only for, combined runs")
         commit = git_commit if git_commit is not None else current_git_commit()
         try:
@@ -664,7 +670,7 @@ class Ledger:
         ]
 
     def pass_rule(self, run_id: int) -> str:
-        """The run's pass rule: 'combined', or 'standalone' (also for a NULL
+        """The run's pass rule: 'combined', 'combined_null', or 'standalone' (also for a NULL
         `pass_rule`, i.e. every run seeded before the combined rule existed).
         Raises LedgerError for an unknown run."""
         row = self._conn.execute(

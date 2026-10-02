@@ -24,6 +24,11 @@ pass rule for the run (PLAN.md 2.5, amendment 2026-10-01; `qrl.combined`):
 candidates are graded by whether they improve core + sleeve over the core
 alone, and every later `batch` refuses if `config/combined.yaml`, the
 profile's capital split, or the portfolio's core has changed since seeding.
+
+`seed --pass-rule combined_null` (PLAN.md 2.5, amendment 2026-10-02, run 5)
+pre-registers the "beat the null" rule: same, but graded against core + the
+equal-weight null sleeve over the run's universe, with thresholds in
+`config/combined_null.yaml` (the default `--combined-config` for such runs).
 """
 
 from __future__ import annotations
@@ -40,8 +45,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from qrl.combined import (  # noqa: E402
     PASS_RULES,
     combined_config_for_run,
+    config_path_for,
     core_tickers,
-    load_combined_config,
+    load_rule_config,
 )
 from qrl.criteria import load_criteria  # noqa: E402
 from qrl.ledger import (  # noqa: E402
@@ -170,8 +176,15 @@ def cmd_seed(args: argparse.Namespace) -> int:
     )
 
     combined_hash = None
-    if args.pass_rule == "combined":
-        _, combined_hash = load_combined_config(args.combined_config, args.profile, args.portfolio)
+    if args.pass_rule != "standalone":
+        config_path = config_path_for(args.pass_rule, args.combined_config, ROOT / "config")
+        try:
+            _, combined_hash = load_rule_config(
+                args.pass_rule, config_path, args.profile, args.portfolio
+            )
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 2
 
     description = args.description or f"lane {args.lane}: {', '.join(families)}"
     with Ledger(args.ledger) as ledger:
@@ -189,7 +202,7 @@ def cmd_seed(args: argparse.Namespace) -> int:
         f"data: {data_label}, universe {universe['name']})"
     )
     if combined_hash is not None:
-        print(f"Pass rule: combined (config hash {combined_hash})")
+        print(f"Pass rule: {args.pass_rule} (config hash {combined_hash})")
     return 0
 
 
@@ -321,9 +334,14 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 2
+        rule = run.get("pass_rule") or "standalone"
         try:
             combined = combined_config_for_run(
-                run, args.combined_config, args.profile, args.portfolio
+                run,
+                config_path_for(rule, args.combined_config, ROOT / "config"),
+                args.profile,
+                args.portfolio,
+                universe_tickers=list(universe["tickers"]),
             )
         except ValueError as err:
             print(str(err), file=sys.stderr)
@@ -367,8 +385,8 @@ def cmd_summary(args: argparse.Namespace) -> int:
     else:
         print("Data: not recorded")
     pass_rule = run.get("pass_rule") or "standalone"
-    if pass_rule == "combined":
-        print(f"Pass rule: combined (config hash {run.get('combined_config_hash')})")
+    if run.get("combined_config_hash"):
+        print(f"Pass rule: {pass_rule} (config hash {run.get('combined_config_hash')})")
     else:
         print(f"Pass rule: {pass_rule}")
     print("By family:")
@@ -394,7 +412,8 @@ def cmd_note(args: argparse.Namespace) -> int:
 
 
 def _add_combined_args(parser: argparse.ArgumentParser, *, profile: bool) -> None:
-    parser.add_argument("--combined-config", default=str(ROOT / "config" / "combined.yaml"))
+    # Default: config/combined.yaml or config/combined_null.yaml per pass rule.
+    parser.add_argument("--combined-config", default=None)
     parser.add_argument("--portfolio", default=str(ROOT / "config" / "portfolio.yaml"))
     if profile:
         parser.add_argument("--profile", default=str(ROOT / "config" / "profile.yaml"))
@@ -421,7 +440,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_seed.add_argument("--synthetic", action="store_true")
     p_seed.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
     # Pre-registered per run (PLAN.md 2.5 amendment 2026-10-01): 'combined'
-    # binds config/combined.yaml + the capital split + the core spec by hash.
+    # binds config/combined.yaml + the capital split + the core spec by hash;
+    # 'combined_null' (amendment 2026-10-02, run 5) the same with combined_null.yaml.
     p_seed.add_argument("--pass-rule", choices=PASS_RULES, default="standalone")
     _add_combined_args(p_seed, profile=False)
     p_seed.set_defaults(func=cmd_seed)
