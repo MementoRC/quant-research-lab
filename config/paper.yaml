@@ -1,0 +1,31 @@
+# PRE-REGISTERED forward paper-track rule (PLAN.md 3.2, amendment 2026-10-02).
+# FIXED: must not be edited during the track (owner decision 2026-10-02).
+# Forward-only: weights computed from the close of start_date onward count;
+# earlier positions are forced to zero, so no pre-start return is ever reported.
+start_date: "2026-10-02"
+
+candidates:
+  - {test_id: 1380, run_id: 5, family: trend_pullback}
+  - {test_id: 1369, run_id: 5, family: low_range_close}
+  - {test_id: 1046, run_id: 3, family: regime_pullback}
+
+# Equal-weight (daily-rebalanced null sleeve, qrl.controls) of the same
+# tickers as each candidate, run through the same engine and costs.
+baseline: equal_weight
+
+reviews_months: [3, 6, 12]
+
+kill_rules:
+  # Dropped at any time if paper max drawdown > multiple x the candidate's
+  # research-period max_drawdown recorded in the ledger.
+  drawdown_multiple: 1.5
+  # At the 6-month review: dropped if cumulative paper return minus baseline
+  # cumulative return is below this (-0.05 = 5 percentage points).
+  underperformance_review_month: 6
+  underperformance_min_excess: -0.05
+
+# Only a candidate still ahead of its baseline (cumulative) at the 12-month
+# review and not dropped is "eligible for real-money consideration".
+promote_rule:
+  review_month: 12
+  min_excess: 0.0

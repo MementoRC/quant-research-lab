@@ -491,6 +491,15 @@ private. It must never be wired into `scripts/build_site.py` or any public
 page (see 3.4). Exit code is 0 when healthy and 1 otherwise, so cron or CI can
 act on it.
 
+**Amendment 2026-10-02: forward paper track.** Owner pre-registered
+`config/paper.yaml` before any forward data: ledger tests 1380 (trend_pullback,
+run 5), 1369 (low_range_close, run 5), 1046 (regime_pullback, run 3), start
+2026-10-02. Forward-only: weights before start_date are zero, so no earlier
+return is produced; the 2023-01-01..2026-10-01 holdout is untouched. Baseline:
+equal-weight of the candidate's tickers. Kill: paper max drawdown > 1.5x research
+max drawdown, or excess vs baseline < -5pp at 6 months. Ahead of baseline at 12
+months and not dropped = eligible for real-money consideration. `pixi run paper-track`.
+
 ### 3.3 News layer (optional)
 
 Skipped per the owner decision of 2026-09-24 -- see section 8, item 6.
