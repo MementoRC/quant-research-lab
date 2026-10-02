@@ -13,6 +13,8 @@ other agent must follow them. Humans should too.
   amendment 2026-10-02, run 5). Same hash binding as `combined.yaml`
   (`capital_split` and the core included); `search batch` and `validate`
   refuse if the hash changed.
+- `config/paper.yaml` — fixed for the duration of the paper track
+  (pre-registered 2026-10-02).
 - `src/qrl/engine.py`, `src/qrl/metrics.py`, `src/qrl/periods.py`, `src/qrl/checks.py`.
 - Existing tests in `tests/`. You may add tests; do not weaken or delete them.
 
