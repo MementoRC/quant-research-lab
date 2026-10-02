@@ -14,34 +14,70 @@ Pure library code: every backtest goes through `qrl.engine.run_backtest` and
 every metric through `qrl.metrics.compute_metrics`, with the same costs and
 period slicing (`qrl.periods.slice_period`) as the standalone path. The
 holdout is refused outright, exactly like `qrl.search.evaluate_candidate`.
+
+Amendment 2026-10-02 (run 5): the `combined_null` ("beat the null") rule,
+thresholds in `config/combined_null.yaml` (`baseline: null_equal_weight`).
+Same machinery, but the baseline is core + the equal-weight null sleeve
+(`qrl.controls.null_sleeve_weights`) over the run's universe in the sleeve
+slot, instead of the core alone; the improvement series is candidate-combined
+minus null-combined returns. Hash-bound identically. A config with no
+`baseline` key is the original core-alone rule, unchanged.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 import pandas as pd
 import yaml
 
+from .controls import null_sleeve_weights
 from .engine import run_backtest
+from .ledger import COMBINED_PASS_RULES
 from .metrics import compute_metrics
 from .periods import slice_period
 from .portfolio import combine_portfolio, load_portfolio_config
 from .strategies import REGISTRY, SLEEVE_REGISTRY
+from .tradability import exit_before_delisting
 
-PASS_RULES = ("standalone", "combined")
+PASS_RULES = ("standalone", *COMBINED_PASS_RULES)
+NULL_BASELINE = "null_equal_weight"
+# Default config file (under config/) per combined-family pass rule.
+CONFIG_FILES = {"combined": "combined.yaml", "combined_null": "combined_null.yaml"}
+# Baseline label per pass rule: prefixes stored metrics (`core_*`/`null_*`)
+# and names the drawdown check and its config flag.
+_RULE_LABELS = {"combined": "core", "combined_null": "null"}
 
 _ALL_SPECS = {**REGISTRY, **SLEEVE_REGISTRY}
-_REQUIRED_KEYS = {
+_COMMON_KEYS = {
     "sleeve_min_trades",
     "min_sharpe_improvement",
     "max_drawdown",
-    "drawdown_no_worse_than_core",
     "max_cagr_shortfall",
     "rank_by",
 }
+
+
+def baseline_label(cfg: dict) -> str:
+    """'core' (no `baseline` key: core alone at 100%) or 'null'
+    (`baseline: null_equal_weight`: core + equal-weight null sleeve)."""
+    baseline = cfg.get("baseline")
+    if baseline is None:
+        return "core"
+    if baseline == NULL_BASELINE:
+        return "null"
+    raise ValueError(f"unknown combined baseline {baseline!r}; expected {NULL_BASELINE!r}")
+
+
+def config_path_for(rule: str, override: str | Path | None, config_dir: str | Path) -> Path:
+    """`override` if given, else `config_dir`'s default file for `rule`
+    (combined.yaml for anything that is not combined_null)."""
+    if override:
+        return Path(override)
+    return Path(config_dir) / CONFIG_FILES.get(rule, CONFIG_FILES["combined"])
 
 
 def load_combined_config(
@@ -54,12 +90,17 @@ def load_combined_config(
     Returns `(cfg, hash)`. `cfg` is the YAML mapping with two added keys,
     `capital_split` and `core`. The 12-character hash covers the YAML's raw
     bytes plus a canonical JSON of that capital split and core, so editing
-    any of the three is visible to the run guard.
+    any of the three is visible to the run guard. Also loads
+    `config/combined_null.yaml` (`baseline: null_equal_weight`, whose drawdown
+    flag is `drawdown_no_worse_than_null`).
     """
     raw = Path(path).read_bytes()
     cfg = yaml.safe_load(raw)
-    if not isinstance(cfg, dict) or not _REQUIRED_KEYS.issubset(cfg):
-        raise ValueError(f"{path}: expected a mapping with {sorted(_REQUIRED_KEYS)}.")
+    if not isinstance(cfg, dict):
+        raise ValueError(f"{path}: expected a mapping.")
+    required = _COMMON_KEYS | {f"drawdown_no_worse_than_{baseline_label(cfg)}"}
+    if not required.issubset(cfg):
+        raise ValueError(f"{path}: expected a mapping with {sorted(required)}.")
     profile = yaml.safe_load(Path(profile_path).read_text())
     split = profile["capital_split"]
     capital_split = {"core": float(split["core"]), "sleeve": float(split["sleeve"])}
@@ -77,19 +118,43 @@ def combined_config_for_run(
     path: str | Path,
     profile_path: str | Path,
     portfolio_path: str | Path,
+    *,
+    universe_tickers: Sequence[str] | None = None,
 ) -> tuple[dict, str] | None:
-    """`(cfg, hash)` for a combined-rule run (a `Ledger.list_runs` row), or
+    """`(cfg, hash)` for a combined-family run (a `Ledger.list_runs` row), or
     None for a standalone one (`pass_rule` 'standalone' or NULL). Raises
     `ValueError` if the current combined config hash differs from the one
     the run was seeded with -- the scripts refuse to continue on that,
-    mirroring the criteria-hash guard."""
-    if (run.get("pass_rule") or "standalone") != "combined":
+    mirroring the criteria-hash guard.
+
+    A `combined_null` run needs `universe_tickers` (the run's universe; its
+    data-source fingerprint binds them): they are added to `cfg` as
+    `null_tickers`, the null sleeve's tickers."""
+    rule = run.get("pass_rule") or "standalone"
+    if rule not in COMBINED_PASS_RULES:
         return None
-    cfg, digest = load_combined_config(path, profile_path, portfolio_path)
+    cfg, digest = load_rule_config(rule, path, profile_path, portfolio_path)
     if digest != run.get("combined_config_hash"):
         raise ValueError(
             f"Combined config hash has changed since run {run.get('run_id')} started "
             f"({run.get('combined_config_hash')!r} -> {digest!r}); refusing to continue."
+        )
+    if baseline_label(cfg) == "null":
+        if not universe_tickers:
+            raise ValueError(f"run {run.get('run_id')} (combined_null) needs universe tickers.")
+        cfg = {**cfg, "null_tickers": list(universe_tickers)}
+    return cfg, digest
+
+
+def load_rule_config(
+    rule: str, path: str | Path, profile_path: str | Path, portfolio_path: str | Path
+) -> tuple[dict, str]:
+    """`load_combined_config`, refusing a file whose `baseline` does not
+    match `rule` (e.g. combined.yaml for a combined_null run)."""
+    cfg, digest = load_combined_config(path, profile_path, portfolio_path)
+    if baseline_label(cfg) != _RULE_LABELS[rule]:
+        raise ValueError(
+            f"{path}: baseline {cfg.get('baseline')!r} does not match pass rule {rule!r}."
         )
     return cfg, digest
 
@@ -112,8 +177,11 @@ def build_core_weights(core: dict, close: pd.DataFrame) -> tuple[list[str], pd.D
 def combined_checks(
     combined_metrics: dict, core_metrics: dict, sleeve_trades: int, cfg: dict
 ) -> list[dict]:
-    """Grade combined vs core-alone metrics against `cfg`. Each check's
-    `rule` is its failure code."""
+    """Grade combined vs baseline metrics against `cfg`. `core_metrics` is
+    the baseline's: core alone, or core + null sleeve for a
+    `baseline: null_equal_weight` cfg (drawdown check/flag then named
+    `..._null`). Each check's `rule` is its failure code."""
+    label = baseline_label(cfg)
     comb_sharpe, core_sharpe = combined_metrics["sharpe"], core_metrics["sharpe"]
     comb_dd, core_dd = combined_metrics["max_drawdown"], core_metrics["max_drawdown"]
     comb_cagr, core_cagr = combined_metrics["cagr"], core_metrics["cagr"]
@@ -139,10 +207,10 @@ def combined_checks(
             "passed": comb_dd <= cfg["max_drawdown"],
         },
     ]
-    if cfg["drawdown_no_worse_than_core"]:
+    if cfg[f"drawdown_no_worse_than_{label}"]:
         checks.append(
             {
-                "rule": "combined_drawdown_vs_core",
+                "rule": f"combined_drawdown_vs_{label}",
                 "value": round(comb_dd, 3),
                 "threshold": f"<= {round(core_dd, 3)}",
                 "passed": comb_dd <= core_dd,
@@ -173,6 +241,34 @@ def _sleeve_trades(
     return int(compute_metrics(result.returns, result.turnover, result.executed).get("trades", 0))
 
 
+def null_baseline_sleeve(
+    open_: pd.DataFrame, close: pd.DataFrame, tickers: Sequence[str]
+) -> pd.DataFrame:
+    """The combined_null baseline's sleeve: the equal-weight null over
+    `tickers`, with the same delisting exits a candidate gets in
+    `qrl.search.evaluate_candidate` (and `scripts/null_sleeve.py` applies)."""
+    cols = list(tickers)
+    weights = null_sleeve_weights(close, cols, "equal_weight")
+    return exit_before_delisting(weights, open_[cols], close[cols])
+
+
+def _baseline_weights(
+    core_weights: pd.DataFrame,
+    core_cols: list[str],
+    open_: pd.DataFrame,
+    close: pd.DataFrame,
+    capital_split: dict[str, float],
+    cfg: dict,
+) -> tuple[list[str], pd.DataFrame]:
+    """Columns and full-history weights of the portfolio the candidate is
+    graded against: the core alone, or core + null sleeve."""
+    if baseline_label(cfg) == "core":
+        return core_cols, core_weights
+    null = null_baseline_sleeve(open_, close, cfg["null_tickers"])
+    pw = combine_portfolio(core_weights, [null], capital_split)
+    return list(pw.combined.columns), pw.combined
+
+
 def combined_evaluation(
     sleeve_weights: pd.DataFrame,
     open_: pd.DataFrame,
@@ -199,9 +295,16 @@ def combined_evaluation(
     `improvement` (combined minus core-alone daily returns),
     `improvement_sharpe` (annualised by `compute_metrics`), `sleeve_trades`,
     `checks`, `passed`, and `failure_reasons` (comma-joined codes or None).
+
+    With a `baseline: null_equal_weight` cfg (combined_null; needs
+    `cfg["null_tickers"]`), the baseline is core + the equal-weight null
+    sleeve at the same capital split instead of the core alone; its results
+    are keyed `null_metrics`/`null_returns` and `improvement` is
+    candidate-combined minus null-combined returns.
     """
     if period == "holdout":
         raise ValueError("combined_evaluation refuses period='holdout'; the holdout stays sealed.")
+    label = baseline_label(cfg)
     cost_bps = criteria["costs"]["bps_per_unit_turnover"]
     core_tickers, core_weights = build_core_weights(core, close)
     pw = combine_portfolio(core_weights, [sleeve_weights], capital_split)
@@ -209,29 +312,32 @@ def combined_evaluation(
     combined = run_backtest(
         open_[cols], close[cols], slice_period(pw.combined, criteria, period), cost_bps=cost_bps
     )
-    core_alone = run_backtest(
-        open_[core_tickers],
-        close[core_tickers],
-        slice_period(core_weights, criteria, period),
+    base_cols, base_weights = _baseline_weights(
+        core_weights, core_tickers, open_, close, capital_split, cfg
+    )
+    baseline = run_backtest(
+        open_[base_cols],
+        close[base_cols],
+        slice_period(base_weights, criteria, period),
         cost_bps=cost_bps,
     )
-    common = combined.returns.index.intersection(core_alone.returns.index)
+    common = combined.returns.index.intersection(baseline.returns.index)
     combined_returns = combined.returns.loc[common]
-    core_returns = core_alone.returns.loc[common]
+    base_returns = baseline.returns.loc[common]
     combined_metrics = compute_metrics(combined_returns, combined.turnover, combined.executed)
-    core_metrics = compute_metrics(core_returns, core_alone.turnover, core_alone.executed)
-    improvement = combined_returns - core_returns
+    base_metrics = compute_metrics(base_returns, baseline.turnover, baseline.executed)
+    improvement = combined_returns - base_returns
     improvement_sharpe = float(compute_metrics(improvement).get("sharpe", 0.0))
     if sleeve_trades is None:
         sleeve_trades = _sleeve_trades(sleeve_weights, open_, close, criteria, period, cost_bps)
 
-    checks = combined_checks(combined_metrics, core_metrics, sleeve_trades, cfg)
+    checks = combined_checks(combined_metrics, base_metrics, sleeve_trades, cfg)
     failed = [c["rule"] for c in checks if not c["passed"]]
     return {
         "combined_metrics": combined_metrics,
-        "core_metrics": core_metrics,
+        f"{label}_metrics": base_metrics,
         "combined_returns": combined_returns,
-        "core_returns": core_returns,
+        f"{label}_returns": base_returns,
         "improvement": improvement,
         "improvement_sharpe": improvement_sharpe,
         "sleeve_trades": sleeve_trades,

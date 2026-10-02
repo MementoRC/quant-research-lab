@@ -13,6 +13,11 @@ This is a diagnostic, not a candidate. The ledger is opened read-only
 count is untouched), nothing is written to tracked files, and only the
 research period is evaluated. Exits 2 on a standalone run, a combined config
 hash mismatch, a data-source mismatch, or an unknown run/ledger.
+
+On a `combined_null` run (amendment 2026-10-02) both nulls are graded by the
+beat-the-null rule. The `equal_weight` null IS that rule's baseline, so it
+fails by construction (zero improvement series); `equal_weight_trend` is the
+informative check there.
 """
 
 from __future__ import annotations
@@ -28,11 +33,21 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from qrl.combined import combined_config_for_run, combined_evaluation, core_tickers  # noqa: E402
+from qrl.combined import (  # noqa: E402
+    baseline_label,
+    combined_config_for_run,
+    combined_evaluation,
+    config_path_for,
+    core_tickers,
+)
 from qrl.controls import NULL_KINDS, null_sleeve_weights  # noqa: E402
 from qrl.criteria import load_criteria  # noqa: E402
 from qrl.engine import run_backtest  # noqa: E402
-from qrl.ledger import DEFAULT_LEDGER_PATH, data_source_fingerprint  # noqa: E402
+from qrl.ledger import (  # noqa: E402
+    COMBINED_PASS_RULES,
+    DEFAULT_LEDGER_PATH,
+    data_source_fingerprint,
+)
 from qrl.metrics import compute_metrics  # noqa: E402
 from qrl.periods import slice_period  # noqa: E402
 from qrl.search import SearchData  # noqa: E402
@@ -122,10 +137,13 @@ def _run_kind(
         period="research",
         sleeve_trades=int(sleeve.get("trades", 0)),
     )
+    label = baseline_label(combined_cfg)
+    rule = "combined" if label == "core" else "combined_null"
     status = "PASS" if ce["passed"] else f"FAIL ({ce['failure_reasons']})"
-    print(f"\n[{kind}] combined rule: {status}")
+    print(f"\n[{kind}] {rule} rule: {status}")
     print(f"  Combined   : {_fmt(ce['combined_metrics'])}")
-    print(f"  Core alone : {_fmt(ce['core_metrics'])}")
+    base_name = "Core alone " if label == "core" else "Core + null"
+    print(f"  {base_name}: {_fmt(ce[f'{label}_metrics'])}")
     print(f"  improvement_sharpe: {ce['improvement_sharpe']:.3f}")
     print(f"  Sleeve alone: {_fmt(sleeve)}  trades {int(sleeve.get('trades', 0))}")
     _print_comparison(float(ce["improvement_sharpe"]), tests)
@@ -149,11 +167,20 @@ def cmd_null_sleeve(args: argparse.Namespace) -> int:
     if run is None:
         print(f"Unknown run {args.run}", file=sys.stderr)
         return 2
-    if (run.get("pass_rule") or "standalone") != "combined":
+    rule = run.get("pass_rule") or "standalone"
+    if rule not in COMBINED_PASS_RULES:
         print(f"Run {args.run} is not a combined-rule run; refusing.", file=sys.stderr)
         return 2
+    universe = load_universe(args.universe)
+    tickers = list(universe["tickers"])
     try:
-        combined = combined_config_for_run(run, args.combined_config, args.profile, args.portfolio)
+        combined = combined_config_for_run(
+            run,
+            config_path_for(rule, args.combined_config, ROOT / "config"),
+            args.profile,
+            args.portfolio,
+            universe_tickers=tickers,
+        )
     except ValueError as err:
         print(str(err), file=sys.stderr)
         return 2
@@ -162,8 +189,6 @@ def cmd_null_sleeve(args: argparse.Namespace) -> int:
     combined_cfg, combined_hash = combined
 
     criteria, _ = load_criteria(args.criteria)
-    universe = load_universe(args.universe)
-    tickers = list(universe["tickers"])
     fingerprint = data_source_fingerprint(args.synthetic, universe["name"], tickers)
     if run["data_source"] is None:
         print(
@@ -198,7 +223,8 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ledger", default=str(ROOT / DEFAULT_LEDGER_PATH))
     ap.add_argument("--criteria", default=str(ROOT / "config" / "criteria.yaml"))
     ap.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
-    ap.add_argument("--combined-config", default=str(ROOT / "config" / "combined.yaml"))
+    # Default: config/combined.yaml or config/combined_null.yaml per pass rule.
+    ap.add_argument("--combined-config", default=None)
     ap.add_argument("--profile", default=str(ROOT / "config" / "profile.yaml"))
     ap.add_argument("--portfolio", default=str(ROOT / "config" / "portfolio.yaml"))
     ap.set_defaults(func=cmd_null_sleeve)

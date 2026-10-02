@@ -595,7 +595,7 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
         run, code = _verify(conn, args, criteria_hash, universe)
         if code is not None:
             return code
-        if run is not None and run.get("pass_rule") == "combined":
+        if run is not None and run.get("pass_rule") in ("combined", "combined_null"):
             print(
                 f"Run {args.run} uses the combined pass rule; rebuild_validation is "
                 "not supported for combined runs yet.",

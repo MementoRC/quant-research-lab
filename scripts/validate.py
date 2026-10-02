@@ -13,7 +13,9 @@ Exits non-zero only on a real error (an unknown run id, a data-source
 mismatch, or -- for a combined pass-rule run -- a combined config hash that
 changed since seeding); "nothing accepted" is a valid, non-error outcome and
 exits 0. Combined runs are ranked, graded and deflated on the improvement
-over the core alone (see `qrl.validation.validate_survivors`).
+over the core alone (see `qrl.validation.validate_survivors`); combined_null
+runs (amendment 2026-10-02) on the improvement over core + the equal-weight
+null sleeve.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from qrl.combined import combined_config_for_run, core_tickers  # noqa: E402
+from qrl.combined import combined_config_for_run, config_path_for, core_tickers  # noqa: E402
 from qrl.criteria import load_criteria  # noqa: E402
 from qrl.ledger import (  # noqa: E402
     DEFAULT_LEDGER_PATH,
@@ -115,19 +117,24 @@ def cmd_validate(args: argparse.Namespace) -> int:
         check_result = _check_data_source(ledger, args.run, data_source)
         if check_result is not None:
             return check_result
+        rule = run.get("pass_rule") or "standalone"
+        sleeve_tickers = list(universe["tickers"])
         try:
             combined = combined_config_for_run(
-                run, args.combined_config, args.profile, args.portfolio
+                run,
+                config_path_for(rule, args.combined_config, ROOT / "config"),
+                args.profile,
+                args.portfolio,
+                universe_tickers=sleeve_tickers,
             )
         except ValueError as err:
             print(str(err), file=sys.stderr)
             return 2
         combined_cfg, combined_hash = combined if combined is not None else (None, None)
 
-        sleeve_tickers = list(universe["tickers"])
         needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
         if combined_cfg is not None:
-            print(f"Pass rule: combined (config hash {combined_hash})")
+            print(f"Pass rule: {rule} (config hash {combined_hash})")
             needed |= set(core_tickers(combined_cfg["core"]))
         data = SearchData.load(sorted(needed), synthetic=args.synthetic)
         bench = compute_benchmark_metrics(data, criteria)
@@ -165,8 +172,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--criteria", default=str(ROOT / "config" / "criteria.yaml"))
     ap.add_argument("--validation-config", default=str(ROOT / "config" / "validation.yaml"))
     ap.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
-    # Only read for runs seeded with --pass-rule combined (qrl.combined).
-    ap.add_argument("--combined-config", default=str(ROOT / "config" / "combined.yaml"))
+    # Only read for runs seeded with --pass-rule combined/combined_null
+    # (qrl.combined); default config/combined.yaml or combined_null.yaml per rule.
+    ap.add_argument("--combined-config", default=None)
     ap.add_argument("--profile", default=str(ROOT / "config" / "profile.yaml"))
     ap.add_argument("--portfolio", default=str(ROOT / "config" / "portfolio.yaml"))
     ap.set_defaults(func=cmd_validate)

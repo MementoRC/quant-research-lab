@@ -9,6 +9,10 @@ other agent must follow them. Humans should too.
   2026-10-01). Its hash also covers `profile.yaml`'s `capital_split` and
   `portfolio.yaml`'s core, so do not change those during a combined run
   either; `search batch` and `validate` refuse if the hash changed.
+- `config/combined_null.yaml` — the beat-the-null pass rule (PLAN.md 2.5,
+  amendment 2026-10-02, run 5). Same hash binding as `combined.yaml`
+  (`capital_split` and the core included); `search batch` and `validate`
+  refuse if the hash changed.
 - `src/qrl/engine.py`, `src/qrl/metrics.py`, `src/qrl/periods.py`, `src/qrl/checks.py`.
 - Existing tests in `tests/`. You may add tests; do not weaken or delete them.
 

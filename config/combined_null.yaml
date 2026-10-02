@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# COMBINED_NULL ("BEAT THE NULL") PASS RULE — written BEFORE any run uses it
+# (PLAN.md section 2.5, "Amendment 2026-10-02: beat-the-null rule (run 5)").
+#
+# Same 80/20 portfolio as config/combined.yaml (config/profile.yaml's
+# capital_split, config/portfolio.yaml's core), but the baseline is NOT the
+# core alone: it is the core plus the equal-weight null sleeve
+# (qrl.controls.null_sleeve_weights(..., "equal_weight")) over the run's own
+# universe in the sleeve slot. A sleeve candidate passes only if it improves
+# the combined portfolio relative to that null-combined portfolio. Opt-in per
+# run: only runs seeded with `search seed --pass-rule combined_null` (run 5
+# onward) are judged by this file.
+#
+# Why: run 4's equal-weight null sleeve passed the combined rule and ranked at
+# percentile 71 of run 4's passing candidates, so that rule could not tell a
+# strategy apart from the universe drifting up.
+#
+# Rules for this file:
+#   * Change it only in its own commit, with a reason in the commit message.
+#   * Never change it after looking at results in order to make something pass.
+#   * Its hash (qrl.combined.load_combined_config) also covers the capital
+#     split and the core spec actually used, and is bound to each
+#     combined_null run at seed time: any change here, to profile.yaml's
+#     capital_split, or to portfolio.yaml's core makes `search batch` and
+#     `validate` refuse.
+# ---------------------------------------------------------------------------
+version: 1
+
+# Portfolio the candidate is graded against: core + equal-weight null sleeve.
+baseline: null_equal_weight
+
+# Minimum trade days of the sleeve candidate on its own (same meaning as
+# criteria.yaml's min_trades): too few trades means too little evidence.
+sleeve_min_trades: 10
+
+# Combined Sharpe must be >= null-combined Sharpe + this.
+min_sharpe_improvement: 0.05
+
+# Combined portfolio max drawdown cap (positive fraction; 0.35 = 35%).
+max_drawdown: 0.35
+
+# Combined max drawdown must also be no worse than the null-combined one's.
+drawdown_no_worse_than_null: true
+
+# Combined CAGR must be >= null-combined CAGR - this.
+max_cagr_shortfall: 0.01
+
+# Metric research survivors are ranked by before validation: the Sharpe of
+# candidate-combined minus null-combined daily returns. Validation keeps
+# validation.yaml's neighbourhood and min_deflated_sharpe thresholds.
+rank_by: improvement_sharpe
