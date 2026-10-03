@@ -12,11 +12,14 @@ import pytest
 
 from qrl.stress import (
     Hypothetical,
+    PortfolioDef,
     Window,
     asset_class,
     frozen_loss,
     hypothetical_loss,
     load_stress_config,
+    priced,
+    replay_loss,
     window_drawdown,
 )
 
@@ -176,3 +179,68 @@ def test_frozen_loss_no_prices_in_window_raises():
     close = pd.DataFrame({"SPY": [100.0]}, index=pd.bdate_range("2010-01-04", periods=1))
     with pytest.raises(ValueError, match="no prices"):
         frozen_loss(pd.Series({"SPY": 1.0}), close, _win("2001-01-08", "2001-01-09"))
+
+
+def _frames(close: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    return {"open": close.copy(), "close": close}
+
+
+def _hold(ticker: str, weight: float = 1.0):
+    def build(data, keep):
+        return pd.DataFrame({ticker: weight}, index=data["close"].index)
+
+    return build
+
+
+def test_priced_requires_every_day():
+    idx = pd.bdate_range("2020-01-01", periods=3)
+    close = pd.DataFrame({"A": [1.0, 1.0, 1.0], "B": [float("nan"), 1.0, 1.0]}, index=idx)
+    assert priced(close, ["A", "B", "C"]) == ["A"]
+
+
+def test_replay_loss_measures_inside_window_only():
+    idx = pd.bdate_range("2020-01-01", periods=10)  # Jan 1,2,3,6,7,8,9,10,13,14
+    c = [100, 100, 100, 100, 90, 80, 85, 100, 10, 10]  # crash on Jan 13 is AFTER the window
+    close = pd.DataFrame({"A": [float(x) for x in c]}, index=idx)
+    p = PortfolioDef("p", _hold("A"), core_tickers=["A"], sleeve_universe=[], candidate=False)
+    loss, detail = replay_loss(_frames(close), p, _win("2020-01-07", "2020-01-10"))
+    # in-window equity 1, .9, .8, .85, 1.0 (no costs: only trade is Jan 2)
+    assert loss == pytest.approx(0.20)
+    assert detail == {"sleeve_dropped": 0, "sleeve_dropped_share": 0.0}
+
+
+def test_replay_frames_end_at_window_end():
+    idx = pd.bdate_range("2020-01-01", periods=10)
+    close = pd.DataFrame({"A": 100.0}, index=idx)
+    seen = {}
+
+    def build(data, keep):
+        seen["last"] = data["close"].index.max()
+        return pd.DataFrame({"A": 1.0}, index=data["close"].index)
+
+    p = PortfolioDef("p", build, core_tickers=["A"], sleeve_universe=[], candidate=False)
+    replay_loss(_frames(close), p, _win("2020-01-07", "2020-01-08"))
+    assert seen["last"] == pd.Timestamp("2020-01-08")
+
+
+def test_replay_drops_unpriced_sleeve_tickers():
+    idx = pd.bdate_range("2020-01-01", periods=5)
+    close = pd.DataFrame({"A": 100.0, "S1": 50.0, "S2": [float("nan")] + [50.0] * 4}, index=idx)
+    got = {}
+
+    def build(data, keep):
+        got["keep"] = keep
+        return pd.DataFrame({"A": 1.0}, index=data["close"].index)
+
+    p = PortfolioDef("p", build, core_tickers=["A"], sleeve_universe=["S1", "S2"], candidate=True)
+    _, detail = replay_loss(_frames(close), p, _win("2020-01-06", "2020-01-07"))
+    assert got["keep"] == ["S1"]
+    assert detail == {"sleeve_dropped": 1, "sleeve_dropped_share": 0.5}
+
+
+def test_replay_unpriced_core_raises():
+    idx = pd.bdate_range("2020-01-01", periods=5)
+    close = pd.DataFrame({"A": [float("nan")] + [100.0] * 4}, index=idx)
+    p = PortfolioDef("p", _hold("A"), core_tickers=["A"], sleeve_universe=[], candidate=False)
+    with pytest.raises(ValueError, match="core"):
+        replay_loss(_frames(close), p, _win("2020-01-06", "2020-01-07"))

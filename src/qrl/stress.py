@@ -11,12 +11,14 @@ replay frames are truncated by index at the window end.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
 import yaml
 
+from .engine import run_backtest
 from .metrics import drawdown
 
 SHOCK_CLASSES = ("equity", "gold")
@@ -135,3 +137,46 @@ def frozen_loss(weights: pd.Series, close: pd.DataFrame, window: Window) -> tupl
             path = px[EQUITY_PROXY].ffill()
         value += wt * path / path.iloc[0]
     return window_drawdown(value.pct_change().iloc[1:]), {"proxied_share": proxied}
+
+
+WARMUP = pd.DateOffset(years=2)  # >= regime_pullback's 250-day lookback; see spec
+
+
+@dataclass(frozen=True)
+class PortfolioDef:
+    """A portfolio to stress. `build(data, sleeve_keep)` returns COMBINED
+    target weights (fractions of total capital) for the frames in `data`,
+    using only `sleeve_keep` from the sleeve's universe."""
+
+    name: str
+    build: Callable[[dict[str, pd.DataFrame], list[str]], pd.DataFrame]
+    core_tickers: list[str]
+    sleeve_universe: list[str] = field(default_factory=list)
+    candidate: bool = False  # True if a searched paper-track candidate is in the sleeve
+
+
+def priced(close: pd.DataFrame, tickers: list[str]) -> list[str]:
+    """Tickers with a price on every row of `close`."""
+    return [t for t in tickers if t in close.columns and bool(close[t].notna().all())]
+
+
+def replay_loss(
+    data: dict[str, pd.DataFrame], portfolio: PortfolioDef, window: Window
+) -> tuple[float, dict]:
+    """Run the portfolio's rules through the window: frames are truncated by
+    index at the window end (nothing later enters) and start WARMUP before
+    the window start. Returns (worst drawdown inside the window, detail).
+    Sleeve tickers not priced on every day are dropped; an unpriced core
+    ticker raises ValueError (the cell becomes `unavailable`)."""
+    frames = {k: v.loc[window.start - WARMUP : window.end] for k, v in data.items()}
+    close = frames["close"]
+    if priced(close, portfolio.core_tickers) != list(portfolio.core_tickers):
+        raise ValueError(f"core not fully priced over warm-up + {window.name}")
+    keep = priced(close, portfolio.sleeve_universe)
+    weights = portfolio.build(frames, keep)
+    cols = list(weights.columns)
+    result = run_backtest(frames["open"][cols], close[cols], weights)
+    loss = window_drawdown(result.returns.loc[window.start : window.end])
+    n = len(portfolio.sleeve_universe)
+    dropped = n - len(keep)
+    return loss, {"sleeve_dropped": dropped, "sleeve_dropped_share": dropped / n if n else 0.0}
