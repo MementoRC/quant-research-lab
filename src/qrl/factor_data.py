@@ -245,7 +245,7 @@ def load_cached_splits(tickers: Sequence[str], cache_dir: Path | None = None) ->
 
 
 def _fingerprint(*parts: object) -> str:
-    return hashlib.sha1("|".join(map(str, parts)).encode()).hexdigest()[:16]
+    return hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:16]
 
 
 class FactorData:
