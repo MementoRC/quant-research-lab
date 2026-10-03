@@ -34,6 +34,7 @@ import numpy as np
 
 from .buy_and_hold import buy_and_hold
 from .core_trend import core_trend
+from .factors import low_investment, profitability, value_ey
 from .low_range_close import low_range_close
 from .quiet_pullback import quiet_pullback
 from .regime_pullback import regime_pullback
@@ -53,6 +54,13 @@ def _sleeve_tickers(params: dict) -> list[str]:
     they trade many names at once rather than one fixed ticker/pair."""
     return list(params["tickers"])
 
+
+FACTOR_FAMILIES = frozenset({"value_ey", "profitability", "low_investment"})
+_FACTOR_SPACE: dict[str, list] = {
+    "n_hold": [30, 50],
+    "rebalance": ["monthly", "quarterly"],
+    "trend_filter": [False, True],
+}
 
 REGISTRY: dict[str, StrategySpec] = {
     "buy_and_hold": StrategySpec(buy_and_hold, lambda p: [p["ticker"]]),
@@ -125,6 +133,26 @@ SLEEVE_REGISTRY: dict[str, StrategySpec] = {
             "breadth_ma": [50, 100, 200],
             "breadth_min": [0.3, 0.4, 0.5, 0.6],
         },
+    ),
+    # Phase 4 factor families (see strategies/factors.py). Fields beyond OHLCV are
+    # resolved by qrl.factor_data; the "tickers" param is factor_data.factor_universe().
+    "value_ey": StrategySpec(
+        value_ey,
+        _sleeve_tickers,
+        fields=("close", "pit_member", "fund_ni_ttm", "fund_shares"),
+        space=_FACTOR_SPACE,
+    ),
+    "profitability": StrategySpec(
+        profitability,
+        _sleeve_tickers,
+        fields=("close", "pit_member", "fund_opinc_ttm", "fund_assets"),
+        space=_FACTOR_SPACE,
+    ),
+    "low_investment": StrategySpec(
+        low_investment,
+        _sleeve_tickers,
+        fields=("close", "pit_member", "fund_assets", "fund_assets_lag1y"),
+        space=_FACTOR_SPACE,
     ),
 }
 

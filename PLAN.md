@@ -534,8 +534,17 @@ Skipped per the owner decision of 2026-09-24 -- see section 8, item 6.
 - Factors: `value_ey`, `profitability`, `low_investment`.
 - About 40 trials, judged under `combined_null`.
 - Milestones: (1) point-in-time filings data layer `qrl.fundamentals` (DONE),
-  (2) point-in-time size universe `qrl.pit_universe` (DONE), (3) factor strategies,
+  (2) point-in-time size universe `qrl.pit_universe` (DONE), (3) factor strategies (DONE),
   (4) locked factor config, (5) search and validation.
+- Milestone 3 result: `src/qrl/strategies/factors.py` holds `value_ey` (NI TTM / market cap,
+  NI <= 0 excluded), `profitability` (OperatingIncomeLoss TTM / Assets; operating income, not
+  gross profit, for coverage; owner 2026-10-02) and `low_investment` (Assets / Assets one year
+  earlier - 1, lower is better), all in `SLEEVE_REGISTRY`. Top `n_hold` (30/50) pit members,
+  equal weight, monthly or quarterly rebalance, optional 200-day trend filter on the
+  equal-weight member index. Extra `fields` (`pit_member`, `fund_*`) are built by
+  `qrl.factor_data` and resolved in `SearchData.fields`; panels are cached in
+  `data/cache/factor/`. No backtest has been run on real data: every variant goes through
+  the ledger in milestone 5.
 - Milestone 2 result: pool of 1,567 surviving NYSE/Nasdaq companies (>= $2B current
   market cap, 10-K/10-Q us-gaap filers, one ticker per CIK); `config/universes/
   us_large_cap_pit.csv` holds the top-300 by point-in-time market cap for each month-end

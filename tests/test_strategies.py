@@ -24,6 +24,12 @@ EXAMPLE_PARAMS = {
         "breadth_ma": 200,
         "breadth_min": 0.4,
     },
+    # Factor families live in SLEEVE_REGISTRY and need fundamentals frames, which this
+    # file's close-only loop cannot supply; their look-ahead and behaviour tests are in
+    # tests/test_factor_strategies.py (which reads these params).
+    "value_ey": {"n_hold": 30, "rebalance": "monthly", "trend_filter": False},
+    "profitability": {"n_hold": 30, "rebalance": "monthly", "trend_filter": False},
+    "low_investment": {"n_hold": 30, "rebalance": "monthly", "trend_filter": False},
 }
 
 

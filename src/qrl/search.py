@@ -34,6 +34,7 @@ from .combined import baseline_label, combined_evaluation
 from .criteria import evaluate as evaluate_criteria
 from .data import load_ohlcv, synthetic_ohlcv
 from .engine import run_backtest
+from .factor_data import default_provider
 from .ledger import candidate_key
 from .metrics import compute_metrics
 from .periods import slice_period
@@ -112,7 +113,14 @@ class SearchData:
             "close": self.close,
             "volume": self.volume,
         }
-        return [mapping[name][tickers] for name in names]
+        # Names outside the OHLCV set are factor fields (pit_member, fund_*), built
+        # on the price index by qrl.factor_data; price-only families never reach it.
+        return [
+            mapping[name][tickers]
+            if name in mapping
+            else default_provider().panel(name, self.close.index, tickers, self.volume[tickers])
+            for name in names
+        ]
 
 
 def compute_benchmark_metrics(data: SearchData, criteria: dict) -> dict:
