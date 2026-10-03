@@ -40,6 +40,7 @@ from qrl.portfolio import combine_portfolio, load_portfolio_config  # noqa: E402
 from qrl.profile import load_profile_with_hash  # noqa: E402
 from qrl.risk import load_risk_limits  # noqa: E402
 from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
+from qrl.stress import file_hashes, stress_config_paths, stress_warnings  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
 
 _ALL_SPECS = {**REGISTRY, **SLEEVE_REGISTRY}
@@ -76,6 +77,15 @@ def _print_report(report: HealthReport) -> None:
     for check in report.checks:
         print(f"  [{check.status:>7}] {check.name}: {check.detail}")
     print(f"Overall: {'OK' if report.ok else 'FAIL'} (as of {report.as_of.date()})")
+
+
+def _stress_warnings(path: Path = ROOT / "reports" / "stress.json") -> list[str]:
+    """Warnings from the last `pixi run stress` report. A separate channel:
+    never part of HealthReport.checks, never affects the exit status."""
+    report = json.loads(path.read_text()) if path.exists() else None
+    return stress_warnings(
+        report, file_hashes(stress_config_paths(ROOT)), pd.Timestamp.now(tz="UTC")
+    )
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -138,9 +148,14 @@ def main(argv: list[str] | None = None) -> int:
     # ticker symbols and exact position weights verbatim when a risk cap is
     # breached (see qrl.health.HealthReport.to_dict's docstring); this file
     # must stay under reports/ and gitignored (PLAN.md 3.4).
-    out.write_text(json.dumps(report.to_dict(), indent=2, default=str))
+    warnings_ = _stress_warnings()
+    out.write_text(
+        json.dumps({**report.to_dict(), "stress_warnings": warnings_}, indent=2, default=str)
+    )
 
     _print_report(report)
+    for w in warnings_:
+        print(f"  [WARNING] {w}")
     print(f"Wrote {out}")
     return 0 if report.ok else 1
 

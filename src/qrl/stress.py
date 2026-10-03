@@ -194,6 +194,8 @@ def replay_loss(
     try:
         result = run_backtest(frames["open"][cols], close[cols], weights)
     except ValueError as exc:
+        # Prefix of the message raised by src/qrl/engine.py ("Missing price for a
+        # held position at ..."); engine.py is locked, so match its text here.
         if str(exc).startswith("Missing price"):
             raise DataUnavailable(str(exc)) from exc
         raise

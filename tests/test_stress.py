@@ -5,6 +5,8 @@ Spec: docs/superpowers/specs/2026-10-03-stress-scenarios-design.md.
 
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -31,6 +33,10 @@ from qrl.stress import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import daily_check  # noqa: E402
+
 HOLDOUT = pd.Timestamp("2023-01-01")
 
 
@@ -295,6 +301,17 @@ def test_replay_other_value_errors_propagate():
     assert not isinstance(ei.value, DataUnavailable)
 
 
+def test_replay_real_engine_missing_price_is_data_unavailable():
+    # A held ticker whose price goes NaN inside the window, weighted by a builder
+    # that bypasses the priced() filter: the real run_backtest raises
+    # "Missing price for a held position ...", which must surface as DataUnavailable.
+    close = _long_close(A=100.0, B=50.0)
+    close.loc["2020-01-08", "B"] = float("nan")
+    p = PortfolioDef("p", _hold("B"), core_tickers=["A"], sleeve_universe=[], candidate=False)
+    with pytest.raises(DataUnavailable, match="Missing price"):
+        replay_loss(_frames(close), p, _win("2020-01-07", "2020-01-10"))
+
+
 def test_replay_frames_end_at_window_end():
     close = _long_close(A=100.0)
     seen = {}
@@ -495,3 +512,37 @@ def test_breach_warns():
     assert "BREACH" in msg
     assert "tech_crash" in msg
     assert "48.0%" in msg
+
+
+def test_daily_check_stress_warnings_missing_report(tmp_path):
+    msgs = daily_check._stress_warnings(tmp_path / "nope.json")
+    assert len(msgs) == 1
+    assert "missing" in msgs[0]
+
+
+def test_daily_check_stress_warnings_reports_breach(tmp_path):
+    report = {
+        "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
+        "max_report_age_days": 30,
+        "max_drawdown": 0.35,
+        "hashes": file_hashes(stress_config_paths(ROOT)),
+        "cells": [
+            {
+                "portfolio": "chosen",
+                "scenario": "tech_crash",
+                "mode": "hypothetical",
+                "loss": 0.48,
+                "breach": True,
+            }
+        ],
+    }
+    path = tmp_path / "stress.json"
+    path.write_text(json.dumps(report))
+    (msg,) = daily_check._stress_warnings(path)
+    assert msg.startswith("BREACH")
+
+
+def test_daily_check_exit_status_ignores_stress_warnings():
+    src = (ROOT / "scripts" / "daily_check.py").read_text()
+    assert "return 0 if report.ok else 1" in src
+    assert '"stress_warnings"' in src
