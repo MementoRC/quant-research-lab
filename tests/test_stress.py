@@ -12,7 +12,9 @@ import pytest
 
 from qrl.stress import (
     Hypothetical,
+    Window,
     asset_class,
+    frozen_loss,
     hypothetical_loss,
     load_stress_config,
     window_drawdown,
@@ -129,3 +131,48 @@ def test_hypothetical_loss_by_class():
 def test_hypothetical_gain_is_negative_loss():
     w = pd.Series({"GLD": 1.0})
     assert hypothetical_loss(w, Hypothetical("x", {"gold": 0.1})) == pytest.approx(-0.1)
+
+
+def _win(start, end, replay=True, name="w"):
+    return Window(name, pd.Timestamp(start), pd.Timestamp(end), replay)
+
+
+def test_frozen_loss_buy_and_hold_no_rebalance():
+    idx = pd.bdate_range("2008-01-07", periods=3)
+    close = pd.DataFrame({"AAA": [100.0, 80.0, 90.0], "GLD": [100.0, 100.0, 100.0]}, index=idx)
+    w = pd.Series({"AAA": 0.5, "GLD": 0.3})  # 0.2 cash
+    loss, detail = frozen_loss(w, close, _win("2008-01-07", "2008-01-09"))
+    # value: 1.0 -> 0.5*0.8+0.3+0.2 = 0.9 -> 0.5*0.9+0.5 = 0.95
+    assert loss == pytest.approx(0.10)
+    assert detail["proxied_share"] == {"equity": 0.0, "gold": 0.0}
+
+
+def test_frozen_loss_proxies_equity_to_spy_and_gold_to_cash():
+    idx = pd.bdate_range("2001-01-08", periods=2)
+    close = pd.DataFrame(
+        {
+            "AAA": [float("nan"), float("nan")],
+            "GLD": [float("nan"), float("nan")],
+            "SPY": [100.0, 50.0],
+        },
+        index=idx,
+    )
+    w = pd.Series({"AAA": 0.6, "GLD": 0.4})
+    loss, detail = frozen_loss(w, close, _win("2001-01-08", "2001-01-09"))
+    # AAA -> SPY (halves), GLD -> cash: 1.0 -> 0.6*0.5 + 0.4 = 0.7
+    assert loss == pytest.approx(0.30)
+    assert detail["proxied_share"] == {"equity": pytest.approx(0.6), "gold": pytest.approx(0.4)}
+
+
+def test_frozen_loss_ticker_absent_from_frame_is_proxied():
+    idx = pd.bdate_range("2001-01-08", periods=2)
+    close = pd.DataFrame({"SPY": [100.0, 90.0]}, index=idx)
+    loss, detail = frozen_loss(pd.Series({"ZZZ": 1.0}), close, _win("2001-01-08", "2001-01-09"))
+    assert loss == pytest.approx(0.10)
+    assert detail["proxied_share"]["equity"] == pytest.approx(1.0)
+
+
+def test_frozen_loss_no_prices_in_window_raises():
+    close = pd.DataFrame({"SPY": [100.0]}, index=pd.bdate_range("2010-01-04", periods=1))
+    with pytest.raises(ValueError, match="no prices"):
+        frozen_loss(pd.Series({"SPY": 1.0}), close, _win("2001-01-08", "2001-01-09"))

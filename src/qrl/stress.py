@@ -100,3 +100,38 @@ def hypothetical_loss(weights: pd.Series, hyp: Hypothetical) -> float:
     Negative means a gain."""
     w = weights[weights > 0]
     return float(-sum(wt * hyp.shocks.get(asset_class(t), 0.0) for t, wt in w.items()))
+
+
+EQUITY_PROXY = "SPY"
+
+
+def frozen_loss(weights: pd.Series, close: pd.DataFrame, window: Window) -> tuple[float, dict]:
+    """Buy `weights` at the window's first close, hold without rebalancing,
+    return (worst drawdown inside the window, detail). A ticker with no price
+    at the window's first day is replaced per class: equity -> SPY, gold ->
+    cash. A position priced at the start but with later gaps is carried at
+    its last price (forward-fill). Raises ValueError if the window has no
+    prices, or SPY is needed but unpriced."""
+    px = close.loc[window.start : window.end]
+    if px.empty:
+        raise ValueError(f"no prices in window {window.name}")
+    first = px.iloc[0]
+    w = weights[weights > 0]
+    proxied = dict.fromkeys(SHOCK_CLASSES, 0.0)
+    value = pd.Series(1.0 - float(w.sum()), index=px.index)  # cash
+    for ticker, wt in w.items():
+        if ticker in px.columns and pd.notna(first[ticker]):
+            path = px[ticker].ffill()
+        else:
+            cls = asset_class(ticker)
+            proxied[cls] += float(wt)
+            if cls == "gold":
+                value += wt  # gold before GLD existed -> cash
+                continue
+            if EQUITY_PROXY not in px.columns or pd.isna(first[EQUITY_PROXY]):
+                raise ValueError(
+                    f"{EQUITY_PROXY} unpriced at {window.name} start; cannot proxy {ticker}"
+                )
+            path = px[EQUITY_PROXY].ffill()
+        value += wt * path / path.iloc[0]
+    return window_drawdown(value.pct_change().iloc[1:]), {"proxied_share": proxied}
