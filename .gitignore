@@ -22,3 +22,5 @@ reports/
 # Its -wal/-shm journals stay ignored; they are transient, not the record.
 research/ledger.sqlite-wal
 research/ledger.sqlite-shm
+# Derived from the ledger on demand; the ledger is the record.
+research/top_candidates.csv
