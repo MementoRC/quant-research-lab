@@ -1,0 +1,25 @@
+# PRE-REGISTERED stress scenarios (diagnostic only; spec
+# docs/superpowers/specs/2026-10-03-stress-scenarios-design.md, owner
+# approval 2026-10-03). Fixed before any result was seen. After the first
+# `pixi run stress` report, change only via a dated amendment comment here.
+# Every report records this file's sha256; daily-check flags a mismatch.
+
+max_report_age_days: 30
+
+# Historical windows, inclusive. replay: false = frozen-weights only.
+# All must end before the holdout start (config/criteria.yaml); the loader
+# refuses otherwise.
+windows:
+  - {name: dotcom_2000, start: "2000-03-24", end: "2002-10-09", replay: false} # GLD absent before 2004-11
+  - {name: gfc_2008, start: "2007-10-09", end: "2009-03-09", replay: true}
+  - {name: covid_2020, start: "2020-02-19", end: "2020-04-30", replay: true}
+  - {name: inflation_2022, start: "2022-01-03", end: "2022-10-31", replay: true}
+
+# Instantaneous shocks per asset class, applied to the latest weights.
+# Classes: gold = GLD; equity = every other ticker; cash = unallocated (0%).
+# These are judgments, not data.
+hypotheticals:
+  - {name: no_safe_haven, equity: -0.50, gold: -0.20}       # stocks and gold fall together
+  - {name: stagflation, equity: -0.45, gold: 0.10}          # 1973-74-style rotation
+  - {name: energy_shock_severe, equity: -0.40, gold: -0.10} # fuel/diesel shock worse than 2022
+  - {name: tech_crash, equity: -0.60, gold: 0.0}            # 2000-02-scale equity collapse

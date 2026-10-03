@@ -148,11 +148,17 @@ hypotheticals:
 def test_shipped_config_loads():
     cfg, digest = load_stress_config(ROOT / "config" / "stress.yaml", HOLDOUT)
     assert [w.name for w in cfg.windows] == [
-        "dotcom_2000", "gfc_2008", "covid_2020", "inflation_2022"
+        "dotcom_2000",
+        "gfc_2008",
+        "covid_2020",
+        "inflation_2022",
     ]
     assert not cfg.windows[0].replay
     assert {h.name for h in cfg.hypotheticals} == {
-        "no_safe_haven", "stagflation", "energy_shock_severe", "tech_crash"
+        "no_safe_haven",
+        "stagflation",
+        "energy_shock_severe",
+        "tech_crash",
     }
     assert cfg.max_report_age_days == 30
     assert len(digest) == 64  # full sha256
@@ -161,7 +167,11 @@ def test_shipped_config_loads():
 def test_loads_good_config(tmp_path):
     cfg, _ = load_stress_config(_write(tmp_path, GOOD), HOLDOUT)
     w = cfg.windows[0]
-    assert (w.start, w.end, w.replay) == (pd.Timestamp("2008-01-02"), pd.Timestamp("2008-06-30"), True)
+    assert (w.start, w.end, w.replay) == (
+        pd.Timestamp("2008-01-02"),
+        pd.Timestamp("2008-06-30"),
+        True,
+    )
     assert cfg.hypotheticals[0].shocks == {"equity": -0.5, "gold": -0.2}
 
 
@@ -408,8 +418,11 @@ def test_frozen_loss_buy_and_hold_no_rebalance():
 def test_frozen_loss_proxies_equity_to_spy_and_gold_to_cash():
     idx = pd.bdate_range("2001-01-08", periods=2)
     close = pd.DataFrame(
-        {"AAA": [float("nan"), float("nan")], "GLD": [float("nan"), float("nan")],
-         "SPY": [100.0, 50.0]},
+        {
+            "AAA": [float("nan"), float("nan")],
+            "GLD": [float("nan"), float("nan")],
+            "SPY": [100.0, 50.0],
+        },
         index=idx,
     )
     w = pd.Series({"AAA": 0.6, "GLD": 0.4})
@@ -468,7 +481,9 @@ def frozen_loss(weights: pd.Series, close: pd.DataFrame, window: Window) -> tupl
                 value += wt  # gold before GLD existed -> cash
                 continue
             if EQUITY_PROXY not in px.columns or pd.isna(first[EQUITY_PROXY]):
-                raise ValueError(f"{EQUITY_PROXY} unpriced at {window.name} start; cannot proxy {ticker}")
+                raise ValueError(
+                    f"{EQUITY_PROXY} unpriced at {window.name} start; cannot proxy {ticker}"
+                )
             path = px[EQUITY_PROXY].ffill()
         value += wt * path / path.iloc[0]
     return window_drawdown(value.pct_change().iloc[1:]), {"proxied_share": proxied}
@@ -504,6 +519,7 @@ def _frames(close: pd.DataFrame) -> dict[str, pd.DataFrame]:
 def _hold(ticker: str, weight: float = 1.0):
     def build(data, keep):
         return pd.DataFrame({ticker: weight}, index=data["close"].index)
+
     return build
 
 
@@ -540,9 +556,7 @@ def test_replay_frames_end_at_window_end():
 
 def test_replay_drops_unpriced_sleeve_tickers():
     idx = pd.bdate_range("2020-01-01", periods=5)
-    close = pd.DataFrame(
-        {"A": 100.0, "S1": 50.0, "S2": [float("nan")] + [50.0] * 4}, index=idx
-    )
+    close = pd.DataFrame({"A": 100.0, "S1": 50.0, "S2": [float("nan")] + [50.0] * 4}, index=idx)
     got = {}
 
     def build(data, keep):
@@ -665,8 +679,9 @@ def test_run_stress_cells_labels_and_breach():
         max_report_age_days=30,
     )
     core = PortfolioDef("chosen", _hold("AAA", 1.0), core_tickers=["AAA"])
-    cand = PortfolioDef("core+x", _hold("AAA", 1.0), core_tickers=["AAA"],
-                        sleeve_universe=["AAA"], candidate=True)
+    cand = PortfolioDef(
+        "core+x", _hold("AAA", 1.0), core_tickers=["AAA"], sleeve_universe=["AAA"], candidate=True
+    )
     cells = run_stress(cfg, [core, cand], data, max_drawdown=0.35, criteria=CRITERIA)
     by = {(c.portfolio, c.scenario, c.mode): c for c in cells}
 
@@ -744,15 +759,37 @@ def run_stress(
         latest = p.build(data, priced(data["close"].tail(1), p.sleeve_universe)).iloc[-1]
         for w in cfg.windows:
             if w.replay:
-                cells.append(_cell(p.name, w.name, "replay", replay_label(p.candidate, w, criteria),
-                                   lambda p=p, w=w: replay_loss(data, p, w), max_drawdown))
-            cells.append(_cell(p.name, w.name, "frozen", "current-weights",
-                               lambda w=w, latest=latest: frozen_loss(latest, data["close"], w),
-                               max_drawdown))
+                cells.append(
+                    _cell(
+                        p.name,
+                        w.name,
+                        "replay",
+                        replay_label(p.candidate, w, criteria),
+                        lambda p=p, w=w: replay_loss(data, p, w),
+                        max_drawdown,
+                    )
+                )
+            cells.append(
+                _cell(
+                    p.name,
+                    w.name,
+                    "frozen",
+                    "current-weights",
+                    lambda w=w, latest=latest: frozen_loss(latest, data["close"], w),
+                    max_drawdown,
+                )
+            )
         for h in cfg.hypotheticals:
-            cells.append(_cell(p.name, h.name, "hypothetical", "current-weights",
-                               lambda h=h, latest=latest: (hypothetical_loss(latest, h), {}),
-                               max_drawdown))
+            cells.append(
+                _cell(
+                    p.name,
+                    h.name,
+                    "hypothetical",
+                    "current-weights",
+                    lambda h=h, latest=latest: (hypothetical_loss(latest, h), {}),
+                    max_drawdown,
+                )
+            )
     return cells
 ```
 
@@ -790,7 +827,13 @@ def _report(**over):
         "max_drawdown": 0.35,
         "hashes": dict(HASHES),
         "cells": [
-            {"portfolio": "chosen", "scenario": "gfc_2008", "mode": "frozen", "loss": 0.2, "breach": False},
+            {
+                "portfolio": "chosen",
+                "scenario": "gfc_2008",
+                "mode": "frozen",
+                "loss": 0.2,
+                "breach": False,
+            },
         ],
     }
     rep.update(over)
@@ -824,8 +867,15 @@ def test_changed_config_warns():
 
 
 def test_breach_warns():
-    cells = [{"portfolio": "chosen", "scenario": "tech_crash", "mode": "hypothetical",
-              "loss": 0.48, "breach": True}]
+    cells = [
+        {
+            "portfolio": "chosen",
+            "scenario": "tech_crash",
+            "mode": "hypothetical",
+            "loss": 0.48,
+            "breach": True,
+        }
+    ]
     (msg,) = stress_warnings(_report(cells=cells), HASHES, NOW)
     assert "BREACH" in msg and "tech_crash" in msg and "48.0%" in msg
 ```
@@ -841,7 +891,9 @@ Expected: ImportError.
 def stress_config_paths(root: Path) -> dict[str, Path]:
     """Configs whose change makes a stress report stale."""
     cfg = Path(root) / "config"
-    return {name: cfg / name for name in ("stress.yaml", "portfolio.yaml", "paper.yaml", "profile.yaml")}
+    return {
+        name: cfg / name for name in ("stress.yaml", "portfolio.yaml", "paper.yaml", "profile.yaml")
+    }
 
 
 def file_hashes(paths: dict[str, Path]) -> dict[str, str]:
@@ -849,7 +901,9 @@ def file_hashes(paths: dict[str, Path]) -> dict[str, str]:
     return {name: hashlib.sha256(Path(p).read_bytes()).hexdigest() for name, p in paths.items()}
 
 
-def stress_warnings(report: dict | None, current_hashes: dict[str, str], now: pd.Timestamp) -> list[str]:
+def stress_warnings(
+    report: dict | None, current_hashes: dict[str, str], now: pd.Timestamp
+) -> list[str]:
     """Daily-check warning lines for a saved stress report. Never raises on
     a stale or breaching report; it only describes it."""
     if report is None:
@@ -857,15 +911,19 @@ def stress_warnings(report: dict | None, current_hashes: dict[str, str], now: pd
     out = []
     age = (now - pd.Timestamp(report["generated_at"])).days
     if age > report["max_report_age_days"]:
-        out.append(f"stress report is {age} days old (max {report['max_report_age_days']}): "
-                   "re-run `pixi run stress`")
+        out.append(
+            f"stress report is {age} days old (max {report['max_report_age_days']}): "
+            "re-run `pixi run stress`"
+        )
     changed = sorted(k for k, h in current_hashes.items() if report["hashes"].get(k) != h)
     if changed:
         out.append(f"stress report stale, changed since it was made: {', '.join(changed)}")
     for c in report["cells"]:
         if c["breach"]:
-            out.append(f"BREACH {c['portfolio']} / {c['scenario']} ({c['mode']}): "
-                       f"loss {c['loss']:.1%} > cap {report['max_drawdown']:.0%}")
+            out.append(
+                f"BREACH {c['portfolio']} / {c['scenario']} ({c['mode']}): "
+                f"loss {c['loss']:.1%} > cap {report['max_drawdown']:.0%}"
+            )
     return out
 ```
 
@@ -960,10 +1018,13 @@ def _portfolios(portfolio_cfg: dict, candidates: list[dict], split: dict) -> lis
 
     def chosen(data, keep):
         sleeves = [_member_weights(m["fn"], _restrict(m["params"], keep), data) for m in members]
-        return combine_portfolio(_member_weights(core["fn"], core["params"], data), sleeves, split).combined
+        return combine_portfolio(
+            _member_weights(core["fn"], core["params"], data), sleeves, split
+        ).combined
 
     out = [PortfolioDef("chosen", chosen, core_tickers, chosen_universe, candidate=bool(members))]
     for cand in candidates:
+
         def build(data, keep, cand=cand):
             sleeve = candidate_weights(cand["family"], _restrict(cand["params"], keep), data)
             return combine_portfolio(
@@ -1001,7 +1062,9 @@ def main(argv: list[str] | None = None) -> int:
         candidates = [load_candidate(ledger, e) for e in paper_cfg["candidates"]]
 
     portfolios = _portfolios(portfolio_cfg, candidates, profile["capital_split"])
-    tickers = sorted({EQUITY_PROXY}.union(*(set(p.core_tickers) | set(p.sleeve_universe) for p in portfolios)))
+    tickers = sorted(
+        {EQUITY_PROXY}.union(*(set(p.core_tickers) | set(p.sleeve_universe) for p in portfolios))
+    )
     data = load_ohlcv(tickers)
 
     cells = run_stress(cfg, portfolios, data, profile["max_drawdown"], criteria)
@@ -1074,8 +1137,15 @@ def test_daily_check_stress_warnings_reports_breach(tmp_path):
         "max_report_age_days": 30,
         "max_drawdown": 0.35,
         "hashes": file_hashes(stress_config_paths(ROOT)),
-        "cells": [{"portfolio": "chosen", "scenario": "tech_crash", "mode": "hypothetical",
-                   "loss": 0.48, "breach": True}],
+        "cells": [
+            {
+                "portfolio": "chosen",
+                "scenario": "tech_crash",
+                "mode": "hypothetical",
+                "loss": 0.48,
+                "breach": True,
+            }
+        ],
     }
     path = tmp_path / "stress.json"
     path.write_text(json.dumps(report))
@@ -1107,7 +1177,9 @@ def _stress_warnings(path: Path = ROOT / "reports" / "stress.json") -> list[str]
     """Warnings from the last `pixi run stress` report. A separate channel:
     never part of HealthReport.checks, never affects the exit status."""
     report = json.loads(path.read_text()) if path.exists() else None
-    return stress_warnings(report, file_hashes(stress_config_paths(ROOT)), pd.Timestamp.now(tz="UTC"))
+    return stress_warnings(
+        report, file_hashes(stress_config_paths(ROOT)), pd.Timestamp.now(tz="UTC")
+    )
 ```
 
 In `main`, replace:
