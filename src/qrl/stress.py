@@ -17,6 +17,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from .metrics import drawdown
+
 SHOCK_CLASSES = ("equity", "gold")
 
 
@@ -76,3 +78,25 @@ def load_stress_config(path: str | Path, holdout_start: pd.Timestamp) -> tuple[S
 
     cfg = StressConfig(windows, hypotheticals, int(doc["max_report_age_days"]))
     return cfg, hashlib.sha256(raw).hexdigest()
+
+
+GOLD_TICKERS = frozenset({"GLD"})
+
+
+def asset_class(ticker: str) -> str:
+    return "gold" if ticker in GOLD_TICKERS else "equity"
+
+
+def window_drawdown(returns: pd.Series) -> float:
+    """Worst peak-to-trough loss (positive fraction) of an equity curve that
+    starts at 1.0 on the window's first day: a 0.0 return is prepended so a
+    first-day loss counts (`qrl.metrics.drawdown`'s peak excludes the start)."""
+    r = pd.concat([pd.Series([0.0]), returns.reset_index(drop=True)], ignore_index=True)
+    return float(-drawdown(r).min())
+
+
+def hypothetical_loss(weights: pd.Series, hyp: Hypothetical) -> float:
+    """Single-step loss = -sum(weight x class shock); cash (unallocated) is 0%.
+    Negative means a gain."""
+    w = weights[weights > 0]
+    return float(-sum(wt * hyp.shocks.get(asset_class(t), 0.0) for t, wt in w.items()))

@@ -10,7 +10,13 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from qrl.stress import load_stress_config
+from qrl.stress import (
+    Hypothetical,
+    asset_class,
+    hypothetical_loss,
+    load_stress_config,
+    window_drawdown,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 HOLDOUT = pd.Timestamp("2023-01-01")
@@ -95,3 +101,31 @@ def test_rejects_duplicate_names(tmp_path):
     text = GOOD.replace("name: h1", "name: w1")
     with pytest.raises(ValueError, match="duplicate"):
         load_stress_config(_write(tmp_path, text), HOLDOUT)
+
+
+def test_window_drawdown_counts_first_day_loss():
+    # equity 1.0 -> 0.9 -> 0.945; qrl.metrics.drawdown alone would miss day 1.
+    r = pd.Series([-0.10, 0.05], index=pd.bdate_range("2020-01-06", periods=2))
+    assert window_drawdown(r) == pytest.approx(0.10)
+
+
+def test_window_drawdown_zero_when_only_rising():
+    r = pd.Series([0.01, 0.02], index=pd.bdate_range("2020-01-06", periods=2))
+    assert window_drawdown(r) == pytest.approx(0.0)
+
+
+def test_asset_class():
+    assert asset_class("GLD") == "gold"
+    assert asset_class("QQQ") == "equity"
+    assert asset_class("AAPL") == "equity"
+
+
+def test_hypothetical_loss_by_class():
+    w = pd.Series({"AAA": 0.5, "GLD": 0.3, "BBB": 0.0})  # 0.2 cash
+    h = Hypothetical("x", {"equity": -0.5, "gold": -0.2})
+    assert hypothetical_loss(w, h) == pytest.approx(0.5 * 0.5 + 0.3 * 0.2)
+
+
+def test_hypothetical_gain_is_negative_loss():
+    w = pd.Series({"GLD": 1.0})
+    assert hypothetical_loss(w, Hypothetical("x", {"gold": 0.1})) == pytest.approx(-0.1)
