@@ -32,7 +32,7 @@
 
 ### Task 1: Spec correction — warm-up length
 
-The spec says replay warms up 3 calendar years before the window. For `gfc_2008` (start 2007-10-09) that begins 2004-10-09, before GLD's first price (2004-11-18). `run_backtest` raises on a missing price for a held position, so the core's 2008 replay would always be `unavailable`. One calendar year (~252 trading days) covers `core_trend`'s `lookback: 200`.
+The spec says replay warms up 3 calendar years before the window. For `gfc_2008` (start 2007-10-09) that begins 2004-10-09, before GLD's first price (2004-11-18). `run_backtest` raises on a missing price for a held position, so the core's 2008 replay would always be `unavailable`. Two calendar years (~504 trading days) cover every candidate lookback. Step 1 was run by the owner: trend_pullback 150, low_range_close 150, regime_pullback trend_lookback 250 / breadth_ma 100, core_trend 200 (so one year would not cover regime_pullback's 250). 2007-10-09 minus 2 years = 2005-10-09, after GLD's 2004-11 launch.
 
 **Files:** Modify `docs/superpowers/specs/2026-10-03-stress-scenarios-design.md`
 
@@ -57,7 +57,7 @@ Expected: every lookback/window-like parameter is ≤ 230 trading days. If any e
 
 - [ ] **Step 2: Edit the spec**
 
-In section "## Loss measures", replace `start 3 calendar years before the window (warm-up for lookbacks)` with `start 1 calendar year before the window (warm-up for lookbacks: core_trend uses 200 days; 3 years would precede GLD's 2004-11 launch for gfc_2008)`.
+In section "## Loss measures", replace `start 3 calendar years before the window (warm-up for lookbacks)` with `start 2 calendar years before the window (warm-up for lookbacks: the longest is regime_pullback's 250 days; 3 years would precede GLD's 2004-11 launch for gfc_2008)`.
 
 Also align the spec's "## Interfaces" with the plan: `load_stress_config(path, holdout_start)`; `run_stress(...) -> list[Cell]` (the CLI assembles the report dict); and in "## Honesty labels and guards" add `out-of-sample` (a candidate in a window before its research period, e.g. dotcom_2000 if ever replayed). In "## Tests", replace "on `synthetic_prices`" with "on small hand-built frames".
 
@@ -65,7 +65,7 @@ Also align the spec's "## Interfaces" with the plan: `load_stress_config(path, h
 
 ```bash
 git add docs/superpowers/specs/2026-10-03-stress-scenarios-design.md
-git commit -m "Stress spec: 1-year replay warm-up (GLD starts 2004-11)"
+git commit -m "Stress: 2-year replay warm-up (regime_pullback lookback 250)"
 ```
 
 ---
@@ -571,7 +571,7 @@ Expected: ImportError for `PortfolioDef` / `priced` / `replay_loss`.
 - [ ] **Step 3: Implement** (add to `src/qrl/stress.py`; add `from collections.abc import Callable`, `from dataclasses import field` and `from .engine import run_backtest` to the imports)
 
 ```python
-WARMUP = pd.DateOffset(years=1)  # >= core_trend's 200-day lookback; see spec
+WARMUP = pd.DateOffset(years=2)  # >= regime_pullback's 250-day lookback; see spec
 
 
 @dataclass(frozen=True)

@@ -62,7 +62,7 @@ window's first day (a 0.0 return is prepended before calling
 
 - **Rule replay** (historical windows): price frames are truncated by index
   at the window end (no `slice_period`; no data after the window enters),
-  start 3 calendar years before the window (warm-up for lookbacks), run each
+  start 2 calendar years before the window (warm-up for lookbacks: the longest is regime_pullback's 250 days; 3 years would precede GLD's 2004-11 launch for gfc_2008), run each
   strategy with `qrl.engine.run_backtest`, combine with `combine_portfolio`,
   and measure the worst drawdown inside the window only. Sleeve tickers not
   priced on every day of warm-up + window are dropped from that candidate's
@@ -84,7 +84,8 @@ No holdout-period *returns* are evaluated in any mode.
 - Every cell carries a label. Replay: `clean` (the core: a baseline, never
   searched), `in-sample` (a candidate in gfc_2008, inside its 2005-2018
   research period), `validation-seen` (a candidate in covid_2020 or
-  inflation_2022). Frozen and hypothetical: `current-weights` (weights
+  inflation_2022), `out-of-sample` (a candidate in a window before its
+  research period, e.g. dotcom_2000 if ever replayed). Frozen and hypothetical: `current-weights` (weights
   built from data through today, incl. post-research periods; the shock
   path itself is history or a stated judgment, not a test of selection).
 - Guard: any historical window ending on/after the holdout start
@@ -93,9 +94,9 @@ No holdout-period *returns* are evaluated in any mode.
 
 ## Interfaces
 
-- `src/qrl/stress.py` — pure functions: `load_stress_config(path)`,
+- `src/qrl/stress.py` — pure functions: `load_stress_config(path, holdout_start)`,
   `replay_loss(...)`, `frozen_loss(...)`, `hypothetical_loss(...)`,
-  `run_stress(...) -> StressReport`. No I/O except via injected loaders.
+  `run_stress(...) -> list[Cell]` (the CLI assembles the report dict). No I/O except via injected loaders.
 - `scripts/stress.py` — argparse CLI; prints a table; writes
   `reports/stress.json` (`--out` to override). Pixi task `stress`.
 - `reports/stress.json` — per portfolio × scenario: mode, loss,
@@ -123,7 +124,7 @@ fails loudly at load.
 
 ## Tests (`tests/test_stress.py`, new)
 
-- Hand-computed losses on `synthetic_prices` for replay, frozen, and
+- Hand-computed losses on small hand-built frames for replay, frozen, and
   hypothetical modes.
 - Per-class proxy substitution (equity → SPY, gold → cash) and proxied
   share per class; replay drops unpriced sleeve tickers and reports it.
