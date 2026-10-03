@@ -37,6 +37,7 @@ SEC_CACHE_DIR = CACHE_DIR / "sec"
 SEC_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "sec.local.yaml"
 EMAIL_ENV_VAR = "SEC_USER_AGENT_EMAIL"
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+EXCHANGE_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 
 MIN_REQUEST_INTERVAL = 0.125  # seconds -> at most 8 requests/second (SEC limit is 10)
@@ -54,6 +55,10 @@ CONCEPTS: dict[str, tuple[str, ...]] = {
         "Assets",
         "StockholdersEquity",
         "CommonStockSharesOutstanding",
+        "WeightedAverageNumberOfSharesOutstandingBasic",
+        "CostOfGoodsAndServicesSold",
+        "CostOfGoodsSold",
+        "OperatingIncomeLoss",
     ),
     "dei": ("EntityCommonStockSharesOutstanding",),
 }
@@ -208,6 +213,35 @@ def load_cik_map(
         cache_dir / "company_tickers.json", TICKERS_URL, refresh, lambda u: _http_get(u, ua)
     )
     return build_cik_map(payload or {})
+
+
+def load_exchange_tickers(
+    refresh: bool = False,
+    cache_dir: Path = SEC_CACHE_DIR,
+    config_path: Path = SEC_CONFIG_PATH,
+) -> dict:
+    """SEC's company_tickers_exchange.json payload ({"fields": [...], "data": [[...]]}:
+    cik, name, ticker, exchange), cached next to the other SEC downloads."""
+    ua = sec_user_agent(config_path)
+    payload = _cached_json(
+        cache_dir / "company_tickers_exchange.json",
+        EXCHANGE_TICKERS_URL,
+        refresh,
+        lambda u: _http_get(u, ua),
+    )
+    return payload or {}
+
+
+def load_company_payload(
+    cik: int,
+    refresh: bool = False,
+    cache_dir: Path = SEC_CACHE_DIR,
+    config_path: Path = SEC_CONFIG_PATH,
+) -> dict | None:
+    """Raw companyfacts JSON for one CIK (cached; None when SEC has none, e.g. funds)."""
+    ua = sec_user_agent(config_path)
+    path = cache_dir / "facts" / f"CIK{cik:010d}.json"
+    return _cached_json(path, FACTS_URL.format(cik=cik), refresh, lambda u: _http_get(u, ua))
 
 
 # --------------------------------------------------------------------------- parsing
@@ -489,3 +523,128 @@ def ttm_panel(
             staleness_days,
         )
     return out
+
+
+# --------------------------------------------------------------------------- total shares
+
+DEI_SHARES = "EntityCommonStockSharesOutstanding"
+GAAP_SHARES = "CommonStockSharesOutstanding"
+_EPOCH = pd.Timestamp("1970-01-01")
+
+
+def total_shares_facts(facts: pd.DataFrame) -> pd.DataFrame:
+    """Cover-page share counts summed across share classes, one row per (ticker, accn, end).
+
+    A multi-class company reports one `EntityCommonStockSharesOutstanding` value per
+    class under the same filing (`accn`) and `end`, with no class label; the sum of
+    those values is the company's total. Rows share the concept name so the result
+    plugs straight into `pit_panel`. Single-class companies pass through unchanged.
+    """
+    sub = facts[facts["concept"] == DEI_SHARES].dropna(subset=["val", "end", "filed"])
+    if sub.empty:
+        return pd.DataFrame(columns=FACT_COLUMNS)
+    g = sub.groupby(["ticker", "accn", "end"], as_index=False, dropna=False).agg(
+        val=("val", "sum"),
+        filed=("filed", "max"),
+        unit=("unit", "first"),
+        form=("form", "first"),
+        fy=("fy", "first"),
+        fp=("fp", "first"),
+    )
+    g["taxonomy"] = "dei"
+    g["concept"] = DEI_SHARES
+    g["start"] = pd.NaT
+    return g[FACT_COLUMNS]
+
+
+def _date_panel(days: pd.DataFrame) -> pd.DataFrame:
+    return pd.DataFrame(
+        {c: _EPOCH + pd.to_timedelta(days[c], unit="D") for c in days.columns}, index=days.index
+    )
+
+
+WA_SHARES = "WeightedAverageNumberOfSharesOutstandingBasic"
+SHARE_SOURCES = ("dei", "us-gaap", "wavg")
+
+
+def _layer_panels(
+    frame: pd.DataFrame,
+    concept: str,
+    dates: pd.DatetimeIndex,
+    tickers: Sequence[str],
+    duration: str,
+    staleness_days: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """(value, end-day, filed-day) panels of one share-count layer."""
+    end_days = filed_days = frame
+    if not frame.empty:
+        end_days = frame.assign(val=(frame["end"] - _EPOCH) / pd.Timedelta(days=1))
+        filed_days = frame.assign(val=(frame["filed"] - _EPOCH) / pd.Timedelta(days=1))
+    return (
+        pit_panel(frame, concept, dates, tickers, duration, staleness_days),
+        pit_panel(end_days, concept, dates, tickers, duration, staleness_days),
+        pit_panel(filed_days, concept, dates, tickers, duration, staleness_days),
+    )
+
+
+def total_shares_sourced_panels(
+    facts: pd.DataFrame,
+    dates: pd.Index,
+    tickers: Sequence[str],
+    staleness_days: int = STALENESS_DAYS,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """`(shares, ends, filed, source)` dates x tickers panels.
+
+    Cell-wise priority chain: (1) dei cover-page counts summed per (accn, end) across
+    classes, (2) us-gaap `CommonStockSharesOutstanding`, (3) us-gaap
+    `WeightedAverageNumberOfSharesOutstandingBasic`, the latest quarterly (80-100 day)
+    fact, else the annual one. All obey filed < t and `staleness_days`. `source` holds
+    "dei" / "us-gaap" / "wavg" (None where no count is known). `ends` is the date a
+    count refers to and `filed` the date it was filed (NaT where unknown); a count filed
+    after a stock split is already post-split, so split adjustment compares ex-dates
+    with `filed`.
+    """
+    idx = pd.DatetimeIndex(dates)
+    wa = facts[facts["concept"] == WA_SHARES]
+    layers = (
+        ("dei", total_shares_facts(facts), DEI_SHARES, "instant"),
+        ("us-gaap", facts[facts["concept"] == GAAP_SHARES], GAAP_SHARES, "instant"),
+        ("wavg", wa, WA_SHARES, "quarterly"),
+        ("wavg", wa, WA_SHARES, "annual"),
+    )
+    shares = pd.DataFrame(np.nan, index=idx, columns=list(tickers))
+    end_days = shares.copy()
+    filed_days = shares.copy()
+    source = pd.DataFrame(None, index=idx, columns=list(tickers), dtype=object)
+    for name, frame, concept, duration in layers:
+        v, e, f = _layer_panels(frame, concept, idx, tickers, duration, staleness_days)
+        fill = shares.isna() & v.notna()
+        source = source.mask(fill, name)
+        shares, end_days, filed_days = shares.fillna(v), end_days.fillna(e), filed_days.fillna(f)
+    return shares, _date_panel(end_days), _date_panel(filed_days), source
+
+
+def total_shares_dated_panels(
+    facts: pd.DataFrame,
+    dates: pd.Index,
+    tickers: Sequence[str],
+    staleness_days: int = STALENESS_DAYS,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """`(shares, ends, filed)` of `total_shares_sourced_panels` (source dropped)."""
+    return total_shares_sourced_panels(facts, dates, tickers, staleness_days)[:3]
+
+
+def total_shares_panel(
+    facts: pd.DataFrame,
+    dates: pd.Index,
+    tickers: Sequence[str],
+    staleness_days: int = STALENESS_DAYS,
+) -> pd.DataFrame:
+    """dates x tickers TOTAL shares outstanding as known at each date (filed < t).
+
+    Uses dei cover-page counts summed per (accn, end) across share classes
+    (`total_shares_facts`), falling back cell-wise to us-gaap
+    `CommonStockSharesOutstanding`, then to the weighted-average basic count (see
+    `total_shares_sourced_panels`). Same point-in-time and staleness rules as `pit_panel`.
+    """
+    return total_shares_dated_panels(facts, dates, tickers, staleness_days)[0]
