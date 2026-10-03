@@ -12,6 +12,8 @@
 
 **Hard rules (AGENTS.md):** do NOT edit `src/qrl/engine.py`, `metrics.py`, `periods.py`, `checks.py`, any existing test, or any locked config (`criteria.yaml`, `combined*.yaml`, `paper.yaml`, `factor.yaml`, `profile.yaml`, `portfolio.yaml`). Never call `slice_period(..., unseal_holdout=True)`. Run commands as `pixi run -e dev ...` (tasks are ambiguous across environments without `-e`).
 
+**Before every commit:** run `pixi run -e dev format` (ruff format; line length 100) and `pixi run -e dev lint`; the code blocks below are not guaranteed to be pre-formatted.
+
 ---
 
 ## File structure
@@ -56,6 +58,8 @@ Expected: every lookback/window-like parameter is ≤ 230 trading days. If any e
 - [ ] **Step 2: Edit the spec**
 
 In section "## Loss measures", replace `start 3 calendar years before the window (warm-up for lookbacks)` with `start 1 calendar year before the window (warm-up for lookbacks: core_trend uses 200 days; 3 years would precede GLD's 2004-11 launch for gfc_2008)`.
+
+Also align the spec's "## Interfaces" with the plan: `load_stress_config(path, holdout_start)`; `run_stress(...) -> list[Cell]` (the CLI assembles the report dict); and in "## Honesty labels and guards" add `out-of-sample` (a candidate in a window before its research period, e.g. dotcom_2000 if ever replayed). In "## Tests", replace "on `synthetic_prices`" with "on small hand-built frames".
 
 - [ ] **Step 3: Commit**
 
@@ -175,7 +179,7 @@ def test_rejects_start_not_before_end(tmp_path):
 
 def test_rejects_bad_date(tmp_path):
     text = GOOD.replace('"2008-01-02"', '"not-a-date"')
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not-a-date|Unknown|convert|parse"):
         load_stress_config(_write(tmp_path, text), HOLDOUT)
 
 
@@ -720,7 +724,7 @@ def replay_label(candidate: bool, window: Window, criteria: dict) -> str:
 def _cell(portfolio: str, scenario: str, mode: str, label: str, run, max_drawdown: float) -> Cell:
     try:
         loss, detail = run()
-    except ValueError as exc:  # missing data -> reported, never dropped
+    except (ValueError, KeyError) as exc:  # missing data -> reported, never dropped
         return Cell(portfolio, scenario, mode, label, None, None, {}, unavailable=str(exc))
     return Cell(portfolio, scenario, mode, label, loss, bool(loss > max_drawdown), detail)
 
@@ -741,12 +745,14 @@ def run_stress(
         for w in cfg.windows:
             if w.replay:
                 cells.append(_cell(p.name, w.name, "replay", replay_label(p.candidate, w, criteria),
-                                   lambda: replay_loss(data, p, w), max_drawdown))
+                                   lambda p=p, w=w: replay_loss(data, p, w), max_drawdown))
             cells.append(_cell(p.name, w.name, "frozen", "current-weights",
-                               lambda: frozen_loss(latest, data["close"], w), max_drawdown))
+                               lambda w=w, latest=latest: frozen_loss(latest, data["close"], w),
+                               max_drawdown))
         for h in cfg.hypotheticals:
             cells.append(_cell(p.name, h.name, "hypothetical", "current-weights",
-                               lambda: (hypothetical_loss(latest, h), {}), max_drawdown))
+                               lambda h=h, latest=latest: (hypothetical_loss(latest, h), {}),
+                               max_drawdown))
     return cells
 ```
 
@@ -991,8 +997,8 @@ def main(argv: list[str] | None = None) -> int:
     profile = load_profile(paths["profile.yaml"])
     portfolio_cfg = load_portfolio_config(paths["portfolio.yaml"])
     paper_cfg, _ = load_paper_config(paths["paper.yaml"])
-    ledger = Ledger(ROOT / "research" / "ledger.sqlite")  # match scripts/paper_track.py
-    candidates = [load_candidate(ledger, e) for e in paper_cfg["candidates"]]
+    with Ledger(ROOT / "research" / "ledger.sqlite") as ledger:  # as scripts/paper_track.py
+        candidates = [load_candidate(ledger, e) for e in paper_cfg["candidates"]]
 
     portfolios = _portfolios(portfolio_cfg, candidates, profile["capital_split"])
     tickers = sorted({EQUITY_PROXY}.union(*(set(p.core_tickers) | set(p.sleeve_universe) for p in portfolios)))
@@ -1045,19 +1051,36 @@ git commit -m "Stress: CLI and pixi task"
 
 **Files:** Modify `scripts/daily_check.py`; Modify `tests/test_stress.py`
 
-- [ ] **Step 1: Write the failing tests** (append; add `import sys` and the scripts path to the top of the test file)
+- [ ] **Step 1: Write the failing tests**
 
+At the top of `tests/test_stress.py`: add `import sys` to the stdlib import block; directly after the line `ROOT = Path(__file__).resolve().parents[1]` add:
 ```python
-import sys  # (move to the import block at the top)
-
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import daily_check  # noqa: E402  (move below the sys.path line at the top)
-
-
+import daily_check  # noqa: E402
+```
+Then append:
+```python
 def test_daily_check_stress_warnings_missing_report(tmp_path):
     msgs = daily_check._stress_warnings(tmp_path / "nope.json")
     assert len(msgs) == 1 and "missing" in msgs[0]
+
+
+def test_daily_check_stress_warnings_reports_breach(tmp_path):
+    import json
+
+    report = {
+        "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
+        "max_report_age_days": 30,
+        "max_drawdown": 0.35,
+        "hashes": file_hashes(stress_config_paths(ROOT)),
+        "cells": [{"portfolio": "chosen", "scenario": "tech_crash", "mode": "hypothetical",
+                   "loss": 0.48, "breach": True}],
+    }
+    path = tmp_path / "stress.json"
+    path.write_text(json.dumps(report))
+    (msg,) = daily_check._stress_warnings(path)
+    assert msg.startswith("BREACH")
 
 
 def test_daily_check_exit_status_ignores_stress_warnings():
@@ -1109,7 +1132,7 @@ Leave `return 0 if report.ok else 1` unchanged. Keep the PRIVATE ARTIFACT commen
 - [ ] **Step 4: Run to verify pass**
 
 Run: `pixi run -e dev pytest tests/test_stress.py -v`
-Expected: 32 passed.
+Expected: 33 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -1122,8 +1145,8 @@ git commit -m "Daily check: stress warnings channel (exit status unchanged)"
 
 ### Task 10: Full verification and PR
 
-- [ ] **Step 1: Full suite** — `pixi run -e dev test` → expected `511 passed` (479 + 32), no failures.
-- [ ] **Step 2: Lint/format** — `pixi run -e dev lint` → `All checks passed!`; run the repo's format check task if present.
+- [ ] **Step 1: Full suite** — `pixi run -e dev test` → expected `512 passed` (479 + 33), no failures.
+- [ ] **Step 2: Quality gate** — `pixi run -e dev format-check`, `pixi run -e dev lint`, `pixi run -e dev type-check` → all pass (fix findings in new files only; never weaken existing config).
 - [ ] **Step 3: Real daily check** — `pixi run -e dev daily-check` → health table, then any `[WARNING]` lines from the stress report; exit status the same as before this change.
 - [ ] **Step 4: Locked files untouched** — `git diff development --stat` must list only: `config/stress.yaml`, `src/qrl/stress.py`, `tests/test_stress.py`, `scripts/stress.py`, `scripts/daily_check.py`, `pixi.toml`, `docs/superpowers/**`.
 - [ ] **Step 5: Push and open PR into `development`** (never push to development/main directly). PR body: summary, the stress table from Task 8 Step 3 (losses only), any `unavailable` rows with reasons, and the line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Do not merge; the owner merges.
