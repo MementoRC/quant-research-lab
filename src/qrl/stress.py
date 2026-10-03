@@ -113,7 +113,7 @@ def hypothetical_loss(weights: pd.Series, hyp: Hypothetical) -> float:
     """Single-step loss = -sum(weight x class shock); cash (unallocated) is 0%.
     Negative means a gain."""
     w = weights[weights > 0]
-    return float(-sum(wt * hyp.shocks.get(asset_class(t), 0.0) for t, wt in w.items()))
+    return float(-sum(wt * hyp.shocks.get(asset_class(str(t)), 0.0) for t, wt in w.items()))
 
 
 EQUITY_PROXY = "SPY"
@@ -133,7 +133,8 @@ def frozen_loss(weights: pd.Series, close: pd.DataFrame, window: Window) -> tupl
     w = weights[weights > 0]
     proxied = dict.fromkeys(SHOCK_CLASSES, 0.0)
     value = pd.Series(1.0 - float(w.sum()), index=px.index)  # cash
-    for ticker, wt in w.items():
+    for name, wt in w.items():
+        ticker = str(name)
         if ticker in px.columns and pd.notna(first[ticker]):
             path = px[ticker].ffill()
         else:
