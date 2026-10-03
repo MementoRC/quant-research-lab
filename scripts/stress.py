@@ -117,7 +117,15 @@ def main(argv: list[str] | None = None) -> int:
     tickers = sorted(
         {EQUITY_PROXY}.union(*(set(p.core_tickers) | set(p.sleeve_universe) for p in portfolios))
     )
-    data = load_ohlcv(tickers)
+    data = load_ohlcv(tickers, refresh=True)  # as scripts/paper_track.py: latest weights need today
+    # combine_portfolio zeroes NaN weights upstream, so a stale core price would
+    # silently read as "all cash"; fail loudly instead.
+    unpriced = sorted(
+        {t for p in portfolios for t in p.core_tickers if pd.isna(data["close"][t].iloc[-1])}
+    )
+    if unpriced:
+        print(f"core tickers unpriced on {data['close'].index[-1].date()}: {unpriced}")
+        return 1
 
     cells = run_stress(cfg, portfolios, data, profile["max_drawdown"], criteria)
     report = {
