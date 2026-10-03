@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# FACTOR RUN CONFIG — written BEFORE any factor result is viewed
+# (PLAN.md Phase 4, milestone 4; owner decisions 2026-10-02).
+#
+# LOCKED for any run seeded with it (`search seed --factor-config
+# config/factor.yaml --pass-rule combined_null`): the run stores the sha256 of
+# this file and of the universe membership CSV, and `search batch` and
+# `validate` refuse if either changed. Do not edit it during a factor run, and
+# never after looking at results. Change it only in its own commit, with a
+# reason in the commit message.
+#
+# The effective criteria for the run are config/criteria.yaml with ONLY
+# periods.research.start replaced by research_start below (checked in code,
+# qrl.factor_run.effective_criteria). Research end, validation and holdout are
+# unchanged; the holdout stays sealed.
+# ---------------------------------------------------------------------------
+version: 1
+
+# First day of the research period (XBRL era; criteria.yaml's research start
+# is 2005-01-01). The PIT universe's first month-end is 2009-04-30, so
+# 2009-01..04 are cash for the sleeve and the null alike.
+research_start: "2009-01-01"
+
+# Point-in-time universe (qrl.pit_universe); the membership CSV's sha256 below
+# is the one recorded in that yaml and is verified on every load.
+universe: config/universe_pit.yaml
+universe_membership_sha256: 4ede8b2b2ac96e975f9dc2251e4c49ed15b15f2ed52f89959759bde0c8751f9c
+
+families: [value_ey, profitability, low_investment]
+
+# Null sleeve for combined_null in a factor run: equal weight of the CURRENT
+# point-in-time members on each day (monthly membership), not of every ticker
+# that was ever a member. config/combined_null.yaml itself is unchanged.
+null_baseline: pit_equal_weight

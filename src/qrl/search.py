@@ -26,6 +26,7 @@ only the research period is ever sliced.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import zip_longest
 
 import numpy as np
 import pandas as pd
@@ -34,11 +35,11 @@ from .combined import baseline_label, combined_evaluation
 from .criteria import evaluate as evaluate_criteria
 from .data import load_ohlcv, synthetic_ohlcv
 from .engine import run_backtest
-from .factor_data import default_provider
+from .factor_data import FactorData, default_provider
 from .ledger import candidate_key
 from .metrics import compute_metrics
 from .periods import slice_period
-from .strategies import REGISTRY, SLEEVE_REGISTRY, StrategySpec
+from .strategies import REGISTRY, SLEEVE_REGISTRY, StrategySpec, iter_grid
 from .strategies.buy_and_hold import buy_and_hold
 from .tradability import exit_before_delisting
 
@@ -81,6 +82,9 @@ class SearchData:
     low: pd.DataFrame
     close: pd.DataFrame
     volume: pd.DataFrame
+    # Factor-field source for a factor run (built over the run's own hashed
+    # membership, `qrl.factor_run`); None falls back to `default_provider()`.
+    provider: FactorData | None = None
 
     @classmethod
     def load(
@@ -90,6 +94,7 @@ class SearchData:
         synthetic: bool = False,
         start: str = "1999-01-01",
         refresh: bool = False,
+        provider: FactorData | None = None,
     ) -> SearchData:
         unique = sorted(set(tickers))
         frames = (
@@ -103,6 +108,7 @@ class SearchData:
             low=frames["low"],
             close=frames["close"],
             volume=frames["volume"],
+            provider=provider,
         )
 
     def fields(self, names: tuple[str, ...], tickers: list[str]) -> list[pd.DataFrame]:
@@ -118,9 +124,14 @@ class SearchData:
         return [
             mapping[name][tickers]
             if name in mapping
-            else default_provider().panel(name, self.close.index, tickers, self.volume[tickers])
+            else self._factor_provider().panel(
+                name, self.close.index, tickers, self.volume[tickers]
+            )
             for name in names
         ]
+
+    def _factor_provider(self) -> FactorData:
+        return self.provider if self.provider is not None else default_provider()
 
 
 def compute_benchmark_metrics(data: SearchData, criteria: dict) -> dict:
@@ -404,6 +415,30 @@ def _propose_one(
     return None if _has_pruned_value(fam, params, pruned, spaces[fam]) else (fam, params)
 
 
+def _grid_queue(
+    spaces: dict[str, dict[str, list]],
+    grid_families: frozenset[str],
+    pruned: set[tuple[str, str, object]],
+    rng: np.random.Generator,
+) -> list[tuple[str, dict]]:
+    """Every point of each `grid_families` family's full grid (unpruned),
+    shuffled within a family and interleaved round-robin across families."""
+    per_family: list[list[tuple[str, dict]]] = []
+    for family in spaces:
+        if family not in grid_families:
+            continue
+        points = iter_grid(spaces[family])
+        order = rng.permutation(len(points))
+        per_family.append(
+            [
+                (family, points[int(i)])
+                for i in order
+                if not _has_pruned_value(family, points[int(i)], pruned, spaces[family])
+            ]
+        )
+    return [item for row in zip_longest(*per_family) for item in row if item is not None]
+
+
 def propose_batch(
     history: list[dict],
     spaces: dict[str, dict[str, list]],
@@ -414,6 +449,7 @@ def propose_batch(
     sleeve_tickers: list[str] | None = None,
     prune_min_attempts: int = 5,
     max_attempts_factor: int = 20,
+    grid_families: frozenset[str] = frozenset(),
 ) -> list[tuple[str, dict]]:
     """Deterministically propose up to `n` new (family, params) candidates.
 
@@ -450,6 +486,12 @@ def propose_batch(
     whatever a mutated/recombined parent's `tickers` happened to be, so a
     run's sleeve universe stays fixed across a batch.
 
+    `grid_families` (default empty: nothing below changes, and the random
+    stream is untouched) names families whose whole grid is small enough to
+    enumerate -- the Phase 4 factor families, 2 x 2 x 2 = 8 points each. Their
+    untested, unpruned grid points are proposed first (shuffled, interleaved
+    across families), before the rules above fill whatever is left.
+
     Stops early (returning fewer than `n` candidates) once
     `n * max_attempts_factor` proposal attempts have been spent without
     reaching `n` unique, unpruned candidates -- for example once a small
@@ -481,10 +523,15 @@ def propose_batch(
     seen_this_batch: set[str] = set()
     max_attempts = n * max_attempts_factor
     attempts = 0
+    queue = _grid_queue(spaces, grid_families, pruned, rng) if grid_families else []
     while len(proposed) < n and attempts < max_attempts:
         attempts += 1
-        proposal = _propose_one(
-            rng, families, spaces, passing_by_family, partial_by_family, seed_phase, pruned
+        proposal = (
+            queue.pop(0)
+            if queue
+            else _propose_one(
+                rng, families, spaces, passing_by_family, partial_by_family, seed_phase, pruned
+            )
         )
         if proposal is None:
             continue
