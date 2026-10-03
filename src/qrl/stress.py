@@ -25,6 +25,11 @@ from .periods import period_bounds
 SHOCK_CLASSES = ("equity", "gold")
 
 
+class DataUnavailable(Exception):  # noqa: N818 (name fixed by the review spec)
+    """Price data cannot support a scenario; the cell is reported `unavailable`.
+    Anything else (a bug, a malformed frame) propagates and fails the run."""
+
+
 @dataclass(frozen=True)
 class Window:
     name: str
@@ -52,6 +57,9 @@ def load_stress_config(path: str | Path, holdout_start: pd.Timestamp) -> tuple[S
     shock class, a shock <= -1, or a duplicate scenario name."""
     raw = Path(path).read_bytes()
     doc = yaml.safe_load(raw)
+    for key in ("windows", "hypotheticals", "max_report_age_days"):
+        if not isinstance(doc, dict) or key not in doc:
+            raise ValueError(f"stress config is missing required key `{key}`")
 
     windows = []
     for w in doc["windows"]:
@@ -70,6 +78,9 @@ def load_stress_config(path: str | Path, holdout_start: pd.Timestamp) -> tuple[S
         unknown = set(shocks) - set(SHOCK_CLASSES)
         if unknown:
             raise ValueError(f"hypothetical {h['name']}: unknown classes {sorted(unknown)}")
+        missing = set(SHOCK_CLASSES) - set(shocks)
+        if missing:
+            raise ValueError(f"hypothetical {h['name']}: missing classes {sorted(missing)}")
         if any(v <= -1 for v in shocks.values()):
             raise ValueError(f"hypothetical {h['name']}: a shock must be above -1 (-100%)")
         hypotheticals.append(Hypothetical(str(h["name"]), shocks))
@@ -113,11 +124,11 @@ def frozen_loss(weights: pd.Series, close: pd.DataFrame, window: Window) -> tupl
     return (worst drawdown inside the window, detail). A ticker with no price
     at the window's first day is replaced per class: equity -> SPY, gold ->
     cash. A position priced at the start but with later gaps is carried at
-    its last price (forward-fill). Raises ValueError if the window has no
-    prices, or SPY is needed but unpriced."""
+    its last price (forward-fill). Raises DataUnavailable if the window has
+    no prices, or SPY is needed but unpriced."""
     px = close.loc[window.start : window.end]
     if px.empty:
-        raise ValueError(f"no prices in window {window.name}")
+        raise DataUnavailable(f"no prices in window {window.name}")
     first = px.iloc[0]
     w = weights[weights > 0]
     proxied = dict.fromkeys(SHOCK_CLASSES, 0.0)
@@ -132,7 +143,7 @@ def frozen_loss(weights: pd.Series, close: pd.DataFrame, window: Window) -> tupl
                 value += wt  # gold before GLD existed -> cash
                 continue
             if EQUITY_PROXY not in px.columns or pd.isna(first[EQUITY_PROXY]):
-                raise ValueError(
+                raise DataUnavailable(
                     f"{EQUITY_PROXY} unpriced at {window.name} start; cannot proxy {ticker}"
                 )
             path = px[EQUITY_PROXY].ffill()
@@ -168,16 +179,28 @@ def replay_loss(
     index at the window end (nothing later enters) and start WARMUP before
     the window start. Returns (worst drawdown inside the window, detail).
     Sleeve tickers not priced on every day are dropped; an unpriced core
-    ticker raises ValueError (the cell becomes `unavailable`)."""
-    frames = {k: v.loc[window.start - WARMUP : window.end] for k, v in data.items()}
+    ticker, a truncated warm-up, or an empty in-window return series raises
+    DataUnavailable (the cell becomes `unavailable`)."""
+    warm_start = window.start - WARMUP
+    frames = {k: v.loc[warm_start : window.end] for k, v in data.items()}
     close = frames["close"]
+    if close.empty or close.index[0] > warm_start + pd.Timedelta(days=7):
+        raise DataUnavailable(f"warm-up truncated for {window.name}: data starts too late")
     if priced(close, portfolio.core_tickers) != list(portfolio.core_tickers):
-        raise ValueError(f"core not fully priced over warm-up + {window.name}")
+        raise DataUnavailable(f"core not fully priced over warm-up + {window.name}")
     keep = priced(close, portfolio.sleeve_universe)
     weights = portfolio.build(frames, keep)
     cols = list(weights.columns)
-    result = run_backtest(frames["open"][cols], close[cols], weights)
-    loss = window_drawdown(result.returns.loc[window.start : window.end])
+    try:
+        result = run_backtest(frames["open"][cols], close[cols], weights)
+    except ValueError as exc:
+        if str(exc).startswith("Missing price"):
+            raise DataUnavailable(str(exc)) from exc
+        raise
+    returns = result.returns.loc[window.start : window.end]
+    if returns.empty:
+        raise DataUnavailable(f"no returns inside {window.name}")
+    loss = window_drawdown(returns)
     n = len(portfolio.sleeve_universe)
     dropped = n - len(keep)
     return loss, {"sleeve_dropped": dropped, "sleeve_dropped_share": dropped / n if n else 0.0}
@@ -216,9 +239,26 @@ def replay_label(candidate: bool, window: Window, criteria: dict) -> str:
 def _cell(portfolio: str, scenario: str, mode: str, label: str, run, max_drawdown: float) -> Cell:
     try:
         loss, detail = run()
-    except (ValueError, KeyError) as exc:  # missing data -> reported, never dropped
+    except DataUnavailable as exc:  # missing data -> reported, never dropped
         return Cell(portfolio, scenario, mode, label, None, None, {}, unavailable=str(exc))
     return Cell(portfolio, scenario, mode, label, loss, bool(loss > max_drawdown), detail)
+
+
+def _latest_weights(
+    p: PortfolioDef, data: dict[str, pd.DataFrame]
+) -> tuple[pd.Series | None, str | None, int]:
+    """(latest weight row or None, reason if None, sleeve tickers dropped by
+    today's tradable set). NaN in the row means the weights are unusable."""
+    keep = priced(data["close"].tail(1), p.sleeve_universe)
+    dropped = len(p.sleeve_universe) - len(keep)
+    try:
+        latest = p.build(data, keep).iloc[-1]
+    except DataUnavailable as exc:
+        return None, str(exc), dropped
+    if latest.isna().any():
+        bad = sorted(latest.index[latest.isna()])
+        return None, f"latest weights contain NaN for {bad}", dropped
+    return latest, None, dropped
 
 
 def run_stress(
@@ -233,7 +273,20 @@ def run_stress(
     row built from it."""
     cells: list[Cell] = []
     for p in portfolios:
-        latest = p.build(data, priced(data["close"].tail(1), p.sleeve_universe)).iloc[-1]
+        latest, reason, dropped = _latest_weights(p, data)
+
+        def static(fn, latest=latest, reason=reason, dropped=dropped):
+            """Wrap a latest-weights measure: unavailable if the weights are,
+            and record how many sleeve tickers today's tradable set dropped."""
+
+            def run():
+                if latest is None:
+                    raise DataUnavailable(reason)
+                loss, detail = fn(latest)
+                return loss, {**detail, "latest_sleeve_dropped": dropped}
+
+            return run
+
         for w in cfg.windows:
             if w.replay:
                 cells.append(
@@ -252,7 +305,7 @@ def run_stress(
                     w.name,
                     "frozen",
                     "current-weights",
-                    lambda w=w, latest=latest: frozen_loss(latest, data["close"], w),
+                    static(lambda lt, w=w: frozen_loss(lt, data["close"], w)),
                     max_drawdown,
                 )
             )
@@ -263,7 +316,7 @@ def run_stress(
                     h.name,
                     "hypothetical",
                     "current-weights",
-                    lambda h=h, latest=latest: (hypothetical_loss(latest, h), {}),
+                    static(lambda lt, h=h: (hypothetical_loss(lt, h), {})),
                     max_drawdown,
                 )
             )
@@ -283,6 +336,10 @@ def file_hashes(paths: dict[str, Path]) -> dict[str, str]:
     return {name: hashlib.sha256(Path(p).read_bytes()).hexdigest() for name, p in paths.items()}
 
 
+def _utc(ts: pd.Timestamp) -> pd.Timestamp:
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+
 def stress_warnings(
     report: dict | None, current_hashes: dict[str, str], now: pd.Timestamp
 ) -> list[str]:
@@ -291,7 +348,7 @@ def stress_warnings(
     if report is None:
         return ["stress report missing: run `pixi run stress`"]
     out = []
-    age = (now - pd.Timestamp(report["generated_at"])).days
+    age = (_utc(now) - _utc(pd.Timestamp(report["generated_at"]))).days
     if age > report["max_report_age_days"]:
         out.append(
             f"stress report is {age} days old (max {report['max_report_age_days']}): "

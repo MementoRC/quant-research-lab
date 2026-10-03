@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from qrl.stress import (
+    DataUnavailable,
     Hypothetical,
     PortfolioDef,
     StressConfig,
@@ -114,6 +115,26 @@ def test_rejects_duplicate_names(tmp_path):
         load_stress_config(_write(tmp_path, text), HOLDOUT)
 
 
+def test_rejects_hypothetical_missing_a_class(tmp_path):
+    text = GOOD.replace(", gold: -0.2", "")
+    with pytest.raises(ValueError, match="gold"):
+        load_stress_config(_write(tmp_path, text), HOLDOUT)
+
+
+@pytest.mark.parametrize("key", ["windows", "hypotheticals", "max_report_age_days"])
+def test_rejects_missing_top_level_key(tmp_path, key):
+    lines = [ln for ln in GOOD.splitlines() if ln.strip()]
+    # drop the key and its indented children
+    kept, skipping = [], False
+    for ln in lines:
+        if not ln.startswith(" "):
+            skipping = ln.startswith(f"{key}:")
+        if not skipping:
+            kept.append(ln)
+    with pytest.raises(ValueError, match=key):
+        load_stress_config(_write(tmp_path, "\n".join(kept)), HOLDOUT)
+
+
 def test_window_drawdown_counts_first_day_loss():
     # equity 1.0 -> 0.9 -> 0.945; qrl.metrics.drawdown alone would miss day 1.
     r = pd.Series([-0.10, 0.05], index=pd.bdate_range("2020-01-06", periods=2))
@@ -183,8 +204,27 @@ def test_frozen_loss_ticker_absent_from_frame_is_proxied():
 
 def test_frozen_loss_no_prices_in_window_raises():
     close = pd.DataFrame({"SPY": [100.0]}, index=pd.bdate_range("2010-01-04", periods=1))
-    with pytest.raises(ValueError, match="no prices"):
+    with pytest.raises(DataUnavailable, match="no prices"):
         frozen_loss(pd.Series({"SPY": 1.0}), close, _win("2001-01-08", "2001-01-09"))
+
+
+def test_frozen_loss_spy_held_directly_is_not_proxied():
+    idx = pd.bdate_range("2001-01-08", periods=2)
+    close = pd.DataFrame({"SPY": [100.0, 90.0]}, index=idx)
+    loss, detail = frozen_loss(pd.Series({"SPY": 1.0}), close, _win("2001-01-08", "2001-01-09"))
+    assert loss == pytest.approx(0.10)
+    assert detail["proxied_share"] == {"equity": 0.0, "gold": 0.0}
+
+
+def test_all_cash_weights_lose_nothing():
+    idx = pd.bdate_range("2001-01-08", periods=3)
+    close = pd.DataFrame({"A": [100.0, 50.0, 25.0]}, index=idx)
+    w = pd.Series({"A": 0.0})
+    loss, _ = frozen_loss(w, close, _win("2001-01-08", "2001-01-10"))
+    assert loss == pytest.approx(0.0)
+    assert hypothetical_loss(w, Hypothetical("x", {"equity": -0.5, "gold": -0.2})) == pytest.approx(
+        0.0
+    )
 
 
 def _frames(close: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -204,20 +244,59 @@ def test_priced_requires_every_day():
     assert priced(close, ["A", "B", "C"]) == ["A"]
 
 
+def _long_close(**cols: float) -> pd.DataFrame:
+    """Flat frames from 2018-01-01 (>= 2 years of warm-up before Jan 2020)."""
+    idx = pd.bdate_range("2018-01-01", "2020-01-14")
+    return pd.DataFrame(cols, index=idx)
+
+
 def test_replay_loss_measures_inside_window_only():
-    idx = pd.bdate_range("2020-01-01", periods=10)  # Jan 1,2,3,6,7,8,9,10,13,14
-    c = [100, 100, 100, 100, 90, 80, 85, 100, 10, 10]  # crash on Jan 13 is AFTER the window
-    close = pd.DataFrame({"A": [float(x) for x in c]}, index=idx)
+    close = _long_close(A=100.0)
+    # crash on Jan 13 is AFTER the window
+    for day, px in {
+        "2020-01-07": 90.0,
+        "2020-01-08": 80.0,
+        "2020-01-09": 85.0,
+        "2020-01-10": 100.0,
+        "2020-01-13": 10.0,
+        "2020-01-14": 10.0,
+    }.items():
+        close.loc[day, "A"] = px
     p = PortfolioDef("p", _hold("A"), core_tickers=["A"], sleeve_universe=[], candidate=False)
     loss, detail = replay_loss(_frames(close), p, _win("2020-01-07", "2020-01-10"))
-    # in-window equity 1, .9, .8, .85, 1.0 (no costs: only trade is Jan 2)
+    # in-window equity 1, .9, .8, .85, 1.0 (no costs: the only trade is at the warm-up start)
     assert loss == pytest.approx(0.20)
     assert detail == {"sleeve_dropped": 0, "sleeve_dropped_share": 0.0}
 
 
-def test_replay_frames_end_at_window_end():
+def test_replay_warmup_truncated_raises():
     idx = pd.bdate_range("2020-01-01", periods=10)
     close = pd.DataFrame({"A": 100.0}, index=idx)
+    p = PortfolioDef("p", _hold("A"), core_tickers=["A"], sleeve_universe=[], candidate=False)
+    with pytest.raises(DataUnavailable, match="warm-up"):
+        replay_loss(_frames(close), p, _win("2020-01-07", "2020-01-10"))
+
+
+def test_replay_empty_window_returns_raises():
+    idx = pd.bdate_range("2018-01-01", "2019-12-31")  # data ends before the window
+    close = pd.DataFrame({"A": 100.0}, index=idx)
+    p = PortfolioDef("p", _hold("A"), core_tickers=["A"], sleeve_universe=[], candidate=False)
+    with pytest.raises(DataUnavailable, match="no returns"):
+        replay_loss(_frames(close), p, _win("2020-01-07", "2020-01-10"))
+
+
+def test_replay_other_value_errors_propagate():
+    def build(data, keep):
+        raise ValueError("boom")
+
+    p = PortfolioDef("p", build, core_tickers=["A"], sleeve_universe=[], candidate=False)
+    with pytest.raises(ValueError, match="boom") as ei:
+        replay_loss(_frames(_long_close(A=100.0)), p, _win("2020-01-07", "2020-01-10"))
+    assert not isinstance(ei.value, DataUnavailable)
+
+
+def test_replay_frames_end_at_window_end():
+    close = _long_close(A=100.0)
     seen = {}
 
     def build(data, keep):
@@ -230,8 +309,8 @@ def test_replay_frames_end_at_window_end():
 
 
 def test_replay_drops_unpriced_sleeve_tickers():
-    idx = pd.bdate_range("2020-01-01", periods=5)
-    close = pd.DataFrame({"A": 100.0, "S1": 50.0, "S2": [float("nan")] + [50.0] * 4}, index=idx)
+    close = _long_close(A=100.0, S1=50.0, S2=50.0)
+    close.loc["2018-03-01", "S2"] = float("nan")
     got = {}
 
     def build(data, keep):
@@ -245,10 +324,10 @@ def test_replay_drops_unpriced_sleeve_tickers():
 
 
 def test_replay_unpriced_core_raises():
-    idx = pd.bdate_range("2020-01-01", periods=5)
-    close = pd.DataFrame({"A": [float("nan")] + [100.0] * 4}, index=idx)
+    close = _long_close(A=100.0)
+    close.loc["2018-03-01", "A"] = float("nan")
     p = PortfolioDef("p", _hold("A"), core_tickers=["A"], sleeve_universe=[], candidate=False)
-    with pytest.raises(ValueError, match="core"):
+    with pytest.raises(DataUnavailable, match="core"):
         replay_loss(_frames(close), p, _win("2020-01-06", "2020-01-07"))
 
 
@@ -270,8 +349,10 @@ def test_replay_label():
 
 
 def test_run_stress_cells_labels_and_breach():
-    idx = pd.bdate_range("2006-01-02", "2009-12-31")
-    close = pd.DataFrame({"AAA": 100.0, "GLD": 100.0, "SPY": 100.0}, index=idx)
+    idx = pd.bdate_range("2005-01-03", "2009-12-31")
+    aaa = pd.Series(100.0, index=idx)
+    aaa.loc["2008-01-02":] = 60.0  # one-day -40% step inside the gfc window
+    close = pd.DataFrame({"AAA": aaa, "GLD": 100.0, "SPY": 100.0}, index=idx)
     data = _frames(close)
     cfg = StressConfig(
         windows=[
@@ -283,7 +364,11 @@ def test_run_stress_cells_labels_and_breach():
     )
     core = PortfolioDef("chosen", _hold("AAA", 1.0), core_tickers=["AAA"])
     cand = PortfolioDef(
-        "core+x", _hold("AAA", 1.0), core_tickers=["AAA"], sleeve_universe=["AAA"], candidate=True
+        "core+x",
+        _hold("AAA", 1.0),
+        core_tickers=["AAA"],
+        sleeve_universe=["AAA", "ZZZ"],  # ZZZ has no prices
+        candidate=True,
     )
     cells = run_stress(cfg, [core, cand], data, max_drawdown=0.35, criteria=CRITERIA)
     by = {(c.portfolio, c.scenario, c.mode): c for c in cells}
@@ -291,16 +376,52 @@ def test_run_stress_cells_labels_and_breach():
     assert ("chosen", "early", "replay") not in by  # frozen-only window
     early = by[("chosen", "early", "frozen")]
     assert early.loss is None
+    assert early.breach is None
     assert "no prices" in early.unavailable
+    for name in ("chosen", "core+x"):
+        replay = by[(name, "gfc", "replay")]
+        assert replay.unavailable is None
+        assert replay.loss == pytest.approx(0.40, abs=1e-3)
+        assert replay.breach is True
+        frozen = by[(name, "gfc", "frozen")]
+        assert frozen.unavailable is None
+        assert frozen.loss == pytest.approx(0.40)
+        assert frozen.breach is True
     assert by[("chosen", "gfc", "replay")].label == "clean"
     assert by[("core+x", "gfc", "replay")].label == "in-sample"
     assert by[("chosen", "gfc", "frozen")].label == "current-weights"
-    assert by[("chosen", "gfc", "frozen")].loss == pytest.approx(0.0)
     crash = by[("chosen", "crash", "hypothetical")]
     assert crash.loss == pytest.approx(0.5)
     assert crash.breach is True
-    assert by[("chosen", "gfc", "frozen")].breach is False
+    assert crash.detail["latest_sleeve_dropped"] == 0
+    assert by[("core+x", "crash", "hypothetical")].detail["latest_sleeve_dropped"] == 1
+    assert by[("core+x", "gfc", "frozen")].detail["latest_sleeve_dropped"] == 1
     assert len(cells) == 2 * (1 + 2 + 1)
+
+
+def test_run_stress_nan_latest_weights_make_static_cells_unavailable():
+    idx = pd.bdate_range("2005-01-03", "2009-12-31")
+    close = pd.DataFrame({"AAA": 100.0, "SPY": 100.0}, index=idx)
+
+    def build(data, keep):
+        w = pd.DataFrame({"AAA": 1.0}, index=data["close"].index)
+        if data["close"].index[-1] == idx[-1]:  # only the full frame (today) gets NaN
+            w.iloc[-1] = float("nan")
+        return w
+
+    cfg = StressConfig(
+        windows=[_win("2007-10-09", "2009-03-09", replay=True, name="gfc")],
+        hypotheticals=[Hypothetical("crash", {"equity": -0.5})],
+        max_report_age_days=30,
+    )
+    p = PortfolioDef("chosen", build, core_tickers=["AAA"])
+    cells = run_stress(cfg, [p], _frames(close), max_drawdown=0.35, criteria=CRITERIA)
+    by = {(c.scenario, c.mode): c for c in cells}
+    assert by[("gfc", "replay")].unavailable is None
+    for key in (("gfc", "frozen"), ("crash", "hypothetical")):
+        assert by[key].loss is None
+        assert by[key].breach is None
+        assert "NaN" in by[key].unavailable
 
 
 NOW = pd.Timestamp("2026-10-03T12:00:00+00:00")
@@ -336,6 +457,12 @@ def test_stress_config_paths_and_hashes():
 
 def test_no_warnings_when_fresh_and_clean():
     assert stress_warnings(_report(), HASHES, NOW) == []
+
+
+def test_naive_generated_at_is_treated_as_utc():
+    assert stress_warnings(_report(generated_at="2026-10-01T12:00:00"), HASHES, NOW) == []
+    (msg,) = stress_warnings(_report(generated_at="2026-08-01T00:00:00"), HASHES, NOW)
+    assert "days old" in msg
 
 
 def test_missing_report_warns():
