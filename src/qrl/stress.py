@@ -268,3 +268,42 @@ def run_stress(
                 )
             )
     return cells
+
+
+def stress_config_paths(root: Path) -> dict[str, Path]:
+    """Configs whose change makes a stress report stale."""
+    cfg = Path(root) / "config"
+    return {
+        name: cfg / name for name in ("stress.yaml", "portfolio.yaml", "paper.yaml", "profile.yaml")
+    }
+
+
+def file_hashes(paths: dict[str, Path]) -> dict[str, str]:
+    """Full sha256 of each file's raw bytes."""
+    return {name: hashlib.sha256(Path(p).read_bytes()).hexdigest() for name, p in paths.items()}
+
+
+def stress_warnings(
+    report: dict | None, current_hashes: dict[str, str], now: pd.Timestamp
+) -> list[str]:
+    """Daily-check warning lines for a saved stress report. Never raises on
+    a stale or breaching report; it only describes it."""
+    if report is None:
+        return ["stress report missing: run `pixi run stress`"]
+    out = []
+    age = (now - pd.Timestamp(report["generated_at"])).days
+    if age > report["max_report_age_days"]:
+        out.append(
+            f"stress report is {age} days old (max {report['max_report_age_days']}): "
+            "re-run `pixi run stress`"
+        )
+    changed = sorted(k for k, h in current_hashes.items() if report["hashes"].get(k) != h)
+    if changed:
+        out.append(f"stress report stale, changed since it was made: {', '.join(changed)}")
+    for c in report["cells"]:
+        if c["breach"]:
+            out.append(
+                f"BREACH {c['portfolio']} / {c['scenario']} ({c['mode']}): "
+                f"loss {c['loss']:.1%} > cap {report['max_drawdown']:.0%}"
+            )
+    return out

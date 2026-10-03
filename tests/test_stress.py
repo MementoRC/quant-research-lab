@@ -16,6 +16,7 @@ from qrl.stress import (
     StressConfig,
     Window,
     asset_class,
+    file_hashes,
     frozen_loss,
     hypothetical_loss,
     load_stress_config,
@@ -23,6 +24,8 @@ from qrl.stress import (
     replay_label,
     replay_loss,
     run_stress,
+    stress_config_paths,
+    stress_warnings,
     window_drawdown,
 )
 
@@ -298,3 +301,70 @@ def test_run_stress_cells_labels_and_breach():
     assert crash.breach is True
     assert by[("chosen", "gfc", "frozen")].breach is False
     assert len(cells) == 2 * (1 + 2 + 1)
+
+
+NOW = pd.Timestamp("2026-10-03T12:00:00+00:00")
+HASHES = {"stress.yaml": "a", "portfolio.yaml": "b", "paper.yaml": "c", "profile.yaml": "d"}
+
+
+def _report(**over):
+    rep = {
+        "generated_at": "2026-10-01T12:00:00+00:00",
+        "max_report_age_days": 30,
+        "max_drawdown": 0.35,
+        "hashes": dict(HASHES),
+        "cells": [
+            {
+                "portfolio": "chosen",
+                "scenario": "gfc_2008",
+                "mode": "frozen",
+                "loss": 0.2,
+                "breach": False,
+            },
+        ],
+    }
+    rep.update(over)
+    return rep
+
+
+def test_stress_config_paths_and_hashes():
+    paths = stress_config_paths(ROOT)
+    assert set(paths) == set(HASHES)
+    hashes = file_hashes(paths)
+    assert all(len(h) == 64 for h in hashes.values())
+
+
+def test_no_warnings_when_fresh_and_clean():
+    assert stress_warnings(_report(), HASHES, NOW) == []
+
+
+def test_missing_report_warns():
+    (msg,) = stress_warnings(None, HASHES, NOW)
+    assert "missing" in msg
+
+
+def test_old_report_warns():
+    (msg,) = stress_warnings(_report(generated_at="2026-08-01T00:00:00+00:00"), HASHES, NOW)
+    assert "days old" in msg
+
+
+def test_changed_config_warns():
+    (msg,) = stress_warnings(_report(), {**HASHES, "portfolio.yaml": "zzz"}, NOW)
+    assert "stale" in msg
+    assert "portfolio.yaml" in msg
+
+
+def test_breach_warns():
+    cells = [
+        {
+            "portfolio": "chosen",
+            "scenario": "tech_crash",
+            "mode": "hypothetical",
+            "loss": 0.48,
+            "breach": True,
+        }
+    ]
+    (msg,) = stress_warnings(_report(cells=cells), HASHES, NOW)
+    assert "BREACH" in msg
+    assert "tech_crash" in msg
+    assert "48.0%" in msg
