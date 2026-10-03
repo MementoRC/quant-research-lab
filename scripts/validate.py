@@ -29,6 +29,12 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from qrl.combined import combined_config_for_run, config_path_for, core_tickers  # noqa: E402
 from qrl.criteria import load_criteria  # noqa: E402
+from qrl.factor_run import (  # noqa: E402
+    build_provider,
+    check_factor_run,
+    effective_criteria,
+    factor_data_source,
+)
 from qrl.ledger import (  # noqa: E402
     DEFAULT_LEDGER_PATH,
     Ledger,
@@ -110,14 +116,25 @@ def cmd_validate(args: argparse.Namespace) -> int:
             print(f"Unknown run {args.run}", file=sys.stderr)
             return 2
 
-        universe = load_universe(args.universe)
-        data_source = data_source_fingerprint(
-            args.synthetic, universe["name"], list(universe["tickers"])
-        )
+        rule = run.get("pass_rule") or "standalone"
+        try:
+            factor = check_factor_run(run, args.factor_config)
+            if factor is not None:
+                criteria = effective_criteria(criteria, factor.research_start)
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 2
+        if factor is not None:
+            universe = factor.universe
+            data_source = factor_data_source(args.synthetic, factor)
+        else:
+            universe = load_universe(args.universe)
+            data_source = data_source_fingerprint(
+                args.synthetic, universe["name"], list(universe["tickers"])
+            )
         check_result = _check_data_source(ledger, args.run, data_source)
         if check_result is not None:
             return check_result
-        rule = run.get("pass_rule") or "standalone"
         sleeve_tickers = list(universe["tickers"])
         try:
             combined = combined_config_for_run(
@@ -126,6 +143,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
                 args.profile,
                 args.portfolio,
                 universe_tickers=sleeve_tickers,
+                null_membership=factor.membership if factor is not None else None,
             )
         except ValueError as err:
             print(str(err), file=sys.stderr)
@@ -136,7 +154,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
         if combined_cfg is not None:
             print(f"Pass rule: {rule} (config hash {combined_hash})")
             needed |= set(core_tickers(combined_cfg["core"]))
-        data = SearchData.load(sorted(needed), synthetic=args.synthetic)
+        provider = build_provider(factor) if factor is not None else None
+        data = SearchData.load(sorted(needed), synthetic=args.synthetic, provider=provider)
         bench = compute_benchmark_metrics(data, criteria)
 
         report = validate_survivors(
@@ -175,6 +194,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # Only read for runs seeded with --pass-rule combined/combined_null
     # (qrl.combined); default config/combined.yaml or combined_null.yaml per rule.
     ap.add_argument("--combined-config", default=None)
+    # Only for a run seeded with `search seed --factor-config` (default config/factor.yaml).
+    ap.add_argument("--factor-config", default=None)
     ap.add_argument("--profile", default=str(ROOT / "config" / "profile.yaml"))
     ap.add_argument("--portfolio", default=str(ROOT / "config" / "portfolio.yaml"))
     ap.set_defaults(func=cmd_validate)

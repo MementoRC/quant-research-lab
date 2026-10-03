@@ -9,6 +9,7 @@ Usage:
     python scripts/search.py seed --lane C --confirm-lane-c --synthetic
     python scripts/search.py seed --lane A --universe config/universe.yaml
     python scripts/search.py seed --lane A --pass-rule combined --description "..."
+    python scripts/search.py seed --lane A --factor-config config/factor.yaml --pass-rule combined_null --description "..."
     python scripts/search.py batch --run 1 --n 200 --synthetic
     python scripts/search.py batch --run 1 --n 200 --max-seconds 1800
     python scripts/search.py summary --run 1
@@ -50,6 +51,16 @@ from qrl.combined import (  # noqa: E402
     load_rule_config,
 )
 from qrl.criteria import load_criteria  # noqa: E402
+from qrl.factor_run import (  # noqa: E402
+    FactorRun,
+    build_provider,
+    check_factor_run,
+    check_family_mix,
+    effective_criteria,
+    factor_data_source,
+    is_factor_run,
+    load_factor_run,
+)
 from qrl.ledger import (  # noqa: E402
     DEFAULT_LEDGER_PATH,
     SEED_LANES,
@@ -159,23 +170,60 @@ def _families_for_lane(lane: str, args: argparse.Namespace, criteria: dict) -> l
     return families
 
 
-def cmd_seed(args: argparse.Namespace) -> int:
-    criteria, criteria_hash = load_criteria(args.criteria)
-    families = _families_for_lane(args.lane, args, criteria)
-    if families is None:
-        return 2
+def _seed_families(
+    args: argparse.Namespace, criteria: dict, factor: FactorRun | None
+) -> list[str] | None:
+    """Families for a seed: a factor run's default to factor.yaml's list (the
+    lane's price families never apply); None (after printing why) if not ready."""
+    if factor is None:
+        return _families_for_lane(args.lane, args, criteria)
+    return _parse_families(args.families) if args.families else list(factor.families)
+
+
+def _validate_seed(
+    args: argparse.Namespace, families: list[str], factor: FactorRun | None
+) -> str | None:
+    """An error message if the seed request is invalid, else None."""
     unknown = sorted(set(families) - SEARCHABLE_SPACES.keys())
     if unknown:
-        print(f"Unknown families: {unknown}", file=sys.stderr)
-        return 2
+        return f"Unknown families: {unknown}"
     if not families:
-        print("No families to seed.", file=sys.stderr)
+        return "No families to seed."
+    if factor is not None and args.pass_rule != "combined_null":
+        return "A factor run is judged under --pass-rule combined_null."
+    try:
+        check_family_mix(families, factor_run=factor is not None)
+    except ValueError as err:
+        return str(err)
+    return None
+
+
+def cmd_seed(args: argparse.Namespace) -> int:
+    criteria, criteria_hash = load_criteria(args.criteria)
+    factor = None
+    if args.factor_config:
+        try:
+            factor = load_factor_run(args.factor_config)
+            effective_criteria(criteria, factor.research_start)
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 2
+    families = _seed_families(args, criteria, factor)
+    if families is None:
+        return 2
+    problem = _validate_seed(args, families, factor)
+    if problem:
+        print(problem, file=sys.stderr)
         return 2
 
-    universe = load_universe(args.universe)
-    data_source = data_source_fingerprint(
-        args.synthetic, universe["name"], list(universe["tickers"])
-    )
+    if factor is not None:
+        universe = factor.universe
+        data_source = factor_data_source(args.synthetic, factor)
+    else:
+        universe = load_universe(args.universe)
+        data_source = data_source_fingerprint(
+            args.synthetic, universe["name"], list(universe["tickers"])
+        )
 
     combined_hash = None
     if args.pass_rule != "standalone":
@@ -205,6 +253,11 @@ def cmd_seed(args: argparse.Namespace) -> int:
     )
     if combined_hash is not None:
         print(f"Pass rule: {args.pass_rule} (config hash {combined_hash})")
+    if factor is not None:
+        print(
+            f"Factor run: research start {factor.research_start}, factor.yaml sha256 "
+            f"{factor.config_sha256}, membership sha256 {factor.membership_sha256}"
+        )
     return 0
 
 
@@ -265,15 +318,18 @@ def _run_batch(
     universe: dict,
     args: argparse.Namespace,
     combined: tuple[dict, str] | None = None,
+    factor: FactorRun | None = None,
 ) -> tuple[int, int, int]:
     spaces = {f: SEARCHABLE_SPACES[f] for f in families}
     sleeve_tickers = list(universe["tickers"])
     universe_name = universe["name"]
+    grid_families = frozenset(families) & FACTOR_FAMILIES
 
     needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
     if combined is not None:
         needed |= set(core_tickers(combined[0]["core"]))
-    data = SearchData.load(sorted(needed), synthetic=args.synthetic)
+    provider = build_provider(factor) if factor is not None else None
+    data = SearchData.load(sorted(needed), synthetic=args.synthetic, provider=provider)
     bench = compute_benchmark_metrics(data, criteria)
     history = ledger.list_tests(run_id)
     deadline = time.monotonic() + args.max_seconds if args.max_seconds is not None else None
@@ -290,6 +346,7 @@ def _run_batch(
             args.seed + tested,
             universe=universe_name,
             sleeve_tickers=sleeve_tickers,
+            grid_families=grid_families,
         )
         if not proposals:
             print("No further unique candidates to propose; stopping early.")
@@ -319,12 +376,35 @@ def _run_batch(
     return tested, passed, failed
 
 
+def _batch_setup(
+    run: dict, args: argparse.Namespace, criteria: dict
+) -> tuple[dict, dict, dict, FactorRun | None, tuple[dict, str] | None]:
+    """(universe, data_source, criteria to slice with, factor run, combined) for
+    a run. Raises `ValueError` if a pre-registered hash changed since seeding."""
+    factor = check_factor_run(run, args.factor_config)
+    if factor is not None:
+        universe = factor.universe
+        data_source = factor_data_source(args.synthetic, factor)
+        criteria = effective_criteria(criteria, factor.research_start)
+    else:
+        universe = load_universe(args.universe)
+        data_source = data_source_fingerprint(
+            args.synthetic, universe["name"], list(universe["tickers"])
+        )
+    rule = run.get("pass_rule") or "standalone"
+    combined = combined_config_for_run(
+        run,
+        config_path_for(rule, args.combined_config, ROOT / "config"),
+        args.profile,
+        args.portfolio,
+        universe_tickers=list(universe["tickers"]),
+        null_membership=factor.membership if factor is not None else None,
+    )
+    return universe, data_source, criteria, factor, combined
+
+
 def cmd_batch(args: argparse.Namespace) -> int:
     criteria, criteria_hash = load_criteria(args.criteria)
-    universe = load_universe(args.universe)
-    data_source = data_source_fingerprint(
-        args.synthetic, universe["name"], list(universe["tickers"])
-    )
     with Ledger(args.ledger) as ledger:
         run = _get_run(ledger, args.run)
         if run is None:
@@ -336,15 +416,8 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 2
-        rule = run.get("pass_rule") or "standalone"
         try:
-            combined = combined_config_for_run(
-                run,
-                config_path_for(rule, args.combined_config, ROOT / "config"),
-                args.profile,
-                args.portfolio,
-                universe_tickers=list(universe["tickers"]),
-            )
+            universe, data_source, criteria, factor, combined = _batch_setup(run, args, criteria)
         except ValueError as err:
             print(str(err), file=sys.stderr)
             return 2
@@ -355,8 +428,13 @@ def cmd_batch(args: argparse.Namespace) -> int:
         if not families:
             print("No searchable families for this run; pass --families.", file=sys.stderr)
             return 2
+        try:
+            check_family_mix(families, factor_run=factor is not None)
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 2
         tested, passed, failed = _run_batch(
-            ledger, args.run, criteria, criteria_hash, families, universe, args, combined
+            ledger, args.run, criteria, criteria_hash, families, universe, args, combined, factor
         )
     print(f"Batch complete: tested {tested}, passed {passed}, failed {failed}.")
     return 0
@@ -386,6 +464,11 @@ def cmd_summary(args: argparse.Namespace) -> int:
         print(f"Data: {label}, universe {data_source.get('universe')}")
     else:
         print("Data: not recorded")
+    if is_factor_run(run):
+        print(
+            f"Factor run: factor.yaml sha256 {data_source['factor_config_sha256']}, "
+            f"membership sha256 {data_source['membership_sha256']}"
+        )
     pass_rule = run.get("pass_rule") or "standalone"
     if run.get("combined_config_hash"):
         print(f"Pass rule: {pass_rule} (config hash {run.get('combined_config_hash')})")
@@ -441,6 +524,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # continue (see qrl.ledger.data_source_fingerprint).
     p_seed.add_argument("--synthetic", action="store_true")
     p_seed.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
+    # A factor run (Phase 4): binds config/factor.yaml and its membership CSV by
+    # sha256; families default to its list, the universe is its PIT universe
+    # (--universe is ignored) and the research start is its research_start.
+    p_seed.add_argument("--factor-config", default=None)
     # Pre-registered per run (PLAN.md 2.5 amendment 2026-10-01): 'combined'
     # binds config/combined.yaml + the capital split + the core spec by hash;
     # 'combined_null' (amendment 2026-10-02, run 5) the same with combined_null.yaml.
@@ -456,6 +543,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_batch.add_argument("--synthetic", action="store_true")
     p_batch.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
     p_batch.add_argument("--families", default=None, help="override the run's seeded families")
+    # Only for a run seeded with --factor-config (default config/factor.yaml).
+    p_batch.add_argument("--factor-config", default=None)
     _add_combined_args(p_batch, profile=True)
     p_batch.set_defaults(func=cmd_batch)
 

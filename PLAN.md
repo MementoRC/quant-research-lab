@@ -535,7 +535,20 @@ Skipped per the owner decision of 2026-09-24 -- see section 8, item 6.
 - About 40 trials, judged under `combined_null`.
 - Milestones: (1) point-in-time filings data layer `qrl.fundamentals` (DONE),
   (2) point-in-time size universe `qrl.pit_universe` (DONE), (3) factor strategies (DONE),
-  (4) locked factor config, (5) search and validation.
+  (4) locked factor config (DONE), (5) search and validation.
+- Milestone 4 result: `config/factor.yaml` (locked per run: research start 2009-01-01, the PIT
+  universe, the three families, `null_baseline: pit_equal_weight`) and `qrl.factor_run`.
+  `search seed --factor-config config/factor.yaml --pass-rule combined_null` stores the sha256
+  of factor.yaml and of the membership CSV in the run's data-source fingerprint (no ledger schema
+  change); `search batch` and `validate` refuse if either changed. The effective criteria are
+  criteria.yaml with only `periods.research.start` replaced (verified in code); validation and
+  holdout are unchanged and the holdout stays sealed. Factor families run only in factor runs and
+  price families never do. The factor grid is n_hold {30,50} x rebalance {monthly,quarterly} x
+  trend_filter {off,on} = 8 per family, proposed first. PIT-null interpretation: "equal weight of
+  the same universe" means equal weight of each day's point-in-time members (monthly membership),
+  not of every ticker ever a member, since the candidate can only hold that day's members;
+  `combined_null.yaml` (`baseline: null_equal_weight`) does not fix the ticker set, so it is
+  unedited. No factor performance has been computed on real data.
 - Milestone 3 result: `src/qrl/strategies/factors.py` holds `value_ey` (NI TTM / market cap,
   NI <= 0 excluded), `profitability` (OperatingIncomeLoss TTM / Assets; operating income, not
   gross profit, for coverage; owner 2026-10-02) and `low_investment` (Assets / Assets one year

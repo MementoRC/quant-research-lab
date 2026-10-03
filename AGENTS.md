@@ -15,6 +15,11 @@ other agent must follow them. Humans should too.
   refuse if the hash changed.
 - `config/paper.yaml` — fixed for the duration of the paper track
   (pre-registered 2026-10-02).
+- `config/factor.yaml` — the factor run's research start, universe, families and
+  null baseline (PLAN.md Phase 4, milestone 4). Its sha256, and that of the
+  universe membership CSV (`config/universe_pit.yaml`), bind factor runs the
+  same way `combined_null.yaml` does: `search batch` and `validate` refuse if
+  either changed.
 - `src/qrl/engine.py`, `src/qrl/metrics.py`, `src/qrl/periods.py`, `src/qrl/checks.py`.
 - Existing tests in `tests/`. You may add tests; do not weaken or delete them.
 

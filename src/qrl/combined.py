@@ -39,6 +39,7 @@ from .engine import run_backtest
 from .ledger import COMBINED_PASS_RULES
 from .metrics import compute_metrics
 from .periods import slice_period
+from .pit_universe import membership_mask
 from .portfolio import combine_portfolio, load_portfolio_config
 from .strategies import REGISTRY, SLEEVE_REGISTRY
 from .tradability import exit_before_delisting
@@ -120,6 +121,7 @@ def combined_config_for_run(
     portfolio_path: str | Path,
     *,
     universe_tickers: Sequence[str] | None = None,
+    null_membership: pd.DataFrame | None = None,
 ) -> tuple[dict, str] | None:
     """`(cfg, hash)` for a combined-family run (a `Ledger.list_runs` row), or
     None for a standalone one (`pass_rule` 'standalone' or NULL). Raises
@@ -129,7 +131,11 @@ def combined_config_for_run(
 
     A `combined_null` run needs `universe_tickers` (the run's universe; its
     data-source fingerprint binds them): they are added to `cfg` as
-    `null_tickers`, the null sleeve's tickers."""
+    `null_tickers`, the null sleeve's tickers. A factor run also passes
+    `null_membership` (its point-in-time membership table), added as
+    `null_membership`: the null then holds only each day's members. Neither
+    key is part of the config hash (the yaml, split and core are); a factor
+    run binds the membership by its own hash (`qrl.factor_run`)."""
     rule = run.get("pass_rule") or "standalone"
     if rule not in COMBINED_PASS_RULES:
         return None
@@ -143,6 +149,8 @@ def combined_config_for_run(
         if not universe_tickers:
             raise ValueError(f"run {run.get('run_id')} (combined_null) needs universe tickers.")
         cfg = {**cfg, "null_tickers": list(universe_tickers)}
+        if null_membership is not None:
+            cfg["null_membership"] = null_membership
     return cfg, digest
 
 
@@ -242,13 +250,21 @@ def _sleeve_trades(
 
 
 def null_baseline_sleeve(
-    open_: pd.DataFrame, close: pd.DataFrame, tickers: Sequence[str]
+    open_: pd.DataFrame,
+    close: pd.DataFrame,
+    tickers: Sequence[str],
+    membership: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """The combined_null baseline's sleeve: the equal-weight null over
     `tickers`, with the same delisting exits a candidate gets in
-    `qrl.search.evaluate_candidate` (and `scripts/null_sleeve.py` applies)."""
+    `qrl.search.evaluate_candidate` (and `scripts/null_sleeve.py` applies).
+
+    `membership` (a `qrl.pit_universe` long table; factor runs only) makes it
+    the equal weight of each day's point-in-time members among `tickers` --
+    the factor-run reading of "the same universe" (PLAN.md Phase 4)."""
     cols = list(tickers)
-    weights = null_sleeve_weights(close, cols, "equal_weight")
+    mask = None if membership is None else membership_mask(membership, close.index, cols)
+    weights = null_sleeve_weights(close, cols, "equal_weight", member_mask=mask)
     return exit_before_delisting(weights, open_[cols], close[cols])
 
 
@@ -264,7 +280,7 @@ def _baseline_weights(
     graded against: the core alone, or core + null sleeve."""
     if baseline_label(cfg) == "core":
         return core_cols, core_weights
-    null = null_baseline_sleeve(open_, close, cfg["null_tickers"])
+    null = null_baseline_sleeve(open_, close, cfg["null_tickers"], cfg.get("null_membership"))
     pw = combine_portfolio(core_weights, [null], capital_split)
     return list(pw.combined.columns), pw.combined
 
