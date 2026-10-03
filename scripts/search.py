@@ -66,10 +66,12 @@ from qrl.search import (  # noqa: E402
     propose_batch,
     pruned_regions,
 )
-from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
+from qrl.strategies import FACTOR_FAMILIES, REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
 
-LANE_A_FAMILIES = tuple(SLEEVE_REGISTRY)
+# Factor families need the PIT universe and fundamentals (milestone 4 wires their run);
+# they stay out of the default price-only lane A set.
+LANE_A_FAMILIES = tuple(f for f in SLEEVE_REGISTRY if f not in FACTOR_FAMILIES)
 SEARCHABLE_SPACES: dict[str, dict[str, list]] = {
     **{name: spec.space for name, spec in SLEEVE_REGISTRY.items()},
     "core_trend": REGISTRY["core_trend"].space,
