@@ -13,13 +13,16 @@ import pytest
 from qrl.stress import (
     Hypothetical,
     PortfolioDef,
+    StressConfig,
     Window,
     asset_class,
     frozen_loss,
     hypothetical_loss,
     load_stress_config,
     priced,
+    replay_label,
     replay_loss,
+    run_stress,
     window_drawdown,
 )
 
@@ -244,3 +247,54 @@ def test_replay_unpriced_core_raises():
     p = PortfolioDef("p", _hold("A"), core_tickers=["A"], sleeve_universe=[], candidate=False)
     with pytest.raises(ValueError, match="core"):
         replay_loss(_frames(close), p, _win("2020-01-06", "2020-01-07"))
+
+
+CRITERIA = {
+    "periods": {
+        "research": {"start": "2005-01-01", "end": "2018-12-31"},
+        "validation": {"start": "2019-01-01", "end": "2022-12-31"},
+        "holdout": {"start": "2023-01-01"},
+    }
+}
+
+
+def test_replay_label():
+    gfc, covid = _win("2007-10-09", "2009-03-09"), _win("2020-02-19", "2020-04-30")
+    assert replay_label(False, gfc, CRITERIA) == "clean"
+    assert replay_label(True, gfc, CRITERIA) == "in-sample"
+    assert replay_label(True, covid, CRITERIA) == "validation-seen"
+    assert replay_label(True, _win("2000-03-24", "2002-10-09"), CRITERIA) == "out-of-sample"
+
+
+def test_run_stress_cells_labels_and_breach():
+    idx = pd.bdate_range("2006-01-02", "2009-12-31")
+    close = pd.DataFrame({"AAA": 100.0, "GLD": 100.0, "SPY": 100.0}, index=idx)
+    data = _frames(close)
+    cfg = StressConfig(
+        windows=[
+            _win("2003-01-02", "2003-06-30", replay=False, name="early"),  # before data
+            _win("2007-10-09", "2009-03-09", replay=True, name="gfc"),
+        ],
+        hypotheticals=[Hypothetical("crash", {"equity": -0.5})],
+        max_report_age_days=30,
+    )
+    core = PortfolioDef("chosen", _hold("AAA", 1.0), core_tickers=["AAA"])
+    cand = PortfolioDef(
+        "core+x", _hold("AAA", 1.0), core_tickers=["AAA"], sleeve_universe=["AAA"], candidate=True
+    )
+    cells = run_stress(cfg, [core, cand], data, max_drawdown=0.35, criteria=CRITERIA)
+    by = {(c.portfolio, c.scenario, c.mode): c for c in cells}
+
+    assert ("chosen", "early", "replay") not in by  # frozen-only window
+    early = by[("chosen", "early", "frozen")]
+    assert early.loss is None
+    assert "no prices" in early.unavailable
+    assert by[("chosen", "gfc", "replay")].label == "clean"
+    assert by[("core+x", "gfc", "replay")].label == "in-sample"
+    assert by[("chosen", "gfc", "frozen")].label == "current-weights"
+    assert by[("chosen", "gfc", "frozen")].loss == pytest.approx(0.0)
+    crash = by[("chosen", "crash", "hypothetical")]
+    assert crash.loss == pytest.approx(0.5)
+    assert crash.breach is True
+    assert by[("chosen", "gfc", "frozen")].breach is False
+    assert len(cells) == 2 * (1 + 2 + 1)

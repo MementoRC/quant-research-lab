@@ -20,6 +20,7 @@ import yaml
 
 from .engine import run_backtest
 from .metrics import drawdown
+from .periods import period_bounds
 
 SHOCK_CLASSES = ("equity", "gold")
 
@@ -180,3 +181,90 @@ def replay_loss(
     n = len(portfolio.sleeve_universe)
     dropped = n - len(keep)
     return loss, {"sleeve_dropped": dropped, "sleeve_dropped_share": dropped / n if n else 0.0}
+
+
+@dataclass
+class Cell:
+    portfolio: str
+    scenario: str
+    mode: str  # replay | frozen | hypothetical
+    label: str
+    loss: float | None
+    breach: bool | None
+    detail: dict
+    unavailable: str | None = None
+
+
+def _overlaps(window: Window, criteria: dict, period: str) -> bool:
+    start, end = period_bounds(criteria, period)
+    return (end is None or window.start <= end) and (start is None or window.end >= start)
+
+
+def replay_label(candidate: bool, window: Window, criteria: dict) -> str:
+    """`clean` for the core alone (a baseline, never searched); for a
+    portfolio holding a searched candidate, which selection data the window
+    falls in."""
+    if not candidate:
+        return "clean"
+    if _overlaps(window, criteria, "research"):
+        return "in-sample"
+    if _overlaps(window, criteria, "validation"):
+        return "validation-seen"
+    return "out-of-sample"
+
+
+def _cell(portfolio: str, scenario: str, mode: str, label: str, run, max_drawdown: float) -> Cell:
+    try:
+        loss, detail = run()
+    except (ValueError, KeyError) as exc:  # missing data -> reported, never dropped
+        return Cell(portfolio, scenario, mode, label, None, None, {}, unavailable=str(exc))
+    return Cell(portfolio, scenario, mode, label, loss, bool(loss > max_drawdown), detail)
+
+
+def run_stress(
+    cfg: StressConfig,
+    portfolios: list[PortfolioDef],
+    data: dict[str, pd.DataFrame],
+    max_drawdown: float,
+    criteria: dict,
+) -> list[Cell]:
+    """Every portfolio x scenario x applicable mode. `data` holds frames
+    through today; only the frozen/hypothetical modes use the latest weight
+    row built from it."""
+    cells: list[Cell] = []
+    for p in portfolios:
+        latest = p.build(data, priced(data["close"].tail(1), p.sleeve_universe)).iloc[-1]
+        for w in cfg.windows:
+            if w.replay:
+                cells.append(
+                    _cell(
+                        p.name,
+                        w.name,
+                        "replay",
+                        replay_label(p.candidate, w, criteria),
+                        lambda p=p, w=w: replay_loss(data, p, w),
+                        max_drawdown,
+                    )
+                )
+            cells.append(
+                _cell(
+                    p.name,
+                    w.name,
+                    "frozen",
+                    "current-weights",
+                    lambda w=w, latest=latest: frozen_loss(latest, data["close"], w),
+                    max_drawdown,
+                )
+            )
+        for h in cfg.hypotheticals:
+            cells.append(
+                _cell(
+                    p.name,
+                    h.name,
+                    "hypothetical",
+                    "current-weights",
+                    lambda h=h, latest=latest: (hypothetical_loss(latest, h), {}),
+                    max_drawdown,
+                )
+            )
+    return cells
