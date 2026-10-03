@@ -6,7 +6,7 @@ Date: 2026-10-03. Status: approved in conversation, pending written-spec review.
 
 Diagnostic only. Answers: "if a shock like X happens, how much does the
 portfolio lose, and does that breach the 35% max-drawdown cap
-(`config/profile.yaml`)?" It forecasts nothing, tunes nothing, and selects
+(`max_drawdown` in `config/profile.yaml`, the single source used for `breach`)?" It forecasts nothing, tunes nothing, and selects
 nothing. It does not modify `engine.py`, `metrics.py`, `periods.py`,
 `checks.py`, or any locked config (AGENTS.md).
 
@@ -50,27 +50,43 @@ Also: `max_report_age_days: 30` (see Daily check).
 
 ## Loss measures
 
-- **Rule replay** (historical windows): run each portfolio's strategies
-  with `qrl.engine.run_backtest` from 3 calendar years before the window
-  start (warm-up for lookbacks), combine with `combine_portfolio`, then
-  measure the worst peak-to-trough drawdown of portfolio returns *inside the
-  window only* (peak reset at window start; `qrl.metrics.drawdown`).
+Weights are built the same way the existing code builds them, not copied
+from any report: the core with the same strategy-spec construction
+`scripts/daily_check.py` uses for `config/portfolio.yaml` members; each
+candidate with `qrl.paper.load_candidate` + `qrl.paper.candidate_weights`
+(which applies `exit_before_delisting`).
+
+Drawdown is always measured on an equity curve that starts at 1.0 on the
+window's first day (a 0.0 return is prepended before calling
+`qrl.metrics.drawdown`), so a loss on the window's first day counts.
+
+- **Rule replay** (historical windows): price frames are truncated by index
+  at the window end (no `slice_period`; no data after the window enters),
+  start 3 calendar years before the window (warm-up for lookbacks), run each
+  strategy with `qrl.engine.run_backtest`, combine with `combine_portfolio`,
+  and measure the worst drawdown inside the window only. Sleeve tickers not
+  priced on every day of warm-up + window are dropped from that candidate's
+  universe for that window; the report gives the count and share dropped.
+  If the core's tickers are not fully priced, the cell is `unavailable`.
 - **Frozen weights** (historical windows): take the latest weight row of
-  each portfolio (the same weights `daily_check` reports today), buy at the
-  window's first close, hold without rebalancing, and measure the worst
-  drawdown of that path inside the window. Tickers with no price at window
-  start are replaced by SPY; the report gives the proxied weight share.
+  each portfolio (built from data through today — the only use of
+  post-window data in this module), buy at the window's first close, hold
+  without rebalancing, and measure the worst drawdown inside the window.
+  A ticker with no price at window start is replaced per class: `equity` →
+  SPY, `gold` → cash (no gold series exists before GLD's 2004-11 launch).
+  The report gives the proxied weight share per class.
 - **Hypothetical**: loss = Σ class weight × class shock (single step).
 
-Using the latest weight row reads current data the same way the paper track
-and `daily_check` already do; no holdout-period *returns* are evaluated.
+No holdout-period *returns* are evaluated in any mode.
 
 ## Honesty labels and guards
 
-- Each replay result carries a label: `clean` (the core: a baseline, never
-  searched), `in-sample` (a candidate in a window overlapping its research
-  period, i.e. gfc_2008), `validation-seen` (a candidate in covid_2020 or
-  inflation_2022).
+- Every cell carries a label. Replay: `clean` (the core: a baseline, never
+  searched), `in-sample` (a candidate in gfc_2008, inside its 2005-2018
+  research period), `validation-seen` (a candidate in covid_2020 or
+  inflation_2022). Frozen and hypothetical: `current-weights` (weights
+  built from data through today, incl. post-research periods; the shock
+  path itself is history or a stated judgment, not a test of selection).
 - Guard: any historical window ending on/after the holdout start
   (`config/criteria.yaml`, 2023-01-01) is rejected at config load, and the
   module never calls `slice_period(..., unseal_holdout=True)`. Tested.
@@ -83,18 +99,21 @@ and `daily_check` already do; no holdout-period *returns* are evaluated.
 - `scripts/stress.py` — argparse CLI; prints a table; writes
   `reports/stress.json` (`--out` to override). Pixi task `stress`.
 - `reports/stress.json` — per portfolio × scenario: mode, loss,
-  `breach` (loss > max_drawdown), label, proxied share; plus run timestamp
-  and sha256 of `stress.yaml`, `portfolio.yaml`, `paper.yaml`, `profile.yaml`.
+  `breach` (loss > `max_drawdown` from `config/profile.yaml`), label, proxied share; plus run timestamp
+  and full sha256 of the raw bytes of `stress.yaml`, `portfolio.yaml`, `paper.yaml`, `profile.yaml`.
 
 ## Daily check
 
-`scripts/daily_check.py` reads `reports/stress.json` (never recomputes) and
-adds to its output:
-- a standing **warning** listing every breaching portfolio × scenario;
+`scripts/daily_check.py` (not a locked file) reads `reports/stress.json`
+(never recomputes) and reports stress findings on a separate warnings
+channel, outside `HealthReport.checks`: printed after the health table and
+written under a `stress_warnings` key in its JSON output.
+- a **breach** warning listing every breaching portfolio × scenario;
 - a **stale** warning if the report is missing, older than
   `max_report_age_days`, or any recorded config hash no longer matches.
 
-Warnings do not change exit status or gate anything (no new pass rule).
+These warnings never change `HealthReport.ok` or the exit status, and gate
+nothing (no new pass rule).
 
 ## Errors
 
@@ -106,10 +125,13 @@ fails loudly at load.
 
 - Hand-computed losses on `synthetic_prices` for replay, frozen, and
   hypothetical modes.
-- SPY proxy substitution and proxied-share figure.
+- Per-class proxy substitution (equity → SPY, gold → cash) and proxied
+  share per class; replay drops unpriced sleeve tickers and reports it.
+- Drawdown counts a first-day loss (equity starts at 1.0).
+- Replay frames contain no rows after the window end.
 - Config rejects a window reaching the holdout, unknown classes, bad dates.
 - Labels assigned correctly per portfolio and window.
-- Daily check: breach warning, stale (age and hash) warning, missing report.
+- Daily check: breach, stale (age, hash) and missing-report warnings appear under `stress_warnings` and leave exit status unchanged.
 
 ## Out of scope
 
