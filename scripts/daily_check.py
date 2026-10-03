@@ -82,10 +82,13 @@ def _print_report(report: HealthReport) -> None:
 def _stress_warnings(path: Path = ROOT / "reports" / "stress.json") -> list[str]:
     """Warnings from the last `pixi run stress` report. A separate channel:
     never part of HealthReport.checks, never affects the exit status."""
-    report = json.loads(path.read_text()) if path.exists() else None
-    return stress_warnings(
-        report, file_hashes(stress_config_paths(ROOT)), pd.Timestamp.now(tz="UTC")
-    )
+    try:
+        report = json.loads(path.read_text()) if path.exists() else None
+        return stress_warnings(
+            report, file_hashes(stress_config_paths(ROOT)), pd.Timestamp.now(tz="UTC")
+        )
+    except (ValueError, KeyError, TypeError, OSError):
+        return ["stress report unreadable: re-run `pixi run stress`"]
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:

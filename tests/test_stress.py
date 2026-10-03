@@ -5,6 +5,7 @@ Spec: docs/superpowers/specs/2026-10-03-stress-scenarios-design.md.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from qrl.health import CheckResult, HealthReport
 from qrl.stress import (
     DataUnavailable,
     Hypothetical,
@@ -542,7 +544,120 @@ def test_daily_check_stress_warnings_reports_breach(tmp_path):
     assert msg.startswith("BREACH")
 
 
-def test_daily_check_exit_status_ignores_stress_warnings():
-    src = (ROOT / "scripts" / "daily_check.py").read_text()
-    assert "return 0 if report.ok else 1" in src
-    assert '"stress_warnings"' in src
+UNREADABLE = "stress report unreadable: re-run `pixi run stress`"
+
+
+@pytest.mark.parametrize("text", ["{bad json", "{}"])
+def test_daily_check_stress_warnings_unreadable_report(tmp_path, text):
+    path = tmp_path / "stress.json"
+    path.write_text(text)
+    assert daily_check._stress_warnings(path) == [UNREADABLE]
+
+
+CORE_CFG = {"fn": "core_trend", "params": {"risk_on": "QQQ", "risk_off": "GLD", "lookback": 3}}
+
+
+def _stub_daily_check(monkeypatch, ok: bool) -> None:
+    status = "ok" if ok else "fail"
+    report = HealthReport(
+        as_of=pd.Timestamp("2026-09-25"), checks=(CheckResult("data_arrived", status, ""),)
+    )
+    monkeypatch.setattr(daily_check, "load_universe", lambda: {"tickers": ["QQQ", "GLD"]})
+    monkeypatch.setattr(
+        daily_check,
+        "load_portfolio_config",
+        lambda path: {"core": CORE_CFG, "sleeve": {"strategies": []}},
+    )
+    monkeypatch.setattr(
+        daily_check,
+        "load_profile_with_hash",
+        lambda: ({"capital_split": {"core": 0.8, "sleeve": 0.2}}, "hash"),
+    )
+    monkeypatch.setattr(daily_check, "load_risk_limits", lambda profile: None)
+    monkeypatch.setattr(daily_check, "run_daily_health", lambda **kwargs: report)
+    monkeypatch.setattr(
+        daily_check, "_stress_warnings", lambda: ["BREACH chosen tech_crash: loss 48.0%"]
+    )
+
+
+def test_daily_check_exit_status_ignores_stress_warnings(tmp_path, monkeypatch):
+    _stub_daily_check(monkeypatch, ok=True)
+    out = tmp_path / "h.json"
+    assert daily_check.main(["--out", str(out)]) == 0
+    assert json.loads(out.read_text())["stress_warnings"]
+
+
+def test_daily_check_failed_report_exits_1_regardless_of_warnings(tmp_path, monkeypatch):
+    _stub_daily_check(monkeypatch, ok=False)
+    out = tmp_path / "h.json"
+    assert daily_check.main(["--out", str(out)]) == 1
+    assert json.loads(out.read_text())["stress_warnings"]
+
+
+def _load_stress_cli():
+    spec = importlib.util.spec_from_file_location("stress_cli", ROOT / "scripts" / "stress.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+stress_cli = _load_stress_cli()
+
+
+def test_restrict_drops_tickers_not_kept():
+    params = {"tickers": ["A", "B", "C"], "lookback": 5}
+    assert stress_cli._restrict(params, ["A", "C", "Z"]) == {"tickers": ["A", "C"], "lookback": 5}
+
+
+def test_restrict_leaves_params_without_tickers_unchanged():
+    params = {"risk_on": "QQQ", "lookback": 3}
+    assert stress_cli._restrict(params, ["A"]) == params
+
+
+def test_portfolios_empty_sleeve_is_core_only():
+    cfg = {"core": CORE_CFG, "sleeve": {"strategies": []}}
+    (chosen,) = stress_cli._portfolios(cfg, [], {"core": 0.8, "sleeve": 0.2})
+    assert chosen.name == "chosen"
+    assert chosen.candidate is False
+    idx = pd.bdate_range("2020-01-01", periods=12)
+    close = pd.DataFrame(
+        {
+            "QQQ": [100.0 + i for i in range(12)],
+            "GLD": [50.0] * 12,
+        },
+        index=idx,
+    )
+    combined = chosen.build({"close": close}, [])
+    assert list(combined.index) == list(idx)
+    assert (combined.sum(axis=1) <= 0.8 + 1e-9).all()
+    assert combined.to_numpy().sum() > 0  # core actually holds something
+
+
+def test_stress_cli_main_fails_loudly_on_unpriced_core_ticker(tmp_path, monkeypatch):
+    idx = pd.bdate_range("2020-01-01", periods=5)
+
+    def fake_ohlcv(tickers, refresh=False):
+        close = pd.DataFrame(dict.fromkeys(tickers, 100.0), index=idx)
+        close.iloc[-1] = float("nan")  # every core ticker (incl. QQQ) unpriced today
+        return {"close": close}
+
+    class FakeLedger:
+        def __init__(self, path):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def boom(*args, **kwargs):
+        raise AssertionError("run_stress must not be called")
+
+    monkeypatch.setattr(stress_cli, "load_ohlcv", fake_ohlcv)
+    monkeypatch.setattr(stress_cli, "Ledger", FakeLedger)
+    monkeypatch.setattr(stress_cli, "load_paper_config", lambda path: ({"candidates": []}, "h"))
+    monkeypatch.setattr(stress_cli, "run_stress", boom)
+    out = tmp_path / "stress.json"
+    assert stress_cli.main(["--out", str(out)]) == 1
+    assert not out.exists()
