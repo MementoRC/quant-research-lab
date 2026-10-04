@@ -9,6 +9,12 @@ from qrl.strategies.core_trend import core_trend
 EXAMPLE_PARAMS = {
     "buy_and_hold": {"ticker": "QQQ"},
     "core_trend": {"risk_on": "QQQ", "risk_off": "GLD", "lookback": 200},
+    "core_mix": {
+        "risk_on": {"SPY": 0.6, "QQQ": 0.4},
+        "risk_off": {"GLD": 1.0},
+        "signal": "SPY",
+        "lookback": 200,
+    },
     # regime_pullback lives in SLEEVE_REGISTRY, not REGISTRY (see
     # qrl/strategies/__init__.py), so this entry documents its example
     # params for consistency but is not exercised by this file's

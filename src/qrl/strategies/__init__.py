@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .buy_and_hold import buy_and_hold
+from .core_mix import core_mix, core_mix_tickers
 from .core_trend import core_trend
 from .factors import low_investment, profitability, value_ey
 from .low_range_close import low_range_close
@@ -73,6 +74,9 @@ REGISTRY: dict[str, StrategySpec] = {
             "risk_off": ["GLD", "TLT", "CASH"],
         },
     ),
+    # Exploration only (docs/superpowers/specs/2026-10-03-core-compare-design.md):
+    # fixed-weight mixes for the core comparison; not searched (empty space).
+    "core_mix": StrategySpec(core_mix, core_mix_tickers, fields=("close",)),
 }
 
 SLEEVE_REGISTRY: dict[str, StrategySpec] = {
