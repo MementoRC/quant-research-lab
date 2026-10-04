@@ -1,0 +1,24 @@
+# PRE-REGISTERED core candidates for the core comparison (EXPLORATION ONLY;
+# spec docs/superpowers/specs/2026-10-03-core-compare-design.md, owner approval
+# 2026-10-03). Fixed before any result was seen. After the first
+# `pixi run core-compare` report, change only via a dated amendment comment here.
+# Every report records this file's full sha256 and the trial count (7).
+# Each candidate is evaluated as a core-only portfolio at the profile's
+# capital_split (core 0.80, empty sleeve -> 20% cash).
+version: 1
+
+candidates:
+  - {id: A, label: "current: QQQ/GLD 200d trend", fn: core_trend, params: {risk_on: QQQ, risk_off: GLD, lookback: 200}}
+  - {id: B, label: "SPY/GLD 200d trend", fn: core_trend, params: {risk_on: SPY, risk_off: GLD, lookback: 200}}
+  - {id: C, label: "SPY/IEF 200d trend", fn: core_trend, params: {risk_on: SPY, risk_off: IEF, lookback: 200}}
+  - {id: D, label: "static 60/40 SPY/IEF", fn: core_mix, params: {risk_on: {SPY: 0.6, IEF: 0.4}}}
+  - {id: E, label: "static SPY 60 / IEF 20 / GLD 20", fn: core_mix, params: {risk_on: {SPY: 0.6, IEF: 0.2, GLD: 0.2}}}
+  - id: F
+    label: "switched mix, SPY 200d signal"
+    fn: core_mix
+    params:
+      risk_on: {SPY: 0.6, IEF: 0.4}
+      risk_off: {IEF: 0.5, GLD: 0.5}
+      signal: SPY
+      lookback: 200
+  - {id: G, label: "static 25% each SPY/TLT/GLD/SHY", fn: core_mix, params: {risk_on: {SPY: 0.25, TLT: 0.25, GLD: 0.25, SHY: 0.25}}}
