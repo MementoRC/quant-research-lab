@@ -74,6 +74,10 @@
     font-family: var(--serif); font-weight: 600; font-size: 1.5rem;
     line-height: 1.25; margin: 0 0 0.5rem;
   }
+  h3 { font-family: var(--serif); font-weight: 600; font-size: 1.15rem; margin: 1.5rem 0 0.5rem; }
+  h4 { font-weight: 500; font-size: 1rem; margin: 1.25rem 0 0.5rem; }
+  section[hidden], div[hidden] { display: none; }
+  table.narrow { min-width: 0; max-width: 24rem; }
   .section-note { color: var(--ink-soft); margin: 0 0 1.25rem; max-width: 46rem; }
 
   .chart-frame {
@@ -105,6 +109,7 @@
   th:first-child, td:first-child { text-align: left; white-space: normal; }
   thead th { font-weight: 500; color: var(--ink-soft); font-size: 0.9375rem; }
   tbody tr.is-strategy td:first-child { font-weight: 600; }
+  th.txt, td.txt { text-align: left; }
   .neg { color: var(--loss); }
 
   .checks { list-style: none; padding: 0; margin: 0; max-width: 46rem; }
@@ -236,6 +241,24 @@
         <ul class="checks" id="funnel-list"></ul>
       </section>
 
+      <section aria-labelledby="core-title" id="core-section" hidden>
+        <h2 id="core-title">Core comparison (exploration only)</h2>
+        <p class="section-note">Compares 7 pre-registered alternative cores to the current QQQ/GLD trend core. It selects nothing: switching the core needs a PLAN amendment and a new run.</p>
+        <div id="core-research" hidden>
+          <h3>Research period</h3>
+          <p class="section-note" id="core-research-note"></p>
+          <div class="table-scroll"><table id="core-research-table"></table></div>
+        </div>
+        <div id="core-reveal" hidden>
+          <h3>Shortlist reveal: 2020 and 2022 (validation-seen)</h3>
+          <p class="notice" id="core-reveal-banner"></p>
+          <div class="table-scroll"><table id="core-reveal-table"></table></div>
+          <h4>Breaches over revealed cells</h4>
+          <div class="table-scroll"><table id="core-breach-table" class="narrow"></table></div>
+        </div>
+        <p class="section-note" id="core-links"></p>
+      </section>
+
       <footer>
         <p>Data through ${fmtDate(data.data_through)} from ${data.data_source === "synthetic" ? "synthetic demo prices" : "Yahoo Finance"}. Built ${new Date(data.generated_at).toLocaleString()}.</p>
         <p>Criteria file version <code>${esc(data.criteria_hash)}</code>. If this code changes unexpectedly, the pass rules were edited.</p>
@@ -258,6 +281,7 @@
     setupPeriods(data);
     renderSleeveTable(data);
     renderFunnel(data);
+    renderCore(data);
 
     document.getElementById("theme-toggle").addEventListener("click", () => {
       const root = document.documentElement;
@@ -438,6 +462,61 @@
         <span>${esc(s.label)}</span>
         <span>${s.count == null ? "–" : s.count}</span>
       </li>`).join("");
+  }
+
+  const REPO_BLOB = "https://github.com/MementoRC/quant-research-lab/blob/development/";
+
+  function simpleTable(el, columns, rows, rowClass, textCols) {
+    textCols = textCols || [];
+    const head = columns.map(([, label], idx) => `<th scope="col"${textCols.includes(idx) ? ' class="txt"' : ''}>${esc(label)}</th>`).join("");
+    const body = rows.map((r) => `<tr class="${rowClass ? rowClass(r) : ""}">${
+      columns.map(([key], idx) => {
+        const classes = [];
+        if (r[key] === "BREACH") classes.push("neg");
+        if (textCols.includes(idx)) classes.push("txt");
+        return `<td${classes.length ? ` class="${classes.join(" ")}"` : ""}>${esc(r[key] ?? "")}</td>`;
+      }).join("")
+    }</tr>`).join("");
+    el.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+  }
+
+  function renderCore(data) {
+    const core = data.core_comparison;
+    const section = document.getElementById("core-section");
+    if (!core) { section.hidden = true; return; }
+    section.hidden = false;
+    const links = [];
+
+    if (core.research) {
+      document.getElementById("core-research").hidden = false;
+      const h = core.header || {};
+      document.getElementById("core-research-note").textContent =
+        `${(h["research period"] || "").split(" (")[0]}; validation and holdout data never used. Row A is the current core.`;
+      simpleTable(document.getElementById("core-research-table"), [
+        ["id", "Id"], ["rule", "Rule"], ["CAGR", "CAGR"], ["Sharpe", "Sharpe"],
+        ["max drawdown", "Max drawdown"], ["turnover/yr", "Turnover / yr"], ["breaches", "Breaches"],
+      ], core.research, (r) => (r.id === "A" ? "is-strategy" : ""), [0, 1]);
+      links.push(`<a href="${REPO_BLOB}${esc(core.sources.compare)}">full comparison with all stress cells</a>`);
+    }
+
+    if (core.reveal) {
+      const rv = core.reveal;
+      document.getElementById("core-reveal").hidden = false;
+      const windowsStr = Array.isArray(rv.windows) ? rv.windows.join(" and ") : rv.windows;
+      const dataStr = rv.cut_date ? `${windowsStr}, data cut at ${rv.cut_date}` : windowsStr;
+      document.getElementById("core-reveal-banner").textContent =
+        `VALIDATION-SEEN: these numbers use validation-period data (${dataStr}) and were looked at exactly once` +
+        (rv.event_id == null ? "." : ` (ledger event id ${rv.event_id}).`);
+      simpleTable(document.getElementById("core-reveal-table"), [
+        ["id", "Id"], ["portfolio", "Portfolio"], ["scenario", "Scenario"], ["mode", "Mode"],
+        ["loss", "Loss"], ["flag", "Flag"],
+      ], rv.cells, null, [0, 1, 2, 3, 5]);
+      simpleTable(document.getElementById("core-breach-table"), [
+        ["id", "Id"], ["breaches over revealed cells", "Breaches"],
+      ], rv.breaches, null, [0]);
+      links.push(`<a href="${REPO_BLOB}${esc(core.sources.reveal)}">full reveal</a>`);
+    }
+    document.getElementById("core-links").innerHTML = `Source files: ${links.join(" · ")}.`;
   }
 
   try {

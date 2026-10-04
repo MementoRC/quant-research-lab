@@ -27,6 +27,7 @@ from qrl.engine import run_backtest  # noqa: E402
 from qrl.metrics import compute_metrics, drawdown  # noqa: E402
 from qrl.periods import PERIOD_NAMES, slice_period  # noqa: E402
 from qrl.portfolio import combine_portfolio, load_portfolio_config  # noqa: E402
+from qrl.site_core import build_core_comparison  # noqa: E402
 from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 
 _ALL_SPECS = {**REGISTRY, **SLEEVE_REGISTRY}
@@ -386,6 +387,11 @@ def main() -> None:
             f"Universe {coverage['name']} ({bias}): {coverage['loaded']}/{coverage['requested']} "
             f"loaded, {coverage['late_starters']} late starters, {coverage['ended_early']} ended early"
         )
+
+    core_comparison = build_core_comparison(ROOT)
+    if core_comparison is not None:
+        payload["core_comparison"] = core_comparison
+        print(f"Core comparison: {', '.join(sorted(core_comparison['sources']))}")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
