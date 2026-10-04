@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import pandas as pd
@@ -21,8 +22,10 @@ from .metrics import compute_metrics
 from .periods import period_bounds, slice_period
 from .portfolio import combine_portfolio
 from .strategies import REGISTRY
-from .stress import Window
+from .stress import PortfolioDef, StressConfig, Window, run_stress
 
+Build = Callable[[dict[str, pd.DataFrame], list[str]], pd.DataFrame]
+ALL_MODES = frozenset({"replay", "frozen", "hypothetical"})
 CORE_FAMILIES = ("core_trend", "core_mix")
 _ID = re.compile(r"[A-Za-z0-9_-]+")
 _REQUIRED = {"id", "label", "fn", "params"}
@@ -136,3 +139,118 @@ def research_metrics(
     turnover = slice_period(result.turnover, criteria, "research")
     executed = slice_period(result.executed, criteria, "research")
     return compute_metrics(returns, turnover, executed)
+
+
+def branch_mixes(cand: Candidate) -> dict[str, dict[str, float]] | None:
+    """Static risk_on / risk_off mixes of a switching candidate, or None for a
+    static one. A switching rule's latest weight row depends on which branch is
+    live, so frozen/hypothetical cells are reported for both branches."""
+    p = cand.params
+    if cand.fn == "core_trend":
+        on, off = p.get("risk_on", "QQQ"), p.get("risk_off", "GLD")
+        return {"risk_on": {on: 1.0}, "risk_off": {off: 1.0}}
+    if p.get("risk_off") is None:
+        return None
+    return {"risk_on": dict(p["risk_on"]), "risk_off": dict(p["risk_off"])}
+
+
+def _rule_build(cand: Candidate, split: dict) -> Build:
+    def build(data: dict[str, pd.DataFrame], keep: list[str]) -> pd.DataFrame:
+        return combine_portfolio(candidate_weights(cand, data["close"]), [], split).combined
+
+    return build
+
+
+def _static_build(mix: dict[str, float], split: dict) -> Build:
+    def build(data: dict[str, pd.DataFrame], keep: list[str]) -> pd.DataFrame:
+        w = pd.DataFrame({t: float(x) for t, x in mix.items()}, index=data["close"].index)
+        return combine_portfolio(w, [], split).combined
+
+    return build
+
+
+def stress_portfolios(
+    cands: list[Candidate], split: dict
+) -> tuple[list[PortfolioDef], dict[str, frozenset[str]]]:
+    """PortfolioDefs for `run_stress` plus, per portfolio name, the cell modes
+    to keep. A static candidate X is one portfolio with every mode. A switching
+    candidate X is `X` (replay cells only) plus `X[risk_on]` and `X[risk_off]`
+    (frozen and hypothetical cells only)."""
+    defs: list[PortfolioDef] = []
+    modes: dict[str, frozenset[str]] = {}
+    for cand in cands:
+        tickers = list(REGISTRY[cand.fn].tickers(cand.params))
+        defs.append(PortfolioDef(cand.id, _rule_build(cand, split), tickers))
+        branches = branch_mixes(cand)
+        if branches is None:
+            modes[cand.id] = ALL_MODES
+            continue
+        modes[cand.id] = frozenset({"replay"})
+        for state, mix in branches.items():
+            name = f"{cand.id}[{state}]"
+            defs.append(PortfolioDef(name, _static_build(mix, split), list(mix)))
+            modes[name] = frozenset({"frozen", "hypothetical"})
+    return defs, modes
+
+
+def _candidate_result(
+    cand: Candidate,
+    cells: list,
+    data: dict[str, pd.DataFrame],
+    criteria: dict,
+    split: dict,
+    max_drawdown: float,
+) -> dict:
+    try:
+        research = research_metrics(cand, data, criteria, split)
+    except ValueError as exc:  # recorded as a failed test, never skipped (AGENTS.md)
+        research = {"error": str(exc)}
+    research_breach = bool(research.get("max_drawdown", 0.0) > max_drawdown)
+    stress_breaches = sum(1 for c in cells if c.breach)
+    return {
+        "id": cand.id,
+        "label": cand.label,
+        "fn": cand.fn,
+        "params": cand.params,
+        "research": research,
+        "research_breach": research_breach,
+        "stress_breaches": stress_breaches,
+        "unavailable": sum(1 for c in cells if c.unavailable is not None),
+        "breach_count": stress_breaches + int(research_breach),
+        "cells": [asdict(c) for c in cells],
+    }
+
+
+def run_core_compare(
+    cands: list[Candidate],
+    stress_cfg: StressConfig,
+    data: dict[str, pd.DataFrame],
+    criteria: dict,
+    split: dict,
+    max_drawdown: float,
+) -> dict:
+    """Every candidate: research metrics plus stress cells on windows that do
+    not overlap validation/holdout. Stress frames are cut at the research end,
+    so no later row reaches `run_stress`."""
+    kept, excluded = split_windows(stress_cfg.windows, criteria)
+    cfg = StressConfig(kept, stress_cfg.hypotheticals, stress_cfg.max_report_age_days)
+    _, rend = period_bounds(criteria, "research")
+    stress_data = {k: v.loc[:rend] for k, v in data.items()}
+    portfolios, modes = stress_portfolios(cands, split)
+    cells = [
+        c
+        for c in run_stress(cfg, portfolios, stress_data, max_drawdown, criteria)
+        if c.mode in modes[c.portfolio]
+    ]
+    results = [
+        _candidate_result(
+            cand,
+            [c for c in cells if c.portfolio.split("[")[0] == cand.id],
+            data,
+            criteria,
+            split,
+            max_drawdown,
+        )
+        for cand in cands
+    ]
+    return {"excluded_windows": [w.name for w in excluded], "candidates": results}

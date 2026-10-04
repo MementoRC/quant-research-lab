@@ -11,10 +11,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from qrl import core_compare
 from qrl.core_compare import (
     Candidate,
     load_core_candidates,
     research_metrics,
+    run_core_compare,
     split_windows,
 )
 from qrl.criteria import load_criteria
@@ -142,3 +144,64 @@ def test_core_compare_research_metrics_reject_unwarmed_candidate():
     late = _data(start="2005-02-01")  # first valid weight is after the research start
     with pytest.raises(ValueError, match="research start"):
         research_metrics(STATIC, late, _criteria(), SPLIT)
+
+
+ALLOWED_SCENARIOS = {
+    "dotcom_2000",
+    "gfc_2008",
+    "no_safe_haven",
+    "stagflation",
+    "energy_shock_severe",
+    "tech_crash",
+}
+
+
+@pytest.fixture(scope="module")
+def compared():
+    cands, _ = load_core_candidates(ROOT / "config" / "core_candidates.yaml")
+    cfg, _ = load_stress_config(ROOT / "config" / "stress.yaml", HOLDOUT)
+    seen: dict = {}
+    real = core_compare.run_stress
+
+    def spy(cfg_, portfolios, data, max_drawdown, criteria):
+        seen["last_row"] = data["close"].index.max()
+        seen["windows"] = [w.name for w in cfg_.windows]
+        return real(cfg_, portfolios, data, max_drawdown, criteria)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(core_compare, "run_stress", spy)
+        out = run_core_compare(cands, cfg, _data(), _criteria(), SPLIT, 0.35)
+    return out, seen
+
+
+def test_core_compare_stress_never_sees_validation(compared):
+    out, seen = compared
+    assert seen["last_row"] <= pd.Timestamp("2018-12-31")
+    assert seen["windows"] == ["dotcom_2000", "gfc_2008"]
+    assert out["excluded_windows"] == ["covid_2020", "inflation_2022"]
+    scenarios = {cell["scenario"] for c in out["candidates"] for cell in c["cells"]}
+    assert scenarios == ALLOWED_SCENARIOS
+
+
+def test_core_compare_every_candidate_recorded(compared):
+    out, _ = compared
+    assert [c["id"] for c in out["candidates"]] == list("ABCDEFG")
+    for c in out["candidates"]:
+        assert {"cagr", "sharpe", "max_drawdown"} <= c["research"].keys()
+        assert c["breach_count"] == c["stress_breaches"] + int(c["research_breach"])
+
+
+def test_core_compare_switching_candidates_split_into_branches(compared):
+    out, _ = compared
+    by_id = {c["id"]: c["cells"] for c in out["candidates"]}
+
+    def modes(cells, portfolio):
+        return {c["mode"] for c in cells if c["portfolio"] == portfolio}
+
+    assert {c["portfolio"] for c in by_id["F"]} == {"F", "F[risk_on]", "F[risk_off]"}
+    assert modes(by_id["F"], "F") == {"replay"}
+    assert modes(by_id["F"], "F[risk_on]") == {"frozen", "hypothetical"}
+    assert modes(by_id["F"], "F[risk_off]") == {"frozen", "hypothetical"}
+    assert {c["portfolio"] for c in by_id["D"]} == {"D"}
+    assert modes(by_id["D"], "D") == {"replay", "frozen", "hypothetical"}
+    assert {c["portfolio"] for c in by_id["A"]} == {"A", "A[risk_on]", "A[risk_off]"}
