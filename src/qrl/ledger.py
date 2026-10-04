@@ -132,6 +132,20 @@ CREATE TABLE IF NOT EXISTS holdout_events (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS reveal_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    shortlist_sha256 TEXT,
+    candidates_sha256 TEXT,
+    stress_sha256 TEXT,
+    ids TEXT,
+    windows TEXT,
+    status TEXT NOT NULL CHECK (status IN ('started', 'done')),
+    forced INTEGER NOT NULL DEFAULT 0,
+    reason TEXT
+);
+
 CREATE TABLE IF NOT EXISTS meta_tests (
     meta_test_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL REFERENCES runs(run_id),
@@ -481,6 +495,61 @@ class Ledger:
         )
         self._conn.commit()
         return _require_rowid(cur)
+
+    def record_reveal_event(
+        self,
+        kind: str,
+        shortlist_sha256: str,
+        candidates_sha256: str,
+        stress_sha256: str,
+        ids: list[str],
+        windows: list[str],
+        forced: bool = False,
+        reason: str | None = None,
+    ) -> int:
+        """Record a one-look reveal as `started`; returns its event_id."""
+        cur = self._conn.execute(
+            "INSERT INTO reveal_events (kind, created_at, shortlist_sha256, candidates_sha256, "
+            "stress_sha256, ids, windows, status, forced, reason) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'started', ?, ?)",
+            (
+                kind,
+                _utcnow(),
+                shortlist_sha256,
+                candidates_sha256,
+                stress_sha256,
+                json.dumps(ids),
+                json.dumps(windows),
+                int(bool(forced)),
+                reason,
+            ),
+        )
+        self._conn.commit()
+        return _require_rowid(cur)
+
+    def finish_reveal_event(self, event_id: int) -> None:
+        self._conn.execute(
+            "UPDATE reveal_events SET status = 'done' WHERE event_id = ?", (event_id,)
+        )
+        self._conn.commit()
+
+    def list_reveal_events(self, kind: str) -> list[dict]:
+        """Every reveal event of `kind`, oldest first (started or done)."""
+        rows = self._conn.execute(
+            "SELECT event_id, kind, created_at, shortlist_sha256, candidates_sha256, "
+            "stress_sha256, ids, windows, status, forced, reason "
+            "FROM reveal_events WHERE kind = ? ORDER BY event_id",
+            (kind,),
+        ).fetchall()
+        return [
+            {
+                **dict(row),
+                "ids": json.loads(row["ids"]),
+                "windows": json.loads(row["windows"]),
+                "forced": bool(row["forced"]),
+            }
+            for row in rows
+        ]
 
     def record_meta_test(self, run_id: int, meta: dict, window: str, metrics: dict) -> int:
         """Log one meta-setting combination tried by `qrl.walkforward.tune_meta`

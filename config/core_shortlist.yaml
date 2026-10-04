@@ -1,0 +1,12 @@
+# PRE-REGISTERED core shortlist for the reveal (EXPLORATION ONLY; spec
+# docs/superpowers/specs/2026-10-04-core-reveal-design.md). Pre-registered
+# 2026-10-04 by the owner, fixed before the reveal; changes only by a dated
+# amendment comment here. It unlocks exactly one look at the covid_2020 and
+# inflation_2022 stress windows (validation period) for these cores only.
+version: 1
+date: "2026-10-04"
+decided_by: owner
+# sha256 of config/core_candidates.yaml, computed 2026-10-04
+candidates_sha256: "1a84847ed4ae59e81627c420b88f7736357f0bdc0bcb654a945c5d2ad88107e3"
+ids: [E, F, G]
+windows: [covid_2020, inflation_2022]
