@@ -233,7 +233,9 @@ def core_mix(
     _validated("risk_on", risk_on)
     if risk_off is None:
         if signal is not None or lookback is not None:
-            raise ValueError("signal and lookback apply only with risk_off: a static mix never switches")
+            raise ValueError(
+                "signal and lookback apply only with risk_off: a static mix never switches"
+            )
         cols = list(risk_on)
         static = pd.DataFrame({t: float(x) for t, x in risk_on.items()}, index=close.index)
         static[close[cols].isna().any(axis=1)] = np.nan
@@ -844,7 +846,9 @@ def split_windows(windows: list[Window], criteria: dict) -> tuple[list[Window], 
     return kept, excluded
 
 
-def research_metrics(cand: Candidate, data: dict[str, pd.DataFrame], criteria: dict, split: dict) -> dict:
+def research_metrics(
+    cand: Candidate, data: dict[str, pd.DataFrame], criteria: dict, split: dict
+) -> dict:
     """Research-period metrics of the candidate as a core-only portfolio.
     Frames are cut at the research end BEFORE weights are built (warm-up rows
     before the research start are allowed); returns are then cut to the
@@ -1275,9 +1279,7 @@ def test_core_compare_main_fails_on_missing_ticker(tmp_path, monkeypatch):
     assert not out_md.exists()
 
 
-def test_core_compare_main_fails_loudly_on_unpriced_candidate_ticker(
-    tmp_path, monkeypatch, capsys
-):
+def test_core_compare_main_fails_loudly_on_unpriced_candidate_ticker(tmp_path, monkeypatch, capsys):
     def fake(tickers, refresh=False):
         open_, close = synthetic_prices(tickers, start="1999-01-01", end="2021-12-31")
         close.loc[close.loc[:"2018-12-31"].index[-1], "IEF"] = float("nan")  # unpriced at the end
@@ -1367,7 +1369,7 @@ def render_markdown(report: dict) -> str:
         *(_cell_row(c["id"], cell) for c in report["candidates"] for cell in c["cells"]),
         "",
         "Note: in `dotcom_2000` the bond and gold ETFs did not yet exist, so bonds/gold "
-        "weights are treated as cash (the \"proxied to cash\" column); this understates "
+        'weights are treated as cash (the "proxied to cash" column); this understates '
         "their cushion in that window.",
         "",
     ]
@@ -1432,9 +1434,7 @@ def main(argv: list[str] | None = None) -> int:
     profile = load_profile(ROOT / "config" / "profile.yaml")
     cands, cand_hash = load_core_candidates(ROOT / "config" / "core_candidates.yaml")
 
-    tickers = sorted(
-        {EQUITY_PROXY} | {t for c in cands for t in REGISTRY[c.fn].tickers(c.params)}
-    )
+    tickers = sorted({EQUITY_PROXY} | {t for c in cands for t in REGISTRY[c.fn].tickers(c.params)})
     data = load_ohlcv(tickers, refresh=True)  # as scripts/stress.py
     missing = [t for t in tickers if t not in data["close"].columns]
     if missing:
@@ -1444,7 +1444,9 @@ def main(argv: list[str] | None = None) -> int:
     # row at or before the research end, as scripts/stress.py does for the core
     last_row = data["close"].loc[:rend, tickers].iloc[-1]
     if not last_row.notna().all():
-        print(f"unpriced at the research end {rend.date()}: {sorted(last_row.index[last_row.isna()])}")
+        print(
+            f"unpriced at the research end {rend.date()}: {sorted(last_row.index[last_row.isna()])}"
+        )
         return 1
 
     result = run_core_compare(
