@@ -127,6 +127,11 @@ def research_metrics(
         raise ValueError(
             f"candidate {cand.id}: core weights not valid at the research start {rstart.date()}"
         )
+    if core_w.loc[rstart:].isna().any(axis=None):
+        raise ValueError(
+            f"candidate {cand.id}: core weights contain NaN inside the research period "
+            "(would be zero-filled into cash)"
+        )
     combined = combine_portfolio(core_w, [], split).combined
     cols = list(combined.columns)
     result = run_backtest(
@@ -138,7 +143,10 @@ def research_metrics(
     returns = slice_period(result.returns, criteria, "research")
     turnover = slice_period(result.turnover, criteria, "research")
     executed = slice_period(result.executed, criteria, "research")
-    return compute_metrics(returns, turnover, executed)
+    metrics = compute_metrics(returns, turnover, executed)
+    if "cagr" not in metrics:
+        raise ValueError(f"candidate {cand.id}: too few research days for metrics")
+    return metrics
 
 
 def branch_mixes(cand: Candidate) -> dict[str, dict[str, float]] | None:
@@ -320,6 +328,9 @@ def render_markdown(report: dict) -> str:
         "Note: in `dotcom_2000` the bond and gold ETFs did not yet exist, so bonds/gold "
         'weights are treated as cash (the "proxied to cash" column); this understates '
         "their cushion in that window.",
+        "",
+        "Note: for switching candidates the breach count covers the replay cell plus both "
+        "branch cells (`[risk_on]`, `[risk_off]`), plus the research-period breach.",
         "",
     ]
     return "\n".join(lines)

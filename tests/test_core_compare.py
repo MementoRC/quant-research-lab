@@ -136,6 +136,82 @@ def test_core_compare_research_metrics_ignore_later_data():
     )
 
 
+def test_core_compare_research_frames_are_cut_at_research_end(monkeypatch):
+    seen: dict = {}
+    real_weights, real_bt = core_compare.candidate_weights, core_compare.run_backtest
+
+    def spy_weights(cand, close):
+        seen["weights"] = close.index.max()
+        return real_weights(cand, close)
+
+    def spy_bt(open_, close, weights, **kw):
+        seen["backtest"] = (open_.index.max(), close.index.max(), weights.index.max())
+        return real_bt(open_, close, weights, **kw)
+
+    monkeypatch.setattr(core_compare, "candidate_weights", spy_weights)
+    monkeypatch.setattr(core_compare, "run_backtest", spy_bt)
+    research_metrics(STATIC, _data(), _criteria(), SPLIT)
+    rend = pd.Timestamp("2018-12-31")
+    assert seen["weights"] <= rend
+    assert all(ts <= rend for ts in seen["backtest"])
+
+
+def test_core_compare_research_gld_late_start_never_silently_shortened():
+    data = _data()
+    gld_start = pd.Timestamp("2004-11-18")
+    for k in data:
+        data[k] = data[k].copy()
+        data[k].loc[data[k].index < gld_start, "GLD"] = np.nan
+    cand = Candidate(
+        "A", "trend", "core_trend", {"risk_on": "QQQ", "risk_off": "GLD", "lookback": 200}
+    )
+    try:
+        m = research_metrics(cand, data, _criteria(), SPLIT)
+    except ValueError:
+        return  # an error row is acceptable
+    assert m["start"] <= "2005-01-10"  # full research period, not a shortened one
+
+
+def test_core_compare_research_rejects_nan_weights_in_research_period(monkeypatch):
+    real = core_compare.candidate_weights
+
+    def holey(cand, close):
+        w = real(cand, close).copy()
+        w.iloc[w.index.get_indexer([pd.Timestamp("2010-06-01")], method="bfill")[0], :] = np.nan
+        return w
+
+    monkeypatch.setattr(core_compare, "candidate_weights", holey)
+    with pytest.raises(ValueError, match="NaN"):
+        research_metrics(STATIC, _data(), _criteria(), SPLIT)
+
+
+def test_core_compare_research_rejects_metrics_without_cagr(monkeypatch):
+    monkeypatch.setattr(core_compare, "compute_metrics", lambda *a, **k: {"days": 1})
+    with pytest.raises(ValueError, match="too few"):
+        research_metrics(STATIC, _data(), _criteria(), SPLIT)
+
+
+def test_core_compare_error_row_for_candidate_without_cagr(monkeypatch):
+    monkeypatch.setattr(core_compare, "compute_metrics", lambda *a, **k: {"days": 1})
+    cfg, _ = load_stress_config(ROOT / "config" / "stress.yaml", HOLDOUT)
+    out = run_core_compare([STATIC], cfg, _data(), _criteria(), SPLIT, 0.35)
+    assert "error" in out["candidates"][0]["research"]
+
+
+def test_core_compare_markdown_footnote_explains_switching_breach_counts(compared):
+    out, _ = compared
+    report = {
+        **out,
+        "candidates_sha256": "ab" * 32,
+        "stress_sha256": "cd" * 32,
+        "trial_count": 7,
+        "research_period": {"start": "2005-01-01", "end": "2018-12-31"},
+        "max_drawdown": 0.35,
+        "capital_split": SPLIT,
+    }
+    assert "both branch cells" in render_markdown(report)
+
+
 def test_core_compare_research_metrics_stay_inside_research_period():
     m = research_metrics(STATIC, _data(), _criteria(), SPLIT)
     assert m["start"] >= "2005-01-01"
