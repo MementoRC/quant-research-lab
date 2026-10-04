@@ -16,7 +16,12 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from .engine import run_backtest
+from .metrics import compute_metrics
+from .periods import period_bounds, slice_period
+from .portfolio import combine_portfolio
 from .strategies import REGISTRY
+from .stress import Window
 
 CORE_FAMILIES = ("core_trend", "core_mix")
 _ID = re.compile(r"[A-Za-z0-9_-]+")
@@ -86,3 +91,48 @@ def load_core_candidates(path: str | Path) -> tuple[list[Candidate], str]:
     if dupes:
         raise ValueError(f"duplicate candidate ids: {dupes}")
     return cands, hashlib.sha256(raw).hexdigest()
+
+
+def split_windows(windows: list[Window], criteria: dict) -> tuple[list[Window], list[Window]]:
+    """(kept, excluded). A window is excluded if it ends on/after the validation
+    start: that covers any overlap with the validation period and everything
+    later (holdout). Order is preserved."""
+    vstart, _ = period_bounds(criteria, "validation")
+    if vstart is None:
+        raise ValueError("criteria has no validation start")
+    kept = [w for w in windows if w.end < vstart]
+    excluded = [w for w in windows if w.end >= vstart]
+    return kept, excluded
+
+
+def research_metrics(
+    cand: Candidate, data: dict[str, pd.DataFrame], criteria: dict, split: dict
+) -> dict:
+    """Research-period metrics of the candidate as a core-only portfolio.
+    Frames are cut at the research end BEFORE weights are built (warm-up rows
+    before the research start are allowed); returns are then cut to the
+    research period. Raises ValueError if the core's weights are not valid at
+    the research start (no silently shortened period)."""
+    rstart, rend = period_bounds(criteria, "research")
+    if rstart is None or rend is None:
+        raise ValueError("criteria research period needs a start and an end")
+    close = data["close"].loc[:rend]
+    open_ = data["open"].loc[:rend]
+    core_w = candidate_weights(cand, close)
+    valid = core_w.dropna().index
+    if valid.empty or valid[0] > rstart:
+        raise ValueError(
+            f"candidate {cand.id}: core weights not valid at the research start {rstart.date()}"
+        )
+    combined = combine_portfolio(core_w, [], split).combined
+    cols = list(combined.columns)
+    result = run_backtest(
+        open_[cols],
+        close[cols],
+        combined,
+        cost_bps=float(criteria["costs"]["bps_per_unit_turnover"]),
+    )
+    returns = slice_period(result.returns, criteria, "research")
+    turnover = slice_period(result.turnover, criteria, "research")
+    executed = slice_period(result.executed, criteria, "research")
+    return compute_metrics(returns, turnover, executed)

@@ -7,11 +7,35 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 
-from qrl.core_compare import load_core_candidates
+from qrl.core_compare import (
+    Candidate,
+    load_core_candidates,
+    research_metrics,
+    split_windows,
+)
+from qrl.criteria import load_criteria
+from qrl.data import synthetic_prices
+from qrl.stress import Window, load_stress_config
 
 ROOT = Path(__file__).resolve().parents[1]
+HOLDOUT = pd.Timestamp("2023-01-01")
+SPLIT = {"core": 0.8, "sleeve": 0.2}
+TICKERS = ["SPY", "QQQ", "GLD", "IEF", "TLT", "SHY"]
+STATIC = Candidate("T", "static", "core_mix", {"risk_on": {"SPY": 0.6, "IEF": 0.4}})
+
+
+def _criteria() -> dict:
+    return load_criteria(ROOT / "config" / "criteria.yaml")[0]
+
+
+def _data(start: str = "1999-01-01", end: str = "2021-12-31") -> dict[str, pd.DataFrame]:
+    open_, close = synthetic_prices(TICKERS, start=start, end=end)
+    return {"open": open_, "close": close}
+
 
 GOOD = """
 version: 1
@@ -80,3 +104,41 @@ def test_core_compare_rejects_non_mapping_params(tmp_path):
     text = GOOD.replace("params: {risk_on: SPY, risk_off: IEF, lookback: 5}", "params: [SPY]")
     with pytest.raises(ValueError, match="mapping"):
         load_core_candidates(_write(tmp_path, text))
+
+
+def test_core_compare_split_windows_drops_validation_overlap():
+    cfg, _ = load_stress_config(ROOT / "config" / "stress.yaml", HOLDOUT)
+    kept, excluded = split_windows(cfg.windows, _criteria())
+    assert [w.name for w in kept] == ["dotcom_2000", "gfc_2008"]
+    assert [w.name for w in excluded] == ["covid_2020", "inflation_2022"]
+
+
+def test_core_compare_split_windows_drops_holdout_overlap():
+    early = Window("early", pd.Timestamp("2018-01-02"), pd.Timestamp("2018-12-31"), True)
+    straddle = Window("straddle", pd.Timestamp("2018-06-01"), pd.Timestamp("2019-02-01"), True)
+    late = Window("late", pd.Timestamp("2023-02-01"), pd.Timestamp("2023-03-01"), False)
+    kept, excluded = split_windows([early, straddle, late], _criteria())
+    assert [w.name for w in kept] == ["early"]
+    assert [w.name for w in excluded] == ["straddle", "late"]
+
+
+def test_core_compare_research_metrics_ignore_later_data():
+    data = _data()
+    factor = np.where(data["close"].index <= pd.Timestamp("2018-12-31"), 1.0, 5.0)
+    poisoned = {k: v.mul(factor, axis=0) for k, v in data.items()}
+    assert research_metrics(STATIC, data, _criteria(), SPLIT) == research_metrics(
+        STATIC, poisoned, _criteria(), SPLIT
+    )
+
+
+def test_core_compare_research_metrics_stay_inside_research_period():
+    m = research_metrics(STATIC, _data(), _criteria(), SPLIT)
+    assert m["start"] >= "2005-01-01"
+    assert m["end"] <= "2018-12-31"
+    assert {"cagr", "sharpe", "max_drawdown", "turnover_per_year"} <= m.keys()
+
+
+def test_core_compare_research_metrics_reject_unwarmed_candidate():
+    late = _data(start="2005-02-01")  # first valid weight is after the research start
+    with pytest.raises(ValueError, match="research start"):
+        research_metrics(STATIC, late, _criteria(), SPLIT)
