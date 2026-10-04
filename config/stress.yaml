@@ -16,10 +16,16 @@ windows:
   - {name: inflation_2022, start: "2022-01-03", end: "2022-10-31", replay: true}
 
 # Instantaneous shocks per asset class, applied to the latest weights.
-# Classes: gold = GLD; equity = every other ticker; cash = unallocated (0%).
-# These are judgments, not data.
+# Classes: gold = GLD; bonds = IEF, TLT, SHY, AGG; equity = every other ticker;
+# cash = unallocated (0%). These are judgments, not data.
+#
+# AMENDMENT 2026-10-03 (owner approval; docs/superpowers/specs/2026-10-03-core-compare-design.md):
+# added the `bonds` class and its shock to every hypothetical, for the core
+# comparison. Equity and gold shocks are unchanged. The first report was
+# already produced before this amendment (the chosen core holds no bonds, so
+# its losses are unaffected).
 hypotheticals:
-  - {name: no_safe_haven, equity: -0.50, gold: -0.20}       # stocks and gold fall together
-  - {name: stagflation, equity: -0.45, gold: 0.10}          # 1973-74-style rotation
-  - {name: energy_shock_severe, equity: -0.40, gold: -0.10} # fuel/diesel shock worse than 2022
-  - {name: tech_crash, equity: -0.60, gold: 0.0}            # 2000-02-scale equity collapse
+  - {name: no_safe_haven, equity: -0.50, gold: -0.20, bonds: -0.15}       # stocks, gold and bonds fall together
+  - {name: stagflation, equity: -0.45, gold: 0.10, bonds: -0.20}          # 1973-74-style rotation
+  - {name: energy_shock_severe, equity: -0.40, gold: -0.10, bonds: -0.10} # fuel/diesel shock worse than 2022
+  - {name: tech_crash, equity: -0.60, gold: 0.0, bonds: 0.05}             # 2000-02-scale equity collapse
