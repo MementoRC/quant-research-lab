@@ -22,7 +22,7 @@ from .engine import run_backtest
 from .metrics import drawdown
 from .periods import period_bounds
 
-SHOCK_CLASSES = ("equity", "gold")
+SHOCK_CLASSES = ("equity", "gold", "bonds")
 
 
 class DataUnavailable(Exception):  # noqa: N818 (name fixed by the review spec)
@@ -95,10 +95,15 @@ def load_stress_config(path: str | Path, holdout_start: pd.Timestamp) -> tuple[S
 
 
 GOLD_TICKERS = frozenset({"GLD"})
+BOND_TICKERS = frozenset({"IEF", "TLT", "SHY", "AGG"})
 
 
 def asset_class(ticker: str) -> str:
-    return "gold" if ticker in GOLD_TICKERS else "equity"
+    if ticker in GOLD_TICKERS:
+        return "gold"
+    if ticker in BOND_TICKERS:
+        return "bonds"
+    return "equity"
 
 
 def window_drawdown(returns: pd.Series) -> float:
@@ -122,8 +127,8 @@ EQUITY_PROXY = "SPY"
 def frozen_loss(weights: pd.Series, close: pd.DataFrame, window: Window) -> tuple[float, dict]:
     """Buy `weights` at the window's first close, hold without rebalancing,
     return (worst drawdown inside the window, detail). A ticker with no price
-    at the window's first day is replaced per class: equity -> SPY, gold ->
-    cash. A position priced at the start but with later gaps is carried at
+    at the window's first day is replaced per class: equity -> SPY, gold and
+    bonds -> cash. A position priced at the start but with later gaps is carried at
     its last price (forward-fill). Raises DataUnavailable if the window has
     no prices, or SPY is needed but unpriced."""
     px = close.loc[window.start : window.end]
@@ -140,8 +145,8 @@ def frozen_loss(weights: pd.Series, close: pd.DataFrame, window: Window) -> tupl
         else:
             cls = asset_class(ticker)
             proxied[cls] += float(wt)
-            if cls == "gold":
-                value += wt  # gold before GLD existed -> cash
+            if cls != "equity":
+                value += wt  # gold/bonds before their ETF existed -> cash
                 continue
             if EQUITY_PROXY not in px.columns or pd.isna(first[EQUITY_PROXY]):
                 raise DataUnavailable(

@@ -53,7 +53,7 @@ max_report_age_days: 30
 windows:
   - {name: w1, start: "2008-01-02", end: "2008-06-30", replay: true}
 hypotheticals:
-  - {name: h1, equity: -0.5, gold: -0.2}
+  - {name: h1, equity: -0.5, gold: -0.2, bonds: 0.0}
 """
 
 
@@ -84,7 +84,7 @@ def test_loads_good_config(tmp_path):
         pd.Timestamp("2008-06-30"),
         True,
     )
-    assert cfg.hypotheticals[0].shocks == {"equity": -0.5, "gold": -0.2}
+    assert cfg.hypotheticals[0].shocks == {"equity": -0.5, "gold": -0.2, "bonds": 0.0}
 
 
 def test_rejects_window_reaching_holdout(tmp_path):
@@ -106,7 +106,7 @@ def test_rejects_bad_date(tmp_path):
 
 
 def test_rejects_unknown_class(tmp_path):
-    text = GOOD.replace("gold: -0.2", "bonds: -0.2")
+    text = GOOD.replace("bonds: 0.0", "crypto: 0.0")
     with pytest.raises(ValueError, match="unknown"):
         load_stress_config(_write(tmp_path, text), HOLDOUT)
 
@@ -182,7 +182,7 @@ def test_frozen_loss_buy_and_hold_no_rebalance():
     loss, detail = frozen_loss(w, close, _win("2008-01-07", "2008-01-09"))
     # value: 1.0 -> 0.5*0.8+0.3+0.2 = 0.9 -> 0.5*0.9+0.5 = 0.95
     assert loss == pytest.approx(0.10)
-    assert detail["proxied_share"] == {"equity": 0.0, "gold": 0.0}
+    assert detail["proxied_share"] == {"equity": 0.0, "gold": 0.0, "bonds": 0.0}
 
 
 def test_frozen_loss_proxies_equity_to_spy_and_gold_to_cash():
@@ -199,7 +199,11 @@ def test_frozen_loss_proxies_equity_to_spy_and_gold_to_cash():
     loss, detail = frozen_loss(w, close, _win("2001-01-08", "2001-01-09"))
     # AAA -> SPY (halves), GLD -> cash: 1.0 -> 0.6*0.5 + 0.4 = 0.7
     assert loss == pytest.approx(0.30)
-    assert detail["proxied_share"] == {"equity": pytest.approx(0.6), "gold": pytest.approx(0.4)}
+    assert detail["proxied_share"] == {
+        "equity": pytest.approx(0.6),
+        "gold": pytest.approx(0.4),
+        "bonds": 0.0,
+    }
 
 
 def test_frozen_loss_ticker_absent_from_frame_is_proxied():
@@ -221,7 +225,7 @@ def test_frozen_loss_spy_held_directly_is_not_proxied():
     close = pd.DataFrame({"SPY": [100.0, 90.0]}, index=idx)
     loss, detail = frozen_loss(pd.Series({"SPY": 1.0}), close, _win("2001-01-08", "2001-01-09"))
     assert loss == pytest.approx(0.10)
-    assert detail["proxied_share"] == {"equity": 0.0, "gold": 0.0}
+    assert detail["proxied_share"] == {"equity": 0.0, "gold": 0.0, "bonds": 0.0}
 
 
 def test_all_cash_weights_lose_nothing():
@@ -233,6 +237,44 @@ def test_all_cash_weights_lose_nothing():
     assert hypothetical_loss(w, Hypothetical("x", {"equity": -0.5, "gold": -0.2})) == pytest.approx(
         0.0
     )
+
+
+@pytest.mark.parametrize("ticker", ["IEF", "TLT", "SHY", "AGG"])
+def test_asset_class_bonds(ticker):
+    assert asset_class(ticker) == "bonds"
+
+
+def test_hypothetical_loss_includes_bonds_class():
+    w = pd.Series({"SPY": 0.5, "IEF": 0.3, "GLD": 0.1})  # 0.1 cash
+    h = Hypothetical("x", {"equity": -0.4, "gold": -0.1, "bonds": 0.05})
+    # -(0.5 * -0.4 + 0.1 * -0.1 + 0.3 * 0.05)
+    assert hypothetical_loss(w, h) == pytest.approx(0.195)
+
+
+def test_frozen_loss_proxies_bonds_to_cash():
+    idx = pd.bdate_range("2001-01-08", periods=2)
+    close = pd.DataFrame({"IEF": [float("nan")] * 2, "SPY": [100.0, 50.0]}, index=idx)
+    w = pd.Series({"SPY": 0.5, "IEF": 0.5})
+    loss, detail = frozen_loss(w, close, _win("2001-01-08", "2001-01-09"))
+    # SPY halves, IEF -> cash: 1.0 -> 0.5 * 0.5 + 0.5 = 0.75
+    assert loss == pytest.approx(0.25)
+    assert detail["proxied_share"] == {"equity": 0.0, "gold": 0.0, "bonds": pytest.approx(0.5)}
+
+
+def test_rejects_hypothetical_missing_bonds(tmp_path):
+    text = GOOD.replace(", bonds: 0.0", "")
+    with pytest.raises(ValueError, match="bonds"):
+        load_stress_config(_write(tmp_path, text), HOLDOUT)
+
+
+def test_shipped_config_has_bonds_shocks():
+    cfg, _ = load_stress_config(ROOT / "config" / "stress.yaml", HOLDOUT)
+    assert {h.name: h.shocks["bonds"] for h in cfg.hypotheticals} == {
+        "no_safe_haven": -0.15,
+        "stagflation": -0.20,
+        "energy_shock_severe": -0.10,
+        "tech_crash": 0.05,
+    }
 
 
 def _frames(close: pd.DataFrame) -> dict[str, pd.DataFrame]:
