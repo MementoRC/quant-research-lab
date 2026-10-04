@@ -5,6 +5,8 @@ Spec: docs/superpowers/specs/2026-10-03-core-compare-design.md.
 
 from __future__ import annotations
 
+import importlib.util
+import json
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +17,7 @@ from qrl import core_compare
 from qrl.core_compare import (
     Candidate,
     load_core_candidates,
+    render_markdown,
     research_metrics,
     run_core_compare,
     split_windows,
@@ -205,3 +208,93 @@ def test_core_compare_switching_candidates_split_into_branches(compared):
     assert {c["portfolio"] for c in by_id["D"]} == {"D"}
     assert modes(by_id["D"], "D") == {"replay", "frozen", "hypothetical"}
     assert {c["portfolio"] for c in by_id["A"]} == {"A", "A[risk_on]", "A[risk_off]"}
+
+
+def _load_cli():
+    spec = importlib.util.spec_from_file_location(
+        "core_compare_cli", ROOT / "scripts" / "core_compare.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+cli = _load_cli()
+
+
+def test_core_compare_markdown_records_hash_and_trial_count(compared):
+    out, _ = compared
+    report = {
+        **out,
+        "candidates_sha256": "ab" * 32,
+        "stress_sha256": "cd" * 32,
+        "trial_count": 7,
+        "research_period": {"start": "2005-01-01", "end": "2018-12-31"},
+        "max_drawdown": 0.35,
+        "capital_split": SPLIT,
+    }
+    md = render_markdown(report)
+    assert "ab" * 32 in md
+    assert "- trial count: 7" in md
+    for cid in "ABCDEFG":
+        assert f"| {cid} |" in md
+    table_rows = [ln for ln in md.splitlines() if ln.startswith("|")]
+    assert not any("covid_2020" in ln or "inflation_2022" in ln for ln in table_rows)
+    assert "validation and holdout data never used" in md
+    assert "| proxied to cash |" in md
+    assert "treated as cash" in md  # footnote: the dotcom cushion is understated
+    # synthetic prices cover every ticker, so inject a proxied share into one cell
+    cell = report["candidates"][3]["cells"][0]  # candidate D
+    cell["detail"] = {"proxied_share": {"equity": 0.0, "gold": 0.2, "bonds": 0.4}}
+    row = next(ln for ln in render_markdown(report).splitlines() if "bonds 40%" in ln)
+    assert row.startswith("| D |")
+    assert "bonds 40%, gold 20%" in row
+
+
+def _fake_ohlcv(drop: str | None = None):
+    def fake(tickers, refresh=False):
+        open_, close = synthetic_prices(tickers, start="1999-01-01", end="2021-12-31")
+        if drop is not None:
+            open_, close = open_.drop(columns=drop), close.drop(columns=drop)
+        return {"open": open_, "close": close}
+
+    return fake
+
+
+def test_core_compare_main_writes_json_and_markdown(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "load_ohlcv", _fake_ohlcv())
+    out_json, out_md = tmp_path / "r.json", tmp_path / "r.md"
+    assert cli.main(["--out-json", str(out_json), "--out-md", str(out_md)]) == 0
+    report = json.loads(out_json.read_text())
+    assert report["trial_count"] == 7
+    assert len(report["candidates_sha256"]) == 64
+    assert [c["id"] for c in report["candidates"]] == list("ABCDEFG")
+    scenarios = {cell["scenario"] for c in report["candidates"] for cell in c["cells"]}
+    assert not scenarios & {"covid_2020", "inflation_2022"}
+    assert "- trial count: 7" in out_md.read_text()
+
+
+def test_core_compare_main_fails_on_missing_ticker(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "load_ohlcv", _fake_ohlcv(drop="IEF"))
+    out_json, out_md = tmp_path / "r.json", tmp_path / "r.md"
+    assert cli.main(["--out-json", str(out_json), "--out-md", str(out_md)]) == 1
+    assert not out_json.exists()
+    assert not out_md.exists()
+
+
+def test_core_compare_main_fails_loudly_on_unpriced_candidate_ticker(tmp_path, monkeypatch, capsys):
+    def fake(tickers, refresh=False):
+        open_, close = synthetic_prices(tickers, start="1999-01-01", end="2021-12-31")
+        close.loc[close.loc[:"2018-12-31"].index[-1], "IEF"] = float("nan")  # unpriced at the end
+        return {"open": open_, "close": close}
+
+    def boom(*args, **kwargs):
+        raise AssertionError("run_core_compare must not be called")
+
+    monkeypatch.setattr(cli, "load_ohlcv", fake)
+    monkeypatch.setattr(cli, "run_core_compare", boom)
+    out_json, out_md = tmp_path / "r.json", tmp_path / "r.md"
+    assert cli.main(["--out-json", str(out_json), "--out-md", str(out_md)]) == 1
+    assert "IEF" in capsys.readouterr().out
+    assert not out_json.exists()
+    assert not out_md.exists()

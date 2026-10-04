@@ -254,3 +254,72 @@ def run_core_compare(
         for cand in cands
     ]
     return {"excluded_windows": [w.name for w in excluded], "candidates": results}
+
+
+def _pct(x: float | None) -> str:
+    return "n/a" if x is None else f"{x + 0.0:.1%}"  # + 0.0 turns -0.0 into 0.0
+
+
+def _research_row(c: dict) -> str:
+    r = c["research"]
+    head = f"| {c['id']} | {c['label']} |"
+    if "error" in r:
+        return f"{head} error: {r['error']} | | | | {c['breach_count']} |"
+    return (
+        f"{head} {_pct(r['cagr'])} | {r['sharpe']:.2f} | {_pct(r['max_drawdown'])} | "
+        f"{r['turnover_per_year']:.2f} | {c['breach_count']} |"
+    )
+
+
+def _proxied(cell: dict) -> str:
+    """Per-class weight shares proxied at the window start, e.g. "bonds 40%, gold 20%"."""
+    shares = (cell.get("detail") or {}).get("proxied_share") or {}
+    return ", ".join(f"{cls} {share:.0%}" for cls, share in sorted(shares.items()) if share > 0)
+
+
+def _cell_row(cand_id: str, cell: dict) -> str:
+    flag = "BREACH" if cell["breach"] else ("UNAVAILABLE" if cell["unavailable"] else "")
+    return (
+        f"| {cand_id} | {cell['portfolio']} | {cell['scenario']} | {cell['mode']} | "
+        f"{_pct(cell['loss'])} | {_proxied(cell)} | {flag} |"
+    )
+
+
+def render_markdown(report: dict) -> str:
+    """Deterministic markdown (no timestamp) so a re-run on the same data diffs."""
+    rp, split = report["research_period"], report["capital_split"]
+    excluded = ", ".join(report["excluded_windows"]) or "none"
+    lines = [
+        "# Core comparison (exploration only)",
+        "",
+        "Diagnostic of the pre-registered cores; it selects nothing. Spec: "
+        "docs/superpowers/specs/2026-10-03-core-compare-design.md.",
+        "",
+        f"- candidates file sha256: `{report['candidates_sha256']}`",
+        f"- trial count: {report['trial_count']}",
+        f"- stress.yaml sha256: `{report['stress_sha256']}`",
+        f"- research period: {rp['start']} to {rp['end']} (validation and holdout data never used "
+        "(prices are downloaded in full; every computation is cut at the research end))",
+        f"- capital split: core {split['core']:.0%} / sleeve {split['sleeve']:.0%} "
+        "(sleeve empty, held as cash)",
+        f"- max drawdown cap: {report['max_drawdown']:.0%} (config/profile.yaml)",
+        f"- windows not evaluated (overlap validation): {excluded}",
+        "",
+        "## Research period",
+        "",
+        "| id | rule | CAGR | Sharpe | max drawdown | turnover/yr | breaches |",
+        "|---|---|---|---|---|---|---|",
+        *(_research_row(c) for c in report["candidates"]),
+        "",
+        "## Stress cells",
+        "",
+        "| id | portfolio | scenario | mode | loss | proxied to cash | flag |",
+        "|---|---|---|---|---|---|---|",
+        *(_cell_row(c["id"], cell) for c in report["candidates"] for cell in c["cells"]),
+        "",
+        "Note: in `dotcom_2000` the bond and gold ETFs did not yet exist, so bonds/gold "
+        'weights are treated as cash (the "proxied to cash" column); this understates '
+        "their cushion in that window.",
+        "",
+    ]
+    return "\n".join(lines)
