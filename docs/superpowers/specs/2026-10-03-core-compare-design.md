@@ -108,7 +108,9 @@ research period with `slice_period(..., "research")` and passed to
 `qrl.metrics.compute_metrics`: CAGR, Sharpe, max drawdown, plus turnover per
 year. A candidate whose core weights are not yet valid at the research start
 is recorded as an error (not silently shortened). The validation and holdout
-periods are never read, and `unseal_holdout=True` is never passed.
+periods are never used in any computation (prices are downloaded in full;
+every computation is cut at the research end), and `unseal_holdout=True` is
+never passed.
 
 (b) Stress cells, via `qrl.stress.run_stress` with `PortfolioDef`s, on frames
 truncated at the research end:
@@ -127,7 +129,13 @@ truncated at the research end:
   portfolio `X` with all modes.
 - Frozen cells in `dotcom_2000` see no bond/gold ETF price at the window
   start, so those weights are proxied to cash and reported in
-  `proxied_share`.
+  `proxied_share`. The markdown stress table shows them in a "proxied to cash"
+  column (per-class shares from `detail["proxied_share"]`, e.g. "bonds 40%,
+  gold 20%"; blank if none), with a footnote that bonds/gold treated as cash
+  before their ETFs existed understate their cushion in `dotcom_2000`.
+- After loading, every candidate ticker (signal tickers included) must be
+  priced on the last row at or before the research end, else the run fails
+  loudly (as `scripts/stress.py` does for its core).
 
 Breaches: a stress cell breaches when its loss exceeds the profile's
 `max_drawdown` (0.35, `config/profile.yaml`); the research period breaches
@@ -168,7 +176,9 @@ and the trial count (AGENTS.md: record every variant).
 - `src/qrl/core_compare.py` — pure functions: `load_core_candidates(path) ->
   (list[Candidate], sha256)`, `candidate_weights`, `split_windows`,
   `research_metrics`, `stress_portfolios`, `run_core_compare`,
-  `render_markdown`. No I/O except `load_core_candidates` reading its file.
+  `render_markdown` (stress table has a "proxied to cash" column and a
+  dotcom footnote). No I/O except `load_core_candidates` reading its file;
+  malformed YAML and non-mapping `params` raise `ValueError`.
 - `scripts/core_compare.py` — argparse CLI (`--out-json`, `--out-md`); pixi
   task `core-compare`.
 
@@ -195,7 +205,9 @@ candidates file, or a ticker the loader could not fetch, fails loudly.
   and never end after the research end; unwarmed candidate rejected; no
   validation window is evaluated and no frame row after the research end
   reaches `run_stress`; every candidate recorded; branch-state portfolios;
-  markdown content; CLI writes outputs and fails loudly on a missing ticker.
+  markdown content (incl. proxied-to-cash column); loader rejects malformed
+  YAML and non-mapping params; CLI writes outputs and fails loudly on a
+  missing or unpriced ticker.
 
 ## Out of scope
 

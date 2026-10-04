@@ -16,7 +16,7 @@
 
 **Before every commit:** run `pixi run -e dev format` (ruff format; line length 100) and `pixi run -e dev lint`; the code blocks below are not guaranteed to be pre-formatted. If `format` changes files, they are included in that commit.
 
-**Test counts (new tests added by this plan):** `-k core_mix` 12 (11 in `tests/test_core_mix.py` + the new `test_strategies.py` parametrize id); `tests/test_stress.py` +8; `-k core_compare` 18 (7 after Task 3, 12 after Task 4, 15 after Task 5, 18 after Task 6). Whole suite: baseline + 38.
+**Test counts (new tests added by this plan):** `-k core_mix` 12 (11 in `tests/test_core_mix.py` + the new `test_strategies.py` parametrize id); `tests/test_stress.py` +8; `-k core_compare` 21 (9 after Task 3, 14 after Task 4, 17 after Task 5, 21 after Task 6). Whole suite: baseline + 41.
 
 ---
 
@@ -33,7 +33,7 @@
 | `tests/test_stress.py` | modify | update two-class assumptions, add 8 bonds tests |
 | `config/core_candidates.yaml` | create | pre-registered candidates A-G |
 | `src/qrl/core_compare.py` | create | loader, window split, research metrics, stress orchestration, markdown |
-| `tests/test_core_compare.py` | create | core_compare tests (18) |
+| `tests/test_core_compare.py` | create | core_compare tests (21) |
 | `scripts/core_compare.py` | create | CLI: load data, run, print, write md + json |
 | `pixi.toml` | modify | add `core-compare` task |
 | `research/core_compare.md` | create (generated, Task 8) | first report, committed by this plan |
@@ -573,8 +573,20 @@ def test_core_compare_rejects_params_the_strategy_rejects(tmp_path):
 
 
 def test_core_compare_rejects_bad_id(tmp_path):
+    # quoted: an unquoted `T[1]` would be a YAML syntax error, not a bad id
     with pytest.raises(ValueError, match="id"):
-        load_core_candidates(_write(tmp_path, GOOD.replace("id: T1", "id: T[1]")))
+        load_core_candidates(_write(tmp_path, GOOD.replace("id: T1", 'id: "T[1]"')))
+
+
+def test_core_compare_rejects_malformed_yaml(tmp_path):
+    with pytest.raises(ValueError, match="valid YAML"):
+        load_core_candidates(_write(tmp_path, "version: 1\ncandidates: [unclosed\n"))
+
+
+def test_core_compare_rejects_non_mapping_params(tmp_path):
+    text = GOOD.replace("params: {risk_on: SPY, risk_off: IEF, lookback: 5}", "params: [SPY]")
+    with pytest.raises(ValueError, match="mapping"):
+        load_core_candidates(_write(tmp_path, text))
 ```
 
 - [ ] **Step 4: Run to verify the failure**
@@ -629,8 +641,14 @@ def candidate_weights(cand: Candidate, close: pd.DataFrame) -> pd.DataFrame:
 
 
 def _parse_candidate(raw: object) -> Candidate:
-    if not isinstance(raw, dict) or not _REQUIRED <= raw.keys():
-        raise ValueError(f"each candidate needs {sorted(_REQUIRED)}, got {raw!r}")
+    if (
+        not isinstance(raw, dict)
+        or not _REQUIRED <= raw.keys()
+        or not isinstance(raw["params"], dict)
+    ):
+        raise ValueError(
+            f"each candidate needs {sorted(_REQUIRED)} with `params` a mapping, got {raw!r}"
+        )
     cand = Candidate(str(raw["id"]), str(raw["label"]), str(raw["fn"]), dict(raw["params"]))
     if not _ID.fullmatch(cand.id):
         raise ValueError(f"candidate id {cand.id!r} must match [A-Za-z0-9_-]+")
@@ -649,10 +667,14 @@ def _parse_candidate(raw: object) -> Candidate:
 
 def load_core_candidates(path: str | Path) -> tuple[list[Candidate], str]:
     """Return (candidates, full sha256 of the raw file bytes). Raises ValueError
-    on a wrong version, a missing/empty list, duplicate or malformed ids, an
-    unknown fn, a CASH risk_off, or params the strategy rejects."""
+    on malformed YAML, a wrong version, a missing/empty list, duplicate or
+    malformed ids, an unknown fn, non-mapping params, a CASH risk_off, or params
+    the strategy rejects."""
     raw = Path(path).read_bytes()
-    doc = yaml.safe_load(raw)
+    try:
+        doc = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"core candidates file is not valid YAML ({exc})") from exc
     if not isinstance(doc, dict) or doc.get("version") != 1:
         raise ValueError("core candidates file must be a mapping with `version: 1`")
     entries = doc.get("candidates")
@@ -669,7 +691,7 @@ def load_core_candidates(path: str | Path) -> tuple[list[Candidate], str]:
 - [ ] **Step 6: Run the tests**
 
 Run: `pixi run -e dev test -k core_compare -q --no-cov`
-Expected: `7 passed`.
+Expected: `9 passed`.
 
 - [ ] **Step 7: Format, lint, type-check, commit**
 
@@ -856,7 +878,7 @@ def research_metrics(cand: Candidate, data: dict[str, pd.DataFrame], criteria: d
 - [ ] **Step 5: Run the tests**
 
 Run: `pixi run -e dev test -k core_compare -q --no-cov`
-Expected: `12 passed`.
+Expected: `14 passed`.
 
 - [ ] **Step 6: Format, lint, type-check, commit**
 
@@ -1118,7 +1140,7 @@ def run_core_compare(
 - [ ] **Step 5: Run the tests**
 
 Run: `pixi run -e dev test -k core_compare -q --no-cov`
-Expected: `15 passed`. (The module fixture runs all 7 candidates on 23 years of synthetic daily data; allow up to ~1 minute.)
+Expected: `17 passed`. (The module fixture runs all 7 candidates on 23 years of synthetic daily data; allow up to ~1 minute.)
 
 - [ ] **Step 6: Format, lint, type-check, commit**
 
@@ -1212,6 +1234,14 @@ def test_core_compare_markdown_records_hash_and_trial_count(compared):
         assert f"| {cid} |" in md
     table_rows = [ln for ln in md.splitlines() if ln.startswith("|")]
     assert not any("covid_2020" in ln or "inflation_2022" in ln for ln in table_rows)
+    assert "validation and holdout data never used" in md
+    assert "| proxied to cash |" in md
+    assert "treated as cash" in md  # footnote: the dotcom cushion is understated
+    # synthetic prices cover every ticker, so inject a proxied share into one cell
+    cell = report["candidates"][3]["cells"][0]  # candidate D
+    cell["detail"] = {"proxied_share": {"equity": 0.0, "gold": 0.2, "bonds": 0.4}}
+    row = next(ln for ln in render_markdown(report).splitlines() if "bonds 40%" in ln)
+    assert row.startswith("| D |") and "bonds 40%, gold 20%" in row
 
 
 def _fake_ohlcv(drop: str | None = None):
@@ -1243,6 +1273,26 @@ def test_core_compare_main_fails_on_missing_ticker(tmp_path, monkeypatch):
     assert cli.main(["--out-json", str(out_json), "--out-md", str(out_md)]) == 1
     assert not out_json.exists()
     assert not out_md.exists()
+
+
+def test_core_compare_main_fails_loudly_on_unpriced_candidate_ticker(
+    tmp_path, monkeypatch, capsys
+):
+    def fake(tickers, refresh=False):
+        open_, close = synthetic_prices(tickers, start="1999-01-01", end="2021-12-31")
+        close.loc[close.loc[:"2018-12-31"].index[-1], "IEF"] = float("nan")  # unpriced at the end
+        return {"open": open_, "close": close}
+
+    def boom(*args, **kwargs):
+        raise AssertionError("run_core_compare must not be called")
+
+    monkeypatch.setattr(cli, "load_ohlcv", fake)
+    monkeypatch.setattr(cli, "run_core_compare", boom)
+    out_json, out_md = tmp_path / "r.json", tmp_path / "r.md"
+    assert cli.main(["--out-json", str(out_json), "--out-md", str(out_md)]) == 1
+    assert "IEF" in capsys.readouterr().out
+    assert not out_json.exists()
+    assert not out_md.exists()
 ```
 
 - [ ] **Step 3: Run to verify the failure**
@@ -1270,11 +1320,17 @@ def _research_row(c: dict) -> str:
     )
 
 
+def _proxied(cell: dict) -> str:
+    """Per-class weight shares proxied at the window start, e.g. "bonds 40%, gold 20%"."""
+    shares = (cell.get("detail") or {}).get("proxied_share") or {}
+    return ", ".join(f"{cls} {share:.0%}" for cls, share in sorted(shares.items()) if share > 0)
+
+
 def _cell_row(cand_id: str, cell: dict) -> str:
     flag = "BREACH" if cell["breach"] else ("UNAVAILABLE" if cell["unavailable"] else "")
     return (
         f"| {cand_id} | {cell['portfolio']} | {cell['scenario']} | {cell['mode']} | "
-        f"{_pct(cell['loss'])} | {flag} |"
+        f"{_pct(cell['loss'])} | {_proxied(cell)} | {flag} |"
     )
 
 
@@ -1291,7 +1347,8 @@ def render_markdown(report: dict) -> str:
         f"- candidates file sha256: `{report['candidates_sha256']}`",
         f"- trial count: {report['trial_count']}",
         f"- stress.yaml sha256: `{report['stress_sha256']}`",
-        f"- research period: {rp['start']} to {rp['end']} (validation and holdout never read)",
+        f"- research period: {rp['start']} to {rp['end']} (validation and holdout data never used "
+        "(prices are downloaded in full; every computation is cut at the research end))",
         f"- capital split: core {split['core']:.0%} / sleeve {split['sleeve']:.0%} "
         "(sleeve empty, held as cash)",
         f"- max drawdown cap: {report['max_drawdown']:.0%} (config/profile.yaml)",
@@ -1305,9 +1362,13 @@ def render_markdown(report: dict) -> str:
         "",
         "## Stress cells",
         "",
-        "| id | portfolio | scenario | mode | loss | flag |",
-        "|---|---|---|---|---|---|",
+        "| id | portfolio | scenario | mode | loss | proxied to cash | flag |",
+        "|---|---|---|---|---|---|---|",
         *(_cell_row(c["id"], cell) for c in report["candidates"] for cell in c["cells"]),
+        "",
+        "Note: in `dotcom_2000` the bond and gold ETFs did not yet exist, so bonds/gold "
+        "weights are treated as cash (the \"proxied to cash\" column); this understates "
+        "their cushion in that window.",
         "",
     ]
     return "\n".join(lines)
@@ -1379,6 +1440,12 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print(f"no price data for: {missing}")  # the loader drops tickers it cannot fetch
         return 1
+    # every candidate ticker (signal tickers included) must be priced on the last
+    # row at or before the research end, as scripts/stress.py does for the core
+    last_row = data["close"].loc[:rend, tickers].iloc[-1]
+    if not last_row.notna().all():
+        print(f"unpriced at the research end {rend.date()}: {sorted(last_row.index[last_row.isna()])}")
+        return 1
 
     result = run_core_compare(
         cands, cfg, data, criteria, profile["capital_split"], profile["max_drawdown"]
@@ -1418,7 +1485,7 @@ core-compare = "python scripts/core_compare.py"
 - [ ] **Step 6: Run the tests**
 
 Run: `pixi run -e dev test -k core_compare -q --no-cov`
-Expected: `18 passed`. (The CLI test runs all 7 candidates on synthetic data; allow up to ~1 minute.)
+Expected: `21 passed` (17 + markdown, main-writes, missing-ticker, unpriced-ticker). (The CLI test runs all 7 candidates on synthetic data; allow up to ~1 minute.)
 
 - [ ] **Step 7: Format, lint, type-check, commit**
 
@@ -1447,7 +1514,7 @@ Expected: all clean. Fix anything reported (formatting only, in files this plan 
 - [ ] **Step 2: Full suite, once**
 
 Run: `pixi run -e dev test -q --no-cov`
-Expected: `BASE + 38 passed` with BASE from Task 1 Step 1 (12 core_mix/strategies, 8 stress, 18 core_compare). Any failure in a file this plan did not touch is a regression: STOP and report it with the 15 most relevant log lines.
+Expected: `BASE + 41 passed` with BASE from Task 1 Step 1 (12 core_mix/strategies, 8 stress, 21 core_compare). Any failure in a file this plan did not touch is a regression: STOP and report it with the 15 most relevant log lines.
 
 - [ ] **Step 3: Confirm no locked file changed**
 
@@ -1477,7 +1544,7 @@ Expected (approximate, from public listing dates): GLD 2004-11-18, IEF/TLT/SHY 2
 - [ ] **Step 2: Run the tool**
 
 Run: `pixi run -e dev core-compare`
-Expected: exit 0; prints the markdown, writes `research/core_compare.md` and `reports/core_compare.json`. Sanity checks only (do not pick a winner, do not tune): the table has 7 candidate rows A-G; the header shows the candidates sha256 and `trial count: 7`; "windows not evaluated" lists `covid_2020, inflation_2022`; no table row mentions those two; `dotcom_2000` bond/gold weights show up as `proxied_share` cash in the JSON detail (not in the table). If the run fails or a row shows `error:`, STOP and report the message.
+Expected: exit 0; prints the markdown, writes `research/core_compare.md` and `reports/core_compare.json`. Sanity checks only (do not pick a winner, do not tune): the table has 7 candidate rows A-G; the header shows the candidates sha256 and `trial count: 7`; "windows not evaluated" lists `covid_2020, inflation_2022`; no table row mentions those two; `dotcom_2000` frozen cells show bond/gold weights proxied to cash in the "proxied to cash" column (and as `proxied_share` in the JSON detail), with the footnote below the table. If the run fails or a row shows `error:`, STOP and report the message.
 
 - [ ] **Step 3: Confirm only the markdown is new, then commit**
 
