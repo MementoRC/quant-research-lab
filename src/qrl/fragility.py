@@ -122,6 +122,7 @@ class FragilityConfig:
     altman_z_min: float
     piotroski_max_weak: float
     rate_rise_max_pp: float
+    rate_trend_min_net_debt_to_assets: float
     not_applicable_sic: tuple[tuple[int, int], ...]
     not_applicable_tickers: tuple[str, ...]
 
@@ -133,6 +134,7 @@ _THRESHOLDS = (
     "altman_z_min",
     "piotroski_max_weak",
     "rate_rise_max_pp",
+    "rate_trend_min_net_debt_to_assets",
 )
 _COUNTS = ("breach_to_fragile", "min_available_for_sound")
 _CONFIG_KEYS = frozenset(
@@ -220,6 +222,7 @@ def load_fragility_config(
         altman_z_min=_positive(raw, "altman_z_min"),
         piotroski_max_weak=_positive(raw, "piotroski_max_weak"),
         rate_rise_max_pp=_positive(raw, "rate_rise_max_pp"),
+        rate_trend_min_net_debt_to_assets=_positive(raw, "rate_trend_min_net_debt_to_assets"),
     )
     return cfg, pit_universe.file_sha256(Path(path))
 
@@ -420,10 +423,25 @@ def _measure_maturities(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
     return Measure("ok", text, ratio)
 
 
+def _little_net_debt(v: _View, e: pd.Timestamp | None, cfg: FragilityConfig) -> Measure | None:
+    """An ok measure when net debt is at most the configured share of assets (net cash
+    included), else None: also None when debt, cash or assets is missing (no imputation)."""
+    debt, cash, assets = _debt(v, e), _cash(v, e), v.get(("Assets",), e)
+    if debt is None or cash is None or assets is None or assets <= 0:
+        return None
+    share = (debt - cash) / assets
+    if share > cfg.rate_trend_min_net_debt_to_assets:
+        return None
+    return Measure("ok", f"little net debt: {share * 100:.1f}% of assets", share)
+
+
 def _measure_rate_trend(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
     e0, e1, e3, e4 = ends[0], ends[1], ends[3], ends[4]
     if _debt(v, e0) == 0:
         return _NO_DEBT
+    little = _little_net_debt(v, e0, cfg)
+    if little is not None:
+        return little
     if None in (e1, e3, e4):
         return _na("missing fiscal years")
     got, miss = _need(
