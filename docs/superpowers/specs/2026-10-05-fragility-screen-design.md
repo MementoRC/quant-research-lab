@@ -303,3 +303,19 @@ trailing-four-quarter measures, any PLAN.md amendment.
 - **Not changed.** `config/fragility.yaml` (same sha256), every threshold, and
   the breach and classification rule. Run 1's report is kept unchanged at
   `research/fragility_run1.md`.
+
+### 2026-10-05 — after run 2 (owner)
+
+- N (breach_to_fragile) 1 -> 2: two breaches make FRAGILE, exactly one makes
+  WATCH. Decided by the owner after seeing run 2 (so not pre-registered like the
+  original value); thresholds of the six measures are unchanged. Run 2 under
+  N=1 is kept at `research/fragility_run2.md`.
+- Net debt / FCF and maturities / liquidity both lean on free cash flow, so when
+  both are breached they count as one breach toward N; the report still lists
+  both.
+- Annual-report values win: for a fiscal-year period, a value from an annual
+  report (10-K, 20-F, 40-F or amendments) is used whenever one exists; other
+  filings only fill gaps. Run 2 used a later quarterly report's mis-dated figure
+  for FIX (operating income 209.1M tagged as full-year 2025 vs 1,314.6M in the
+  10-K).
+- Config sha256 changes with this amendment.

@@ -104,7 +104,8 @@ def add_fact(df: pd.DataFrame, concept: str, end: str, val: float, filed: str) -
 
 @pytest.fixture(scope="module")
 def cfg() -> fr.FragilityConfig:
-    return fr.load_fragility_config(CONFIG_PATH)[0]
+    # N = 1 pinned explicitly: these tests predate the N = 2 amendment (2026-10-05)
+    return dataclasses.replace(fr.load_fragility_config(CONFIG_PATH)[0], breach_to_fragile=1)
 
 
 def run(facts: pd.DataFrame, cfg, date=ASOF, sic: int | None = 3571) -> fr.CompanyResult:
@@ -367,11 +368,19 @@ def test_watch_is_empty_at_n1_and_covers_below_n(cfg):
     for b in range(1, 7):
         assert fr.classify(_measures(b, 6), cfg) == fr.FRAGILE
     three = dataclasses.replace(cfg, breach_to_fragile=3)
-    assert [fr.classify(_measures(b, 6), three) for b in (1, 2, 3)] == [
-        fr.WATCH,
-        fr.WATCH,
-        fr.FRAGILE,
-    ]
+    assert [
+        fr.classify(_named(*keys), three)
+        for keys in (
+            ("coverage",),
+            ("coverage", "rate_trend"),
+            ("coverage", "rate_trend", "altman_z"),
+        )
+    ] == [fr.WATCH, fr.WATCH, fr.FRAGILE]
+
+
+def test_fcf_pair_makes_three_ordered_breaches_count_two(cfg):
+    three = dataclasses.replace(cfg, breach_to_fragile=3)
+    assert fr.classify(_measures(3, 6), three) == fr.WATCH
 
 
 def test_company_with_breach_is_fragile_and_lists_it(cfg):
@@ -473,7 +482,7 @@ def _write_cfg(tmp_path: Path, drop: tuple[str, ...] = (), **changes) -> Path:
 def test_shipped_config_loads():
     cfg, sha = fr.load_fragility_config(CONFIG_PATH)
     assert sha == pu.file_sha256(CONFIG_PATH)
-    assert cfg.breach_to_fragile == 1
+    assert cfg.breach_to_fragile == 2
     assert cfg.min_available_for_sound == 4
     assert cfg.interest_coverage_min == 2.0
     assert cfg.net_debt_to_fcf_max == 6.0
@@ -917,6 +926,64 @@ def test_company_with_only_ten_q_anchors_has_no_fiscal_year(cfg):
 
 def test_annual_forms_include_foreign_filers():
     assert {"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"} == set(fr.ANNUAL_FORMS)
+
+
+def _later_filing(f, concept, val, form, filed="2025-04-01", end="2024-12-31"):
+    f = add_fact(f, concept, end, val, filed)
+    f.loc[f.index[-1], "form"] = form
+    return f
+
+
+def test_annual_report_flow_beats_later_ten_q_with_same_period():
+    f = _later_filing(make_facts(), "OperatingIncomeLoss", 7, "10-Q")
+    view = fr._View(f, "AAA", ASOF)
+    assert view.get(["OperatingIncomeLoss"], pd.Timestamp("2024-12-31")) == 100.0
+
+
+def test_annual_report_instant_beats_later_ten_q_comparative():
+    f = _later_filing(make_facts(), "LongTermDebt", 1.0, "10-Q")
+    view = fr._View(f, "AAA", ASOF)
+    assert view.get(["LongTermDebt"], pd.Timestamp("2024-12-31")) == 220.0
+
+
+def test_later_ten_k_a_beats_earlier_ten_k():
+    f = _later_filing(make_facts(), "OperatingIncomeLoss", 250, "10-K/A")
+    view = fr._View(f, "AAA", ASOF)
+    assert view.get(["OperatingIncomeLoss"], pd.Timestamp("2024-12-31")) == 250.0
+
+
+def test_later_ten_q_does_not_beat_ten_k_a_over_ten_k():
+    f = _later_filing(make_facts(), "OperatingIncomeLoss", 250, "10-K/A", filed="2025-03-01")
+    f = _later_filing(f, "OperatingIncomeLoss", 7, "10-Q", filed="2025-04-15")
+    view = fr._View(f, "AAA", ASOF)
+    assert view.get(["OperatingIncomeLoss"], pd.Timestamp("2024-12-31")) == 250.0
+
+
+def _named(*breached: str) -> dict[str, fr.Measure]:
+    return {
+        key: fr.Measure("breach", "x", 1.0, "d") if key in breached else fr.Measure("ok", "x", 1.0)
+        for key in fr.MEASURE_KEYS
+    }
+
+
+@pytest.mark.parametrize(
+    ("breached", "expected"),
+    [
+        (("net_debt_fcf", "maturities"), fr.WATCH),  # FCF pair counts once
+        (("net_debt_fcf", "coverage"), fr.FRAGILE),
+        (("maturities", "coverage"), fr.FRAGILE),
+        (("net_debt_fcf", "maturities", "coverage"), fr.FRAGILE),
+        (("net_debt_fcf",), fr.WATCH),
+        (("coverage", "altman_z"), fr.FRAGILE),
+    ],
+)
+def test_fcf_pair_counts_as_one_breach(cfg, breached, expected):
+    two = dataclasses.replace(cfg, breach_to_fragile=2)
+    assert fr.classify(_named(*breached), two) == expected
+
+
+def test_shipped_config_is_n2():
+    assert fr.load_fragility_config(CONFIG_PATH)[0].breach_to_fragile == 2
 
 
 def test_missing_maturities_use_friendly_labels(cfg):

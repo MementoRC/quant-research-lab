@@ -242,7 +242,11 @@ class _View:
         self.used: dict[str, float] = {}
         for concept, grp in sub.groupby("concept"):
             kind = "instant" if concept in INSTANT_CONCEPTS else "annual"
-            grp = fd.filter_duration(grp, kind).sort_values("filed", kind="stable")
+            grp = fd.filter_duration(grp, kind)
+            # annual-report values win; other forms only fill gaps; latest filed wins within each
+            grp = grp.assign(_annual=grp["form"].isin(ANNUAL_FORMS)).sort_values(
+                ["_annual", "filed"], kind="stable"
+            )
             self._by[str(concept)] = {
                 end: float(val) for end, val in zip(grp["end"], grp["val"], strict=True)
             }
@@ -565,11 +569,17 @@ _MEASURE_FUNCS: dict[str, Callable[[_View, list, FragilityConfig], Measure]] = {
 # --------------------------------------------------------------------------- classification
 
 
+_FCF_PAIR = ("net_debt_fcf", "maturities")
+
+
 def classify(measures: Mapping[str, Measure], cfg: FragilityConfig) -> str:
-    """FRAGILE if breaches >= N; WATCH if 1 <= breaches < N (empty at N = 1); SOUND if no
+    """FRAGILE if breaches >= N; WATCH if 1 <= breaches < N (empty at N = 1); net debt / FCF
+    and maturities breached together count as one breach; SOUND if no
     breach and >= K measures available; else INSUFFICIENT DATA. (NOT APPLICABLE is decided
     by industry before any measure is computed.)"""
     breaches = sum(m.status == "breach" for m in measures.values())
+    if all(measures.get(k) is not None and measures[k].status == "breach" for k in _FCF_PAIR):
+        breaches -= 1  # net debt / FCF and maturities both lean on FCF: one breach
     available = sum(m.status != "n/a" for m in measures.values())
     if breaches >= cfg.breach_to_fragile:
         return FRAGILE
