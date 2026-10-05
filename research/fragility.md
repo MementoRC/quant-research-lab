@@ -6,20 +6,20 @@
 - membership month-end: 2026-09-30
 - universe size: 300
 - newest filing date seen: 2026-10-01
-- config/fragility.yaml sha256: `78ce098ed0737a503b628b08ecd45917cb6165bc8c001ae0a628e990c3bd8297`
+- config/fragility.yaml sha256: `2b016c567328887dcb6fe3f374b04f4dc80ccf7d64abf19132a03c1a0a29b34e`
 - universe membership sha256: `4ede8b2b2ac96e975f9dc2251e4c49ed15b15f2ed52f89959759bde0c8751f9c`
 - breach_to_fragile (N): 2
 - min_available_for_sound (K): 4
-- thresholds: interest_coverage_min 2, net_debt_to_fcf_max 6, maturities_to_liquidity_max 1, altman_z_min 1.1, piotroski_max_weak 2, rate_rise_max_pp 2
+- thresholds: interest_coverage_min 2, net_debt_to_fcf_max 6, maturities_to_liquidity_max 1, altman_z_min 1.1, piotroski_max_weak 2, rate_rise_max_pp 2, rate_trend_min_net_debt_to_assets 0.05
 
 ## Summary
 
 | class | count |
 | --- | --- |
 | FRAGILE | 4 |
-| WATCH | 44 |
-| SOUND | 66 |
-| INSUFFICIENT DATA | 136 |
+| WATCH | 43 |
+| SOUND | 78 |
+| INSUFFICIENT DATA | 125 |
 | NOT APPLICABLE | 50 |
 
 ## Fragile and watch
@@ -45,7 +45,6 @@
 | ET | WATCH | net debt / FCF 17.4x > 6.0x; maturities 2.6x > 1.0x of liquidity | 2025-12-31 |
 | ETR | WATCH | net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
 | EXC | WATCH | net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
-| FIX | WATCH | rate +4.3 pp > 2.0 pp in 3y | 2025-12-31 |
 | INTC | WATCH | net debt / FCF: FCF <= 0 with net debt > 0; maturities 1.02x > 1.00x of liquidity | 2025-12-27 |
 | IQV | WATCH | net debt / FCF 6.6x > 6.0x; maturities 1.5x > 1.0x of liquidity | 2025-12-31 |
 | KDP | WATCH | net debt / FCF 8.6x > 6.0x | 2025-12-31 |
@@ -86,7 +85,7 @@
 | ADM | WATCH | 2025-12-31 | 3.1x | 1.8x | 0.2x | +2.4 pp | n/a (missing equity, liabilities) | 6 |  |
 | AEP | WATCH | 2025-12-31 | n/a (missing interest expense) | 13.9x | 2.3x | n/a (missing interest (latest)) | 3.98 | n/a (missing net income (latest), gross profit (latest), net income (1y back), gross profit (1y back)) |  |
 | AZO | WATCH | 2025-08-30 | n/a (missing interest expense) | n/a (missing debt) | 1.3x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 3.28 | n/a (missing debt (latest), debt (1y back)) |  |
-| BE | WATCH | 2025-12-31 | 1.9x | 2.9x | 0.0x | -9.4 pp | 5.26 | n/a (missing net income (latest), net income (1y back)) |  |
+| BE | WATCH | 2025-12-31 | 1.9x | 2.9x | 0.0x | little net debt: 3.8% of assets | 5.26 | n/a (missing net income (latest), net income (1y back)) |  |
 | CAT | WATCH | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 1.3x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | n/a (missing equity) | n/a (missing debt (latest), debt (1y back)) |  |
 | COHR | WATCH | 2026-06-30 | n/a (missing EBIT, interest expense) | FCF <= 0 | 0.1x | n/a (missing interest (latest)) | n/a (missing EBIT) | 6 |  |
 | CP | WATCH | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 2.1x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 5.44 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
@@ -98,14 +97,13 @@
 | ET | WATCH | 2025-12-31 | 2.6x | 17.4x | 2.6x | +0.7 pp | n/a (missing retained earnings, equity, liabilities) | n/a (missing shares (latest), shares (1y back)) |  |
 | ETR | WATCH | 2025-12-31 | 2.3x | FCF <= 0 | no liquidity | +1.3 pp | 4.26 | n/a (missing net income (latest), gross profit (latest), net income (1y back), gross profit (1y back)) |  |
 | EXC | WATCH | 2025-12-31 | n/a (missing interest expense) | FCF <= 0 | no liquidity | n/a (missing interest (latest), interest (3y back)) | 4.06 | n/a (missing net income (latest), gross profit (latest), net income (1y back), gross profit (1y back)) |  |
-| FIX | WATCH | 2025-12-31 | 145.9x | net cash | 0.0x | +4.3 pp | 7.30 | 7 |  |
 | INTC | WATCH | 2025-12-27 | n/a (missing interest expense) | FCF <= 0 | 1.02x | n/a (missing interest (latest)) | 6.17 | 6 |  |
 | IQV | WATCH | 2025-12-31 | 3.0x | 6.6x | 1.5x | +1.6 pp | 4.38 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | KDP | WATCH | 2025-12-31 | n/a (missing interest expense) | 8.6x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 4.55 | 7 |  |
 | KMI | WATCH | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 1.4x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 3.90 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
 | LNG | WATCH | 2025-12-31 | n/a (missing interest expense) | 8.7x | 1.9x | n/a (missing interest (latest)) | 5.57 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | LOW | WATCH | 2026-01-30 | n/a (missing interest expense) | 5.0x | 1.2x | n/a (missing interest (latest), interest (3y back)) | 3.88 | 6 |  |
-| MAR | WATCH | 2025-12-31 | n/a (missing interest expense) | net cash | 1.8x | n/a (missing interest (latest)) | 5.17 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| MAR | WATCH | 2025-12-31 | n/a (missing interest expense) | net cash | 1.8x | little net debt: -1.2% of assets | 5.17 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | MCD | WATCH | 2025-12-31 | 7.8x | 5.5x | 1.1x | +0.7 pp | 8.45 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | MCHP | WATCH | 2026-03-31 | n/a (missing interest expense) | 6.03x | 2.1x | n/a (missing interest (latest)) | 6.01 | 6 |  |
 | NTRA | WATCH | 2025-12-31 | -76.2x | n/a (missing debt, cash) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, cash) | n/a (missing debt (latest), debt (1y back)) | 4.12 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
@@ -130,19 +128,22 @@
 | A | SOUND | 2025-10-31 | 13.2x | 1.4x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | +0.3 pp | 6.73 | 5 |  |
 | AAPL | SOUND | 2025-09-27 | n/a (missing interest expense) | 0.4x | 0.2x | n/a (missing interest (latest)) | 5.56 | 8 |  |
 | ABBV | SOUND | 2025-12-31 | 5.2x | 3.5x | 0.7x | +1.1 pp | 2.91 | 7 |  |
-| ABT | SOUND | 2025-12-31 | n/a (missing interest expense) | 0.5x | 0.3x | n/a (missing interest (latest)) | 8.05 | 5 |  |
-| ADSK | SOUND | 2026-01-31 | 19.7x | net cash | 0.1x | -0.02 pp | 3.61 | 8 |  |
-| AMD | SOUND | 2025-12-27 | 28.2x | net cash | n/a (missing debt due in 2y) | -1.8 pp | 10.10 | 7 |  |
+| ABT | SOUND | 2025-12-31 | n/a (missing interest expense) | 0.5x | 0.3x | little net debt: 4.6% of assets | 8.05 | 5 |  |
+| ADBE | SOUND | 2025-11-28 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -1.3% of assets | 10.92 | 7 |  |
+| ADSK | SOUND | 2026-01-31 | 19.7x | net cash | 0.1x | little net debt: -0.8% of assets | 3.61 | 8 |  |
+| AMAT | SOUND | 2025-10-26 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -5.6% of assets | 13.42 | 7 |  |
+| AMD | SOUND | 2025-12-27 | 28.2x | net cash | n/a (missing debt due in 2y) | little net debt: -8.4% of assets | 10.10 | 7 |  |
 | AME | SOUND | 2025-12-31 | n/a (missing interest expense) | 1.1x | 0.4x | n/a (missing interest (latest)) | 8.66 | 5 |  |
 | AMGN | SOUND | 2025-12-31 | 3.3x | 5.6x | 0.7x | +0.9 pp | 3.39 | 7 |  |
-| AMZN | SOUND | 2025-12-31 | n/a (missing interest expense) | net cash | 0.1x | n/a (missing interest (latest)) | 6.05 | 6 |  |
+| AMZN | SOUND | 2025-12-31 | n/a (missing interest expense) | net cash | 0.1x | little net debt: -6.6% of assets | 6.05 | 6 |  |
 | APP | SOUND | 2025-12-31 | 20.7x | n/a (missing FCF) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, FCF) | +0.4 pp | 11.11 | 8 |  |
-| AXON | SOUND | 2025-12-31 | n/a (missing interest expense) | 1.4x | 0.0x | n/a (missing debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 6.63 | 5 |  |
+| AXON | SOUND | 2025-12-31 | n/a (missing interest expense) | 1.4x | 0.0x | little net debt: 1.5% of assets | 6.63 | 5 |  |
 | CARR | SOUND | 2025-12-31 | 4.7x | 4.7x | 0.6x | +1.3 pp | n/a (missing equity) | n/a (missing gross profit (latest)) |  |
+| CIEN | SOUND | 2025-11-01 | n/a (missing interest expense) | 0.3x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: 3.9% of assets | 5.15 | 7 |  |
 | CL | SOUND | 2025-12-31 | n/a (missing interest expense) | 1.8x | 0.4x | n/a (missing interest (latest)) | 9.46 | 4 |  |
 | CMG | SOUND | 2025-12-31 | no debt | no debt | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | no debt | 5.61 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| COR | SOUND | 2025-09-30 | n/a (missing interest expense) | 1.0x | 0.4x | n/a (missing interest (latest), interest (3y back)) | 3.30 | 6 |  |
-| COST | SOUND | 2025-08-31 | 67.4x | net cash | 0.1x | +0.4 pp | 5.86 | 6 |  |
+| COR | SOUND | 2025-09-30 | n/a (missing interest expense) | 1.0x | 0.4x | little net debt: 4.3% of assets | 3.30 | 6 |  |
+| COST | SOUND | 2025-08-31 | 67.4x | net cash | 0.1x | little net debt: -12.3% of assets | 5.86 | 6 |  |
 | CRH | SOUND | 2025-12-31 | n/a (missing interest expense) | 4.7x | 0.8x | n/a (missing debt (4y back), interest (latest)) | 6.81 | 6 |  |
 | CRM | SOUND | 2026-01-31 | 25.7x | 0.5x | 0.4x | +0.0 pp | 5.04 | 7 |  |
 | CSCO | SOUND | 2026-07-25 | n/a (missing interest expense) | 0.5x | 0.2x | n/a (missing interest (latest)) | 4.61 | 7 |  |
@@ -150,11 +151,13 @@
 | DELL | SOUND | 2026-01-30 | n/a (missing interest expense) | 2.3x | 0.7x | n/a (missing interest (latest)) | 3.51 | 6 |  |
 | DIS | SOUND | 2025-09-27 | n/a (interest expense <= 0) | 3.6x | 0.7x | -1.1 pp | 5.83 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | DVN | SOUND | 2025-12-31 | 8.0x | 2.6x | 0.4x | -0.3 pp | 6.14 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| FAST | SOUND | 2025-12-31 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -3.0% of assets | 15.26 | 7 |  |
 | FCX | SOUND | 2025-12-31 | n/a (missing interest expense) | 5.0x | 0.6x | n/a (missing interest (latest), interest (3y back)) | 5.68 | 6 |  |
 | FERG | SOUND | 2025-07-31 | n/a (missing interest expense) | 2.2x | 0.6x | n/a (missing fiscal years) | 7.52 | 5 |  |
+| FIX | SOUND | 2025-12-31 | 145.9x | net cash | 0.0x | little net debt: -13.0% of assets | 7.30 | 7 |  |
 | FLEX | SOUND | 2026-03-31 | 6.9x | 1.3x | 0.3x | -0.5 pp | 5.59 | 7 |  |
-| FTNT | SOUND | 2025-12-31 | 103.7x | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (3y back), debt (4y back)) | 5.13 | 6 |  |
-| GOOGL | SOUND | 2025-12-31 | n/a (missing interest expense) | net cash | 0.0x | n/a (missing interest (latest)) | 10.04 | 6 |  |
+| FTNT | SOUND | 2025-12-31 | 103.7x | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -14.4% of assets | 5.13 | 6 |  |
+| GOOGL | SOUND | 2025-12-31 | n/a (missing interest expense) | net cash | 0.0x | little net debt: -13.1% of assets | 10.04 | 6 |  |
 | HCA | SOUND | 2025-12-31 | 5.4x | 5.6x | n/a (missing debt due in 1y) | +0.4 pp | 4.12 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | HD | SOUND | 2026-02-01 | n/a (missing interest expense) | 3.8x | 0.8x | n/a (missing interest (latest)) | 7.79 | 4 |  |
 | HON | SOUND | 2025-12-31 | 6.0x | 4.1x | 0.5x | +1.9 pp | 7.11 | 5 |  |
@@ -163,42 +166,47 @@
 | INTU | SOUND | 2026-07-31 | 23.0x | 0.3x | 0.2x | -0.1 pp | 8.05 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | KEYS | SOUND | 2025-10-31 | 9.1x | 0.5x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | +0.0 pp | 8.40 | 5 |  |
 | LIN | SOUND | 2025-12-31 | 15.5x | 4.3x | 0.6x | +0.6 pp | 5.28 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| LRCX | SOUND | 2026-06-28 | 52.6x | net cash | 0.1x | +0.1 pp | 14.32 | 8 |  |
-| MCK | SOUND | 2026-03-31 | n/a (missing interest expense) | 0.4x | 0.3x | n/a (missing interest (latest)) | 3.83 | 6 |  |
+| LRCX | SOUND | 2026-06-28 | 52.6x | net cash | 0.1x | little net debt: -7.9% of assets | 14.32 | 8 |  |
+| MCK | SOUND | 2026-03-31 | n/a (missing interest expense) | 0.4x | 0.3x | little net debt: 3.1% of assets | 3.83 | 6 |  |
 | MCO | SOUND | 2025-12-31 | n/a (missing interest expense) | 1.8x | 0.2x | n/a (missing interest (latest), interest (3y back)) | 9.63 | 9 |  |
-| META | SOUND | 2025-12-31 | 76.4x | net cash | 0.0x | n/a (missing debt (4y back)) | 8.59 | 5 |  |
+| META | SOUND | 2025-12-31 | 76.4x | net cash | 0.0x | little net debt: -6.2% of assets | 8.59 | 5 |  |
 | MMM | SOUND | 2025-12-31 | 10.3x | n/a (missing cash) | n/a (missing cash) | +0.7 pp | 8.71 | 5 |  |
 | MO | SOUND | 2025-12-31 | n/a (missing interest expense) | 2.3x | 0.3x | n/a (missing interest (latest)) | 7.75 | 6 |  |
 | MRVL | SOUND | 2026-01-31 | 7.1x | 1.7x | 0.4x | +0.6 pp | 6.68 | 7 |  |
-| MSFT | SOUND | 2026-06-30 | n/a (missing interest expense) | net cash | 0.1x | n/a (missing interest (latest)) | 7.84 | 6 |  |
+| MSFT | SOUND | 2026-06-30 | n/a (missing interest expense) | net cash | 0.1x | little net debt: -4.8% of assets | 7.84 | 6 |  |
 | MSI | SOUND | 2025-12-31 | 8.3x | 3.1x | 0.6x | +0.6 pp | 4.94 | 6 |  |
-| MU | SOUND | 2025-08-28 | n/a (missing interest expense) | 1.1x | 0.0x | n/a (missing interest (latest)) | 9.32 | 7 |  |
+| MU | SOUND | 2025-08-28 | n/a (missing interest expense) | 1.1x | 0.0x | little net debt: 2.3% of assets | 9.32 | 7 |  |
 | NOC | SOUND | 2025-12-31 | 6.8x | 3.4x | 0.4x | +0.2 pp | 5.58 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| NTAP | SOUND | 2026-04-24 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -10.2% of assets | 5.57 | 9 |  |
+| NVDA | SOUND | 2026-01-25 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -1.0% of assets | 16.10 | 4 |  |
 | NXPI | SOUND | 2025-12-31 | 6.5x | 3.2x | 0.6x | +0.4 pp | 5.51 | 4 |  |
-| ONC | SOUND | 2025-12-31 | 9.0x | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | -0.04 pp | 5.03 | 8 |  |
+| ODFL | SOUND | 2025-12-31 | 4598.1x | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -1.5% of assets | 11.50 | n/a (missing gross profit (latest), revenue (latest), debt (1y back), gross profit (1y back), revenue (1y back)) |  |
+| ONC | SOUND | 2025-12-31 | 9.0x | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -45.2% of assets | 5.03 | 8 |  |
 | OXY | SOUND | 2025-12-31 | 3.9x | 4.7x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | +0.3 pp | 5.17 | n/a (missing net income (latest), gross profit (latest), net income (1y back)) |  |
 | PEP | SOUND | 2025-12-27 | 10.3x | 5.7x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | +0.0 pp | 6.13 | 5 |  |
 | PH | SOUND | 2026-06-30 | n/a (missing interest expense) | 1.8x | 0.7x | n/a (missing interest (latest)) | 8.32 | 8 |  |
 | QCOM | SOUND | 2025-09-28 | 18.6x | 0.4x | 0.1x | +1.1 pp | n/a (missing equity) | 6 |  |
+| RKLB | SOUND | 2025-12-31 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -37.2% of assets | 7.08 | 5 |  |
+| ROST | SOUND | 2026-01-31 | n/a (missing interest expense) | net cash | n/a (missing debt due in 3y) | little net debt: -19.8% of assets | 7.29 | 6 |  |
 | RSG | SOUND | 2025-12-31 | n/a (missing interest expense) | 5.7x | 0.8x | n/a (missing interest (latest)) | 5.25 | 6 |  |
 | SHW | SOUND | 2025-12-31 | 9.4x | 4.0x | 0.96x | -0.1 pp | 4.34 | 6 |  |
 | SNDK | SOUND | 2026-07-03 | no debt | no debt | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | no debt | 12.89 | 7 |  |
 | SPGI | SOUND | 2025-12-31 | n/a (missing interest expense) | 2.1x | 0.3x | n/a (missing interest (latest)) | 6.38 | 7 |  |
 | STX | SOUND | 2026-07-03 | n/a (missing interest expense) | 0.6x | 0.1x | n/a (missing interest (latest)) | 5.75 | 8 |  |
-| TJX | SOUND | 2026-01-31 | 93.4x | net cash | 0.1x | +0.0 pp | 6.25 | n/a (missing gross profit (latest), revenue (latest), gross profit (1y back), revenue (1y back)) |  |
-| TSLA | SOUND | 2025-12-31 | n/a (missing interest expense) | net cash | 0.1x | n/a (missing interest (latest)) | 7.71 | 5 |  |
+| TJX | SOUND | 2026-01-31 | 93.4x | net cash | 0.1x | little net debt: -9.4% of assets | 6.25 | n/a (missing gross profit (latest), revenue (latest), gross profit (1y back), revenue (1y back)) |  |
+| TSLA | SOUND | 2025-12-31 | n/a (missing interest expense) | net cash | 0.1x | little net debt: -27.2% of assets | 7.71 | 5 |  |
 | TT | SOUND | 2025-12-31 | 17.5x | 1.0x | 0.3x | +0.2 pp | 7.27 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | TXN | SOUND | 2025-12-31 | 11.1x | 3.5x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | +1.3 pp | 12.29 | 7 |  |
+| UBER | SOUND | 2025-12-31 | n/a (missing interest expense) | 0.3x | 0.2x | little net debt: 4.8% of assets | 4.31 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | VRT | SOUND | 2025-12-31 | 21.3x | 0.6x | 0.3x | -1.8 pp | 6.33 | 5 |  |
 | WAT | SOUND | 2025-12-31 | 11.5x | 1.5x | 0.5x | +1.4 pp | 13.25 | 4 |  |
+| WDC | SOUND | 2026-07-03 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -3.8% of assets | 10.28 | 8 |  |
 | WMT | SOUND | 2026-01-31 | 12.9x | 2.3x | 0.4x | +0.9 pp | 5.20 | 6 |  |
-| XYZ | SOUND | 2025-12-31 | 6.7x | 0.3x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (3y back)) | 7.25 | 5 |  |
-| ABNB | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing FCF) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, FCF) | n/a (missing debt (3y back), interest (latest), interest (3y back)) | 5.35 | 6 |  |
-| ADBE | INSUFFICIENT DATA | 2025-11-28 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 10.92 | 7 |  |
+| XYZ | SOUND | 2025-12-31 | 6.7x | 0.3x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: 1.8% of assets | 7.25 | 5 |  |
+| ABNB | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing FCF) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, FCF) | little net debt: -40.6% of assets | 5.35 | 6 |  |
 | ADI | INSUFFICIENT DATA | 2025-11-01 | n/a (missing interest expense) | 1.2x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 7.41 | 8 |  |
 | ADP | INSUFFICIENT DATA | 2026-06-30 | 13.5x | n/a (missing debt, FCF) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, FCF) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 5.67 | n/a (missing debt (latest), debt (1y back)) |  |
 | ALAB | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing fiscal years) | 17.81 | n/a (missing debt (latest), debt (1y back)) |  |
-| AMAT | INSUFFICIENT DATA | 2025-10-26 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (3y back), debt (4y back), interest (latest)) | 13.42 | 7 |  |
 | ANET | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 11.71 | n/a (missing debt (latest), debt (1y back)) |  |
 | APD | INSUFFICIENT DATA | 2025-09-30 | n/a (missing interest expense) | n/a (missing debt, FCF) | n/a (missing FCF) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 5.42 | n/a (missing operating cash flow (latest), debt (latest), operating cash flow (1y back), debt (1y back)) |  |
 | APH | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 0.3x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 8.28 | n/a (missing debt (latest), debt (1y back)) |  |
@@ -212,7 +220,6 @@
 | CAH | INSUFFICIENT DATA | 2026-06-30 | 7.5x | n/a (missing debt) | 0.4x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 3.03 | n/a (missing debt (latest), debt (1y back)) |  |
 | CDNS | INSUFFICIENT DATA | 2025-12-31 | 12.8x | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 9.71 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
 | CEG | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 4.2x | 0.3x | n/a (missing interest (latest)) | 4.79 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| CIEN | INSUFFICIENT DATA | 2025-11-01 | n/a (missing interest expense) | 0.3x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 5.15 | 7 |  |
 | CLS | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing fiscal years) | 6.45 | n/a (missing debt (latest), debt (1y back)) |  |
 | CMI | INSUFFICIENT DATA | 2025-12-31 | 12.2x | n/a (missing debt) | 0.1x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 8.26 | n/a (missing net income (latest), debt (latest), net income (1y back), debt (1y back)) |  |
 | COP | INSUFFICIENT DATA | 2025-12-31 | 11.8x | n/a (missing debt, FCF) | n/a (missing FCF) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 7.22 | n/a (missing debt (latest), debt (1y back)) |  |
@@ -236,7 +243,6 @@
 | ETN | INSUFFICIENT DATA | 2025-12-31 | n/a (missing EBIT, interest expense) | 2.6x | 0.5x | n/a (missing interest (latest), interest (3y back)) | n/a (missing EBIT) | 6 |  |
 | EW | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 12.85 | n/a (missing debt (latest), debt (1y back)) |  |
 | FANG | INSUFFICIENT DATA | 2025-12-31 | 5.2x | n/a (missing FCF) | n/a (missing FCF) | -0.5 pp | 4.72 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| FAST | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 15.26 | 7 |  |
 | FDX | INSUFFICIENT DATA | 2026-05-31 | n/a (missing interest expense) | 2.1x | 0.3x | n/a (missing interest (latest)) | 6.18 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | GD | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 1.5x | 0.5x | n/a (missing interest (latest)) | 8.09 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | GE | INSUFFICIENT DATA | 2025-12-31 | n/a (missing EBIT, interest expense) | n/a (missing cash) | n/a (missing cash) | n/a (missing debt (3y back), debt (4y back), interest (latest), interest (3y back)) | n/a (missing EBIT) | n/a (missing gross profit (latest), gross profit (1y back)) |  |
@@ -275,15 +281,12 @@
 | MRNA | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 8.37 | n/a (missing debt (latest), debt (1y back)) |  |
 | MSCI | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 3.7x | 0.0x | n/a (missing interest (latest)) | 7.83 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | NEE | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing FCF) | n/a (missing FCF) | n/a (missing interest (latest), interest (3y back)) | 4.16 | n/a (missing gross profit (latest), revenue (latest), gross profit (1y back), revenue (1y back)) |  |
-| NEM | INSUFFICIENT DATA | 2025-12-31 | n/a (missing EBIT, interest expense) | net cash | 0.0x | n/a (missing interest (latest), interest (3y back)) | n/a (missing EBIT) | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| NEM | INSUFFICIENT DATA | 2025-12-31 | n/a (missing EBIT, interest expense) | net cash | 0.0x | little net debt: -5.5% of assets | n/a (missing EBIT) | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | NET | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 5.20 | n/a (missing debt (latest), debt (1y back)) |  |
 | NFLX | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 8.54 | n/a (missing debt (latest), debt (1y back)) |  |
-| NOW | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 5.43 | n/a (missing debt (1y back)) |  |
+| NOW | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -8.6% of assets | 5.43 | n/a (missing debt (1y back)) |  |
 | NSC | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 5.32 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
-| NTAP | INSUFFICIENT DATA | 2026-04-24 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 5.57 | 9 |  |
 | NUE | INSUFFICIENT DATA | 2025-12-31 | 16.1x | n/a (missing debt) | 0.5x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 9.84 | n/a (missing debt (latest), debt (1y back)) |  |
-| NVDA | INSUFFICIENT DATA | 2026-01-25 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 16.10 | 4 |  |
-| ODFL | INSUFFICIENT DATA | 2025-12-31 | 4598.1x | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (1y back), debt (3y back), debt (4y back)) | 11.50 | n/a (missing gross profit (latest), revenue (latest), debt (1y back), gross profit (1y back), revenue (1y back)) |  |
 | OKTA | INSUFFICIENT DATA | 2026-01-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 5.94 | n/a (missing debt (latest), debt (1y back)) |  |
 | P | INSUFFICIENT DATA | 2026-02-01 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), interest (latest)) | 4.68 | n/a (missing debt (latest)) |  |
 | PANW | INSUFFICIENT DATA | 2026-07-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), interest (latest)) | 4.74 | n/a (missing debt (latest), debt (1y back)) |  |
@@ -295,10 +298,8 @@
 | PSX | INSUFFICIENT DATA | 2025-12-31 | n/a (missing EBIT) | n/a (missing debt, FCF) | n/a (missing FCF) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | n/a (missing EBIT) | n/a (missing debt (latest), debt (1y back)) |  |
 | PWR | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 0.9x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 5.46 | n/a (missing debt (latest), debt (1y back)) |  |
 | PYPL | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 0.2x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 6.52 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
-| RKLB | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest), interest (3y back)) | 7.08 | 5 |  |
 | ROK | INSUFFICIENT DATA | 2025-09-30 | n/a (missing interest expense) | 2.0x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 6.63 | 8 |  |
 | ROP | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing FCF) | n/a (missing FCF) | n/a (missing interest (latest)) | 6.39 | 5 |  |
-| ROST | INSUFFICIENT DATA | 2026-01-31 | n/a (missing interest expense) | net cash | n/a (missing debt due in 3y) | n/a (missing interest (latest), interest (3y back)) | 7.29 | 6 |  |
 | RTX | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 0.6x | n/a (missing debt (latest), interest (latest)) | 5.41 | n/a (missing debt (latest), gross profit (latest), gross profit (1y back)) |  |
 | RVMD | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 3.24 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
 | SBUX | INSUFFICIENT DATA | 2025-09-28 | 5.4x | n/a (missing cash) | n/a (missing cash) | +0.2 pp | 2.23 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
@@ -314,9 +315,8 @@
 | TGT | INSUFFICIENT DATA | 2026-01-31 | n/a (missing interest expense) | n/a (missing cash) | n/a (missing cash) | n/a (missing interest (latest)) | 4.59 | 6 |  |
 | TMO | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 4.6x | 0.6x | n/a (missing interest (latest)) | 7.26 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | TMUS | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 4.8x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest), interest (3y back)) | 4.51 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| TWLO | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing FCF) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, FCF) | n/a (missing interest (latest), interest (3y back)) | 6.59 | 6 |  |
+| TWLO | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing FCF) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, FCF) | little net debt: 3.2% of assets | 6.59 | 6 |  |
 | UAL | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 3.5x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest), interest (3y back)) | 3.56 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| UBER | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 0.3x | 0.2x | n/a (missing interest (latest)) | 4.31 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | UI | INSUFFICIENT DATA | 2026-06-30 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), interest (latest), interest (3y back)) | 14.58 | n/a (missing debt (latest)) |  |
 | UNP | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 5.6x | 0.6x | n/a (missing interest (latest)) | 7.79 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | URI | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing FCF) | n/a (missing FCF) | n/a (missing interest (latest), interest (3y back)) | 6.28 | 5 |  |
@@ -326,7 +326,6 @@
 | VZ | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt, FCF) | n/a (missing FCF) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | n/a (missing equity, liabilities) | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
 | WAB | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing cash) | n/a (missing cash) | n/a (missing interest (latest), interest (3y back)) | 5.61 | 5 |  |
 | WCN | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 0.4x | n/a (missing debt (latest), debt (1y back), interest (latest)) | 5.02 | n/a (missing debt (latest), debt (1y back)) |  |
-| WDC | INSUFFICIENT DATA | 2026-07-03 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 10.28 | 8 |  |
 | WMB | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt, cash) | n/a (missing cash) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 3.02 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
 | XOM | INSUFFICIENT DATA | 2025-12-31 | 69.4x | n/a (missing debt) | n/a (missing debt due in 1y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 9.04 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
 | AFL | NOT APPLICABLE | n/a | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE | financial firm |
