@@ -259,6 +259,15 @@
         <p class="section-note" id="core-links"></p>
       </section>
 
+      <section aria-labelledby="fragility-title" id="fragility-section" hidden>
+        <h2 id="fragility-title">Balance-sheet fragility (exploration only)</h2>
+        <p class="section-note" id="fragility-note"></p>
+        <div class="table-scroll"><table id="fragility-summary-table" class="narrow"></table></div>
+        <h3>Fragile and watch</h3>
+        <div class="table-scroll"><table id="fragility-flagged-table"></table></div>
+        <p class="section-note" id="fragility-links"></p>
+      </section>
+
       <footer>
         <p>Data through ${fmtDate(data.data_through)} from ${data.data_source === "synthetic" ? "synthetic demo prices" : "Yahoo Finance"}. Built ${new Date(data.generated_at).toLocaleString()}.</p>
         <p>Criteria file version <code>${esc(data.criteria_hash)}</code>. If this code changes unexpectedly, the pass rules were edited.</p>
@@ -282,6 +291,7 @@
     renderSleeveTable(data);
     renderFunnel(data);
     renderCore(data);
+    renderFragility(data);
 
     document.getElementById("theme-toggle").addEventListener("click", () => {
       const root = document.documentElement;
@@ -517,6 +527,27 @@
       links.push(`<a href="${REPO_BLOB}${esc(core.sources.reveal)}">full reveal</a>`);
     }
     document.getElementById("core-links").innerHTML = `Source files: ${links.join(" · ")}.`;
+  }
+
+  function renderFragility(data) {
+    const fr = data.fragility;
+    const section = document.getElementById("fragility-section");
+    if (!fr) { section.hidden = true; return; }
+    section.hidden = false;
+    const h = fr.header || {};
+    document.getElementById("fragility-note").textContent =
+      `As of ${h["as-of date"] || "unknown"} (membership month-end ${h["membership month-end"] || "unknown"}, ` +
+      `${h["universe size"] || "?"} companies, newest filing seen ${h["newest filing date seen"] || "unknown"}). ` +
+      "Not a return signal and not a recommendation: it only flags companies whose latest filed balance sheet looks weak if borrowing stays expensive.";
+    simpleTable(document.getElementById("fragility-summary-table"), [
+      ["class", "Class"], ["count", "Companies"],
+    ], fr.summary || [], null, [0]);
+    simpleTable(document.getElementById("fragility-flagged-table"), [
+      ["ticker", "Ticker"], ["class", "Class"], ["breached measures", "Breached measures"],
+      ["fiscal year end", "Fiscal year end"],
+    ], fr.flagged || [], null, [0, 1, 2, 3]);
+    document.getElementById("fragility-links").innerHTML =
+      `Source file: <a href="${REPO_BLOB}${esc(fr.source)}">full list with every measure</a>.`;
   }
 
   try {

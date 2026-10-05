@@ -12,6 +12,7 @@ from pathlib import Path
 
 COMPARE_PATH = "research/core_compare.md"
 REVEAL_PATH = "research/core_reveal.md"
+FRAGILITY_PATH = "research/fragility.md"
 
 _BULLET = re.compile(r"^- ([^:]+): (.*)$")
 _EVENT_ID = re.compile(r"event id (\d+)")
@@ -106,3 +107,18 @@ def build_core_comparison(root: Path) -> dict | None:
         block["reveal"] = parse_reveal(reveal.read_text())
         block["sources"]["reveal"] = REVEAL_PATH
     return block if block["sources"] else None
+
+
+def build_fragility(root: Path) -> dict | None:
+    """The `fragility` block for results.json from the committed `research/fragility.md`
+    (header bullets, class counts, the FRAGILE and WATCH table), or None if absent."""
+    path = root / FRAGILITY_PATH
+    if not path.exists():
+        return None
+    sections = _sections(path.read_text())
+    return {
+        "source": FRAGILITY_PATH,
+        "header": _bullets(sections[""]),
+        "summary": _table(sections.get("Summary", [])),
+        "flagged": _table(sections.get("Fragile and watch", [])),
+    }
