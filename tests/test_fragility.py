@@ -254,6 +254,51 @@ def test_rate_trend_cases(cfg):
     assert run(no_int, cfg).measures["rate_trend"].status == "n/a"
 
 
+CASH_TAG = "CashAndCashEquivalentsAtCarryingValue"
+
+
+@pytest.mark.parametrize(
+    ("cash", "status"),
+    [
+        (300, "ok"),  # net cash (-8% of assets)
+        (190, "ok"),  # net debt 3% of assets
+        (170, "ok"),  # net debt exactly 5% of assets
+        (20, "breach"),  # net debt 20% of assets: old behaviour
+    ],
+)
+def test_rate_trend_skipped_on_little_net_debt(cfg, cash, status):
+    res = run(make_facts(latest={"InterestExpense": 80, CASH_TAG: cash}), cfg)
+    m = res.measures["rate_trend"]
+    assert m.status == status
+    if status == "ok":
+        assert "little net debt" in m.display
+        assert "rate_trend" not in res.breached
+    else:
+        assert m.display.endswith("pp")
+        assert "rate_trend" in res.breached
+
+
+def test_rate_trend_skip_counts_as_available(cfg):
+    # fiscal-year history too short for the normal calculation, yet little net debt
+    short = make_facts(values={"LongTermDebt": [None, 280, 260, 240, 220]}, latest={CASH_TAG: 300})
+    assert run(short, cfg).measures["rate_trend"].status == "ok"
+
+
+def test_rate_trend_missing_assets_falls_back(cfg):
+    f = make_facts(drop=("Assets",), latest={"InterestExpense": 80, CASH_TAG: 300})
+    assert run(f, cfg).measures["rate_trend"].status == "breach"
+    f = make_facts(drop=(CASH_TAG,), latest={"InterestExpense": 80})
+    assert run(f, cfg).measures["rate_trend"].status == "breach"
+
+
+def test_rate_trend_gate_config_loads(tmp_path):
+    assert fr.load_fragility_config(CONFIG_PATH)[0].rate_trend_min_net_debt_to_assets == 0.05
+    path = _write_cfg(tmp_path, rate_trend_min_net_debt_to_assets=0.1)
+    assert fr.load_fragility_config(path)[0].rate_trend_min_net_debt_to_assets == 0.1
+    with pytest.raises(ValueError, match="missing keys"):
+        fr.load_fragility_config(_write_cfg(tmp_path, drop=("rate_trend_min_net_debt_to_assets",)))
+
+
 def test_altman_cases(cfg):
     breach = run(make_facts(latest={"RetainedEarningsAccumulatedDeficit": -1500}), cfg)
     assert breach.measures["altman_z"].status == "breach"

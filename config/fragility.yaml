@@ -4,6 +4,7 @@
 # amendment comment here. The thresholds are judgment calls made before seeing
 # any result; nobody tunes them after a look. Its sha256 is recorded in every report.
 # Amendment 2026-10-05 (owner, after seeing run 2): breach_to_fragile 1 -> 2; see spec ## Amendments.
+# Amendment 2026-10-05 (owner, after seeing run 3): rate-trend check skipped when net debt <= 5% of assets; see spec ## Amendments.
 version: 1
 date: "2026-10-05"
 decided_by: owner
@@ -23,6 +24,8 @@ altman_z_min: 1.1
 piotroski_max_weak: 2
 # effective rate up more than 2 points in three years
 rate_rise_max_pp: 2.0
+# owner, amended 2026-10-05 after run 3: skip the rate-trend check when net debt <= 5% of assets (rate swings on tiny debt are noise)
+rate_trend_min_net_debt_to_assets: 0.05
 # financials (SIC 6000-6799)
 not_applicable_sic: [[6000, 6799]]
 # override list for tickers whose SIC is missing or wrong; empty at registration

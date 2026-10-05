@@ -101,7 +101,7 @@ Shared definitions:
 | 1 | Interest coverage | EBIT / interest expense | Interest expense must be > 0. |
 | 2 | Net debt / FCF | (Debt − cash) / FCF | Net debt <= 0: no breach (net cash). Net debt > 0 and FCF <= 0: breach, shown as "FCF <= 0". |
 | 3 | Near-term maturities | (`LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths` + `...InYearTwo` + `...InYearThree`) / (cash + FCF) | All three tags needed. Denominator <= 0 with maturities > 0: breach. |
-| 4 | Effective rate trend | Rate = interest expense / average of opening and closing debt; change = latest FY rate − rate three fiscal years earlier (year-end within +-45 days, as `assets_lag1y_panel`) | Needs four year-end debt values and two interest values. Shown in percentage points. |
+| 4 | Effective rate trend | Rate = interest expense / average of opening and closing debt; change = latest FY rate − rate three fiscal years earlier (year-end within +-45 days, as `assets_lag1y_panel`) | Needs four year-end debt values and two interest values. Shown in percentage points. Skipped (ok, available) when net debt <= 5% of assets (amendment after run 3). |
 | 5 | Altman Z'' | 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4 + 3.25 | X1 = (`AssetsCurrent` − `LiabilitiesCurrent`) / `Assets`; X2 = `RetainedEarningsAccumulatedDeficit` / `Assets`; X3 = EBIT / `Assets`; X4 = `StockholdersEquity` / `Liabilities`. |
 | 6 | Piotroski F-score | Nine 0/1 signals, sum 0-9 | Needs two consecutive fiscal years (below). |
 
@@ -146,6 +146,7 @@ judgment calls fixed before seeing results; nobody tunes them after a look.
 | `altman_z_min` | 1.1 | Altman's distress zone for Z'' |
 | `piotroski_max_weak` | 2 | score 0-2 is the weak group in Piotroski's study |
 | `rate_rise_max_pp` | 2.0 | effective rate up more than 2 points in three years |
+| `rate_trend_min_net_debt_to_assets` | 0.05 | rate trend skipped (ok) when net debt <= 5% of assets; added after run 3 |
 | `not_applicable_sic` | [[6000, 6799]] | financials |
 | `not_applicable_tickers` | [] | override list, empty at registration |
 
@@ -318,4 +319,22 @@ trailing-four-quarter measures, any PLAN.md amendment.
   filings only fill gaps. Run 2 used a later quarterly report's mis-dated figure
   for FIX (operating income 209.1M tagged as full-year 2025 vs 1,314.6M in the
   10-K).
+- Config sha256 changes with this amendment.
+
+### 2026-10-05 — after run 3 (owner)
+
+- **Rate-trend check skipped on little net debt.** At the latest fiscal year
+  end, net debt = debt − cash (the same inputs as the net debt / FCF measure)
+  and is compared with total assets (the "Assets" value at that year end). If
+  net debt / assets <= `rate_trend_min_net_debt_to_assets` (0.05, new key in
+  `config/fragility.yaml`), the rate trend is not a breach. Net cash
+  (negative net debt) qualifies.
+- A skipped rate trend counts as a pass and as available (it still counts
+  toward `min_available_for_sound`). It is shown as "little net debt: X% of
+  assets".
+- **Missing inputs.** If debt, cash or assets is missing (or assets <= 0), the
+  ratio cannot be computed: nothing is imputed and the existing rate-trend
+  calculation runs unchanged. Companies above the 5% line are unchanged too.
+- **Motivation.** In run 3, FIX (net cash) was WATCH on a +4.3 pp rate-trend
+  breach. The effective rate on a tiny debt balance is noise.
 - Config sha256 changes with this amendment.
