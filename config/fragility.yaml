@@ -3,11 +3,12 @@
 # 2026-10-05 by the owner, fixed before the first run; changes only by a dated
 # amendment comment here. The thresholds are judgment calls made before seeing
 # any result; nobody tunes them after a look. Its sha256 is recorded in every report.
+# Amendment 2026-10-05 (owner, after seeing run 2): breach_to_fragile 1 -> 2; see spec ## Amendments.
 version: 1
 date: "2026-10-05"
 decided_by: owner
-# owner: any single failed check flags the company, stricter filter
-breach_to_fragile: 1
+# owner, amended 2026-10-05 after run 2: two breaches flag FRAGILE, one is WATCH (was 1)
+breach_to_fragile: 2
 # SOUND must rest on most of the six measures
 min_available_for_sound: 4
 # below 2x, a modest profit dip means unpaid interest

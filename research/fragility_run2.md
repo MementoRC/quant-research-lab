@@ -6,9 +6,9 @@
 - membership month-end: 2026-09-30
 - universe size: 300
 - newest filing date seen: 2026-10-01
-- config/fragility.yaml sha256: `78ce098ed0737a503b628b08ecd45917cb6165bc8c001ae0a628e990c3bd8297`
+- config/fragility.yaml sha256: `8755cc547a1e792e2345a61844d83e26d4c9ca4349ec59c46168d9811e8d1a42`
 - universe membership sha256: `4ede8b2b2ac96e975f9dc2251e4c49ed15b15f2ed52f89959759bde0c8751f9c`
-- breach_to_fragile (N): 2
+- breach_to_fragile (N): 1
 - min_available_for_sound (K): 4
 - thresholds: interest_coverage_min 2, net_debt_to_fcf_max 6, maturities_to_liquidity_max 1, altman_z_min 1.1, piotroski_max_weak 2, rate_rise_max_pp 2
 
@@ -16,8 +16,8 @@
 
 | class | count |
 | --- | --- |
-| FRAGILE | 4 |
-| WATCH | 44 |
+| FRAGILE | 48 |
+| WATCH | 0 |
 | SOUND | 66 |
 | INSUFFICIENT DATA | 136 |
 | NOT APPLICABLE | 50 |
@@ -26,107 +26,107 @@
 
 | ticker | class | breached measures | fiscal year end |
 | --- | --- | --- | --- |
+| ADM | FRAGILE | rate +2.4 pp > 2.0 pp in 3y | 2025-12-31 |
+| AEP | FRAGILE | net debt / FCF 13.9x > 6.0x; maturities 2.3x > 1.0x of liquidity | 2025-12-31 |
+| AZO | FRAGILE | maturities 1.3x > 1.0x of liquidity | 2025-08-30 |
 | BA | FRAGILE | coverage 1.5x < 2.0x; net debt / FCF: FCF <= 0 with net debt > 0 | 2025-12-31 |
+| BE | FRAGILE | coverage 1.9x < 2.0x | 2025-12-31 |
+| CAT | FRAGILE | maturities 1.3x > 1.0x of liquidity | 2025-12-31 |
+| COHR | FRAGILE | net debt / FCF: FCF <= 0 with net debt > 0 | 2026-06-30 |
+| CP | FRAGILE | maturities 2.1x > 1.0x of liquidity | 2025-12-31 |
 | CRWV | FRAGILE | coverage -0.04x < 2.00x; net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
+| DE | FRAGILE | maturities 1.9x > 1.0x of liquidity | 2025-11-02 |
+| DUK | FRAGILE | net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
+| ECL | FRAGILE | maturities 1.1x > 1.0x of liquidity | 2025-12-31 |
+| ENB | FRAGILE | net debt / FCF 31.6x > 6.0x; maturities 4.3x > 1.0x of liquidity | 2025-12-31 |
+| EPD | FRAGILE | net debt / FCF 11.3x > 6.0x; maturities 1.3x > 1.0x of liquidity | 2025-12-31 |
+| ET | FRAGILE | net debt / FCF 17.4x > 6.0x; maturities 2.6x > 1.0x of liquidity | 2025-12-31 |
+| ETR | FRAGILE | net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
+| EXC | FRAGILE | net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
+| FIX | FRAGILE | rate +4.3 pp > 2.0 pp in 3y | 2025-12-31 |
 | HPE | FRAGILE | coverage -0.4x < 2.0x; net debt / FCF 32.8x > 6.0x; maturities 1.7x > 1.0x of liquidity | 2025-10-31 |
+| INTC | FRAGILE | net debt / FCF: FCF <= 0 with net debt > 0; maturities 1.02x > 1.00x of liquidity | 2025-12-27 |
+| IQV | FRAGILE | net debt / FCF 6.6x > 6.0x; maturities 1.5x > 1.0x of liquidity | 2025-12-31 |
+| KDP | FRAGILE | net debt / FCF 8.6x > 6.0x | 2025-12-31 |
+| KMI | FRAGILE | maturities 1.4x > 1.0x of liquidity | 2025-12-31 |
+| LNG | FRAGILE | net debt / FCF 8.7x > 6.0x; maturities 1.9x > 1.0x of liquidity | 2025-12-31 |
+| LOW | FRAGILE | maturities 1.2x > 1.0x of liquidity | 2026-01-30 |
+| MAR | FRAGILE | maturities 1.8x > 1.0x of liquidity | 2025-12-31 |
+| MCD | FRAGILE | maturities 1.1x > 1.0x of liquidity | 2025-12-31 |
+| MCHP | FRAGILE | net debt / FCF 6.03x > 6.00x; maturities 2.1x > 1.0x of liquidity | 2026-03-31 |
+| NTRA | FRAGILE | coverage -76.2x < 2.0x | 2025-12-31 |
+| OKE | FRAGILE | net debt / FCF 13.4x > 6.0x | 2025-12-31 |
+| ORCL | FRAGILE | maturities 3.0x > 1.0x of liquidity | 2026-05-31 |
+| ORLY | FRAGILE | maturities 1.8x > 1.0x of liquidity | 2025-12-31 |
+| PEG | FRAGILE | net debt / FCF 862.0x > 6.0x; maturities 20.9x > 1.0x of liquidity | 2025-12-31 |
+| PFE | FRAGILE | net debt / FCF 7.0x > 6.0x | 2025-12-31 |
+| RCL | FRAGILE | maturities 4.4x > 1.0x of liquidity | 2025-12-31 |
+| SNOW | FRAGILE | Altman Z'' 0.03 < 1.10 | 2026-01-31 |
+| SNPS | FRAGILE | net debt / FCF 7.8x > 6.0x; maturities 1.3x > 1.0x of liquidity | 2025-10-31 |
+| SO | FRAGILE | maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
+| SRE | FRAGILE | maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
+| TDG | FRAGILE | net debt / FCF 14.6x > 6.0x | 2025-09-30 |
+| TEAM | FRAGILE | Altman Z'' -0.61 < 1.10 | 2026-06-30 |
+| TRGP | FRAGILE | net debt / FCF 29.6x > 6.0x; maturities 2.8x > 1.0x of liquidity | 2025-12-31 |
+| TTWO | FRAGILE | coverage -0.7x < 2.0x | 2026-03-31 |
+| VST | FRAGILE | net debt / FCF 13.7x > 6.0x; maturities 2.6x > 1.0x of liquidity | 2025-12-31 |
+| WBD | FRAGILE | net debt / FCF 9.1x > 6.0x; maturities 2.4x > 1.0x of liquidity | 2025-12-31 |
+| WM | FRAGILE | maturities 1.9x > 1.0x of liquidity | 2025-12-31 |
 | XEL | FRAGILE | coverage 1.8x < 2.0x; net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
-| ADM | WATCH | rate +2.4 pp > 2.0 pp in 3y | 2025-12-31 |
-| AEP | WATCH | net debt / FCF 13.9x > 6.0x; maturities 2.3x > 1.0x of liquidity | 2025-12-31 |
-| AZO | WATCH | maturities 1.3x > 1.0x of liquidity | 2025-08-30 |
-| BE | WATCH | coverage 1.9x < 2.0x | 2025-12-31 |
-| CAT | WATCH | maturities 1.3x > 1.0x of liquidity | 2025-12-31 |
-| COHR | WATCH | net debt / FCF: FCF <= 0 with net debt > 0 | 2026-06-30 |
-| CP | WATCH | maturities 2.1x > 1.0x of liquidity | 2025-12-31 |
-| DE | WATCH | maturities 1.9x > 1.0x of liquidity | 2025-11-02 |
-| DUK | WATCH | net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
-| ECL | WATCH | maturities 1.1x > 1.0x of liquidity | 2025-12-31 |
-| ENB | WATCH | net debt / FCF 31.6x > 6.0x; maturities 4.3x > 1.0x of liquidity | 2025-12-31 |
-| EPD | WATCH | net debt / FCF 11.3x > 6.0x; maturities 1.3x > 1.0x of liquidity | 2025-12-31 |
-| ET | WATCH | net debt / FCF 17.4x > 6.0x; maturities 2.6x > 1.0x of liquidity | 2025-12-31 |
-| ETR | WATCH | net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
-| EXC | WATCH | net debt / FCF: FCF <= 0 with net debt > 0; maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
-| FIX | WATCH | rate +4.3 pp > 2.0 pp in 3y | 2025-12-31 |
-| INTC | WATCH | net debt / FCF: FCF <= 0 with net debt > 0; maturities 1.02x > 1.00x of liquidity | 2025-12-27 |
-| IQV | WATCH | net debt / FCF 6.6x > 6.0x; maturities 1.5x > 1.0x of liquidity | 2025-12-31 |
-| KDP | WATCH | net debt / FCF 8.6x > 6.0x | 2025-12-31 |
-| KMI | WATCH | maturities 1.4x > 1.0x of liquidity | 2025-12-31 |
-| LNG | WATCH | net debt / FCF 8.7x > 6.0x; maturities 1.9x > 1.0x of liquidity | 2025-12-31 |
-| LOW | WATCH | maturities 1.2x > 1.0x of liquidity | 2026-01-30 |
-| MAR | WATCH | maturities 1.8x > 1.0x of liquidity | 2025-12-31 |
-| MCD | WATCH | maturities 1.1x > 1.0x of liquidity | 2025-12-31 |
-| MCHP | WATCH | net debt / FCF 6.03x > 6.00x; maturities 2.1x > 1.0x of liquidity | 2026-03-31 |
-| NTRA | WATCH | coverage -76.2x < 2.0x | 2025-12-31 |
-| OKE | WATCH | net debt / FCF 13.4x > 6.0x | 2025-12-31 |
-| ORCL | WATCH | maturities 3.0x > 1.0x of liquidity | 2026-05-31 |
-| ORLY | WATCH | maturities 1.8x > 1.0x of liquidity | 2025-12-31 |
-| PEG | WATCH | net debt / FCF 862.0x > 6.0x; maturities 20.9x > 1.0x of liquidity | 2025-12-31 |
-| PFE | WATCH | net debt / FCF 7.0x > 6.0x | 2025-12-31 |
-| RCL | WATCH | maturities 4.4x > 1.0x of liquidity | 2025-12-31 |
-| SNOW | WATCH | Altman Z'' 0.03 < 1.10 | 2026-01-31 |
-| SNPS | WATCH | net debt / FCF 7.8x > 6.0x; maturities 1.3x > 1.0x of liquidity | 2025-10-31 |
-| SO | WATCH | maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
-| SRE | WATCH | maturities due with no liquidity (cash + FCF <= 0) | 2025-12-31 |
-| TDG | WATCH | net debt / FCF 14.6x > 6.0x | 2025-09-30 |
-| TEAM | WATCH | Altman Z'' -0.61 < 1.10 | 2026-06-30 |
-| TRGP | WATCH | net debt / FCF 29.6x > 6.0x; maturities 2.8x > 1.0x of liquidity | 2025-12-31 |
-| TTWO | WATCH | coverage -0.7x < 2.0x | 2026-03-31 |
-| VST | WATCH | net debt / FCF 13.7x > 6.0x; maturities 2.6x > 1.0x of liquidity | 2025-12-31 |
-| WBD | WATCH | net debt / FCF 9.1x > 6.0x; maturities 2.4x > 1.0x of liquidity | 2025-12-31 |
-| WM | WATCH | maturities 1.9x > 1.0x of liquidity | 2025-12-31 |
-| YUM | WATCH | maturities 1.6x > 1.0x of liquidity | 2025-12-31 |
+| YUM | FRAGILE | maturities 1.6x > 1.0x of liquidity | 2025-12-31 |
 
 ## All companies
 
 | ticker | class | fiscal year end | interest coverage | net debt / FCF | maturities / liquidity | rate trend (3y) | Altman Z'' | Piotroski F | note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ADM | FRAGILE | 2025-12-31 | 3.1x | 1.8x | 0.2x | +2.4 pp | n/a (missing equity, liabilities) | 6 |  |
+| AEP | FRAGILE | 2025-12-31 | n/a (missing interest expense) | 13.9x | 2.3x | n/a (missing interest (latest)) | 3.98 | n/a (missing net income (latest), gross profit (latest), net income (1y back), gross profit (1y back)) |  |
+| AZO | FRAGILE | 2025-08-30 | n/a (missing interest expense) | n/a (missing debt) | 1.3x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 3.28 | n/a (missing debt (latest), debt (1y back)) |  |
 | BA | FRAGILE | 2025-12-31 | 1.5x | FCF <= 0 | 0.6x | +0.7 pp | 4.58 | 6 |  |
+| BE | FRAGILE | 2025-12-31 | 1.9x | 2.9x | 0.0x | -9.4 pp | 5.26 | n/a (missing net income (latest), net income (1y back)) |  |
+| CAT | FRAGILE | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 1.3x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | n/a (missing equity) | n/a (missing debt (latest), debt (1y back)) |  |
+| COHR | FRAGILE | 2026-06-30 | n/a (missing EBIT, interest expense) | FCF <= 0 | 0.1x | n/a (missing interest (latest)) | n/a (missing EBIT) | 6 |  |
+| CP | FRAGILE | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 2.1x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 5.44 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
 | CRWV | FRAGILE | 2025-12-31 | -0.04x | FCF <= 0 | no liquidity | n/a (missing fiscal years) | 1.95 | n/a (missing assets (2y back)) |  |
-| HPE | FRAGILE | 2025-10-31 | -0.4x | 32.8x | 1.7x | +1.6 pp | 3.63 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| DE | FRAGILE | 2025-11-02 | n/a (missing EBIT) | n/a (missing debt) | 1.9x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | n/a (missing current assets, current liabilities, EBIT) | n/a (missing debt (latest), current assets (latest), current liabilities (latest), gross profit (latest), debt (1y back), current assets (1y back), current liabilities (1y back), gross profit (1y back)) |  |
+| DUK | FRAGILE | 2025-12-31 | 2.4x | FCF <= 0 | no liquidity | +0.7 pp | 3.69 | n/a (missing gross profit (latest), revenue (latest), gross profit (1y back), revenue (1y back)) |  |
+| ECL | FRAGILE | 2025-12-31 | 8.9x | n/a (missing debt) | 1.1x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 6.49 | n/a (missing debt (latest), debt (1y back)) |  |
+| ENB | FRAGILE | 2025-12-31 | 2.2x | 31.6x | 4.3x | +0.8 pp | 3.46 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| EPD | FRAGILE | 2025-12-31 | n/a (missing interest expense) | 11.3x | 1.3x | n/a (missing interest (latest)) | n/a (missing retained earnings, equity, liabilities) | n/a (missing shares (latest), shares (1y back)) |  |
+| ET | FRAGILE | 2025-12-31 | 2.6x | 17.4x | 2.6x | +0.7 pp | n/a (missing retained earnings, equity, liabilities) | n/a (missing shares (latest), shares (1y back)) |  |
+| ETR | FRAGILE | 2025-12-31 | 2.3x | FCF <= 0 | no liquidity | +1.3 pp | 4.26 | n/a (missing net income (latest), gross profit (latest), net income (1y back), gross profit (1y back)) |  |
+| EXC | FRAGILE | 2025-12-31 | n/a (missing interest expense) | FCF <= 0 | no liquidity | n/a (missing interest (latest), interest (3y back)) | 4.06 | n/a (missing net income (latest), gross profit (latest), net income (1y back), gross profit (1y back)) |  |
+| FIX | FRAGILE | 2025-12-31 | 23.2x | net cash | 0.0x | +4.3 pp | 6.15 | 7 |  |
+| HPE | FRAGILE | 2025-10-31 | -0.4x | 32.8x | 1.7x | +1.7 pp | 3.63 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| INTC | FRAGILE | 2025-12-27 | n/a (missing interest expense) | FCF <= 0 | 1.02x | n/a (missing interest (latest)) | 6.17 | 6 |  |
+| IQV | FRAGILE | 2025-12-31 | 3.0x | 6.6x | 1.5x | +1.6 pp | 4.38 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| KDP | FRAGILE | 2025-12-31 | n/a (missing interest expense) | 8.6x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 4.55 | 7 |  |
+| KMI | FRAGILE | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 1.4x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 3.90 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
+| LNG | FRAGILE | 2025-12-31 | n/a (missing interest expense) | 8.7x | 1.9x | n/a (missing interest (latest)) | 5.57 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| LOW | FRAGILE | 2026-01-30 | n/a (missing interest expense) | 5.0x | 1.2x | n/a (missing interest (latest), interest (3y back)) | 3.88 | 6 |  |
+| MAR | FRAGILE | 2025-12-31 | n/a (missing interest expense) | net cash | 1.8x | n/a (missing interest (latest)) | 5.17 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| MCD | FRAGILE | 2025-12-31 | 7.8x | 5.5x | 1.1x | +0.7 pp | 8.45 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| MCHP | FRAGILE | 2026-03-31 | n/a (missing interest expense) | 6.03x | 2.1x | n/a (missing interest (latest)) | 6.01 | 6 |  |
+| NTRA | FRAGILE | 2025-12-31 | -76.2x | n/a (missing debt, cash) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, cash) | n/a (missing debt (latest), debt (1y back)) | 4.12 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
+| OKE | FRAGILE | 2025-12-31 | n/a (missing interest expense) | 13.4x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 4.29 | 6 |  |
+| ORCL | FRAGILE | 2026-05-31 | 4.5x | n/a (missing debt) | 3.0x | n/a (missing debt (latest), debt (1y back), debt (3y back)) | 4.05 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
+| ORLY | FRAGILE | 2025-12-31 | 14.7x | n/a (missing debt) | 1.8x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 3.34 | n/a (missing debt (latest), debt (1y back)) |  |
+| PEG | FRAGILE | 2025-12-31 | 3.0x | 862.0x | 20.9x | +0.9 pp | n/a (missing equity, liabilities) | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| PFE | FRAGILE | 2025-12-31 | 3.8x | 7.0x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | +0.9 pp | 6.31 | 5 |  |
+| RCL | FRAGILE | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 4.4x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 3.29 | n/a (missing debt (latest), debt (1y back)) |  |
+| SNOW | FRAGILE | 2026-01-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 0.03 | n/a (missing debt (latest), debt (1y back)) |  |
+| SNPS | FRAGILE | 2025-10-31 | n/a (missing interest expense) | 7.8x | 1.3x | n/a (missing debt (3y back), debt (4y back), interest (latest)) | 5.88 | 3 |  |
+| SO | FRAGILE | 2025-12-31 | 2.2x | n/a (missing debt) | no liquidity | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 3.95 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
+| SRE | FRAGILE | 2025-12-31 | n/a (missing EBIT, interest expense) | n/a (missing debt) | no liquidity | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | n/a (missing EBIT) | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
+| TDG | FRAGILE | 2025-09-30 | n/a (missing interest expense) | 14.6x | 0.5x | n/a (missing interest (latest), interest (3y back)) | 4.03 | 6 |  |
+| TEAM | FRAGILE | 2026-06-30 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), interest (latest)) | -0.61 | n/a (missing debt (latest), debt (1y back)) |  |
+| TRGP | FRAGILE | 2025-12-31 | n/a (missing interest expense) | 29.6x | 2.8x | n/a (missing interest (latest), interest (3y back)) | 4.27 | 7 |  |
+| TTWO | FRAGILE | 2026-03-31 | -0.7x | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back)) | 1.67 | n/a (missing debt (latest), debt (1y back)) |  |
+| VST | FRAGILE | 2025-12-31 | n/a (missing interest expense) | 13.7x | 2.6x | n/a (missing debt (3y back), debt (4y back), interest (latest)) | 3.29 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| WBD | FRAGILE | 2025-12-31 | n/a (missing interest expense) | 9.1x | 2.4x | n/a (missing interest (latest)) | 3.57 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
+| WM | FRAGILE | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 1.9x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 5.31 | n/a (missing debt (latest), debt (1y back)) |  |
 | XEL | FRAGILE | 2025-12-31 | 1.8x | FCF <= 0 | no liquidity | +0.8 pp | 4.09 | n/a (missing gross profit (latest), revenue (latest), gross profit (1y back), revenue (1y back)) |  |
-| ADM | WATCH | 2025-12-31 | 3.1x | 1.8x | 0.2x | +2.4 pp | n/a (missing equity, liabilities) | 6 |  |
-| AEP | WATCH | 2025-12-31 | n/a (missing interest expense) | 13.9x | 2.3x | n/a (missing interest (latest)) | 3.98 | n/a (missing net income (latest), gross profit (latest), net income (1y back), gross profit (1y back)) |  |
-| AZO | WATCH | 2025-08-30 | n/a (missing interest expense) | n/a (missing debt) | 1.3x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 3.28 | n/a (missing debt (latest), debt (1y back)) |  |
-| BE | WATCH | 2025-12-31 | 1.9x | 2.9x | 0.0x | -9.4 pp | 5.26 | n/a (missing net income (latest), net income (1y back)) |  |
-| CAT | WATCH | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 1.3x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | n/a (missing equity) | n/a (missing debt (latest), debt (1y back)) |  |
-| COHR | WATCH | 2026-06-30 | n/a (missing EBIT, interest expense) | FCF <= 0 | 0.1x | n/a (missing interest (latest)) | n/a (missing EBIT) | 6 |  |
-| CP | WATCH | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 2.1x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 5.44 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
-| DE | WATCH | 2025-11-02 | n/a (missing EBIT) | n/a (missing debt) | 1.9x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | n/a (missing current assets, current liabilities, EBIT) | n/a (missing debt (latest), current assets (latest), current liabilities (latest), gross profit (latest), debt (1y back), current assets (1y back), current liabilities (1y back), gross profit (1y back)) |  |
-| DUK | WATCH | 2025-12-31 | 2.4x | FCF <= 0 | no liquidity | +0.7 pp | 3.69 | n/a (missing gross profit (latest), revenue (latest), gross profit (1y back), revenue (1y back)) |  |
-| ECL | WATCH | 2025-12-31 | 8.9x | n/a (missing debt) | 1.1x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 6.49 | n/a (missing debt (latest), debt (1y back)) |  |
-| ENB | WATCH | 2025-12-31 | 2.2x | 31.6x | 4.3x | +0.8 pp | 3.46 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| EPD | WATCH | 2025-12-31 | n/a (missing interest expense) | 11.3x | 1.3x | n/a (missing interest (latest)) | n/a (missing retained earnings, equity, liabilities) | n/a (missing shares (latest), shares (1y back)) |  |
-| ET | WATCH | 2025-12-31 | 2.6x | 17.4x | 2.6x | +0.7 pp | n/a (missing retained earnings, equity, liabilities) | n/a (missing shares (latest), shares (1y back)) |  |
-| ETR | WATCH | 2025-12-31 | 2.3x | FCF <= 0 | no liquidity | +1.3 pp | 4.26 | n/a (missing net income (latest), gross profit (latest), net income (1y back), gross profit (1y back)) |  |
-| EXC | WATCH | 2025-12-31 | n/a (missing interest expense) | FCF <= 0 | no liquidity | n/a (missing interest (latest), interest (3y back)) | 4.06 | n/a (missing net income (latest), gross profit (latest), net income (1y back), gross profit (1y back)) |  |
-| FIX | WATCH | 2025-12-31 | 145.9x | net cash | 0.0x | +4.3 pp | 7.30 | 7 |  |
-| INTC | WATCH | 2025-12-27 | n/a (missing interest expense) | FCF <= 0 | 1.02x | n/a (missing interest (latest)) | 6.17 | 6 |  |
-| IQV | WATCH | 2025-12-31 | 3.0x | 6.6x | 1.5x | +1.6 pp | 4.38 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| KDP | WATCH | 2025-12-31 | n/a (missing interest expense) | 8.6x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 4.55 | 7 |  |
-| KMI | WATCH | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 1.4x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 3.90 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
-| LNG | WATCH | 2025-12-31 | n/a (missing interest expense) | 8.7x | 1.9x | n/a (missing interest (latest)) | 5.57 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| LOW | WATCH | 2026-01-30 | n/a (missing interest expense) | 5.0x | 1.2x | n/a (missing interest (latest), interest (3y back)) | 3.88 | 6 |  |
-| MAR | WATCH | 2025-12-31 | n/a (missing interest expense) | net cash | 1.8x | n/a (missing interest (latest)) | 5.17 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| MCD | WATCH | 2025-12-31 | 7.8x | 5.5x | 1.1x | +0.7 pp | 8.45 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| MCHP | WATCH | 2026-03-31 | n/a (missing interest expense) | 6.03x | 2.1x | n/a (missing interest (latest)) | 6.01 | 6 |  |
-| NTRA | WATCH | 2025-12-31 | -76.2x | n/a (missing debt, cash) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, cash) | n/a (missing debt (latest), debt (1y back)) | 4.12 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
-| OKE | WATCH | 2025-12-31 | n/a (missing interest expense) | 13.4x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 4.29 | 6 |  |
-| ORCL | WATCH | 2026-05-31 | 4.5x | n/a (missing debt) | 3.0x | n/a (missing debt (latest), debt (1y back), debt (3y back)) | 4.05 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
-| ORLY | WATCH | 2025-12-31 | 14.7x | n/a (missing debt) | 1.8x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 3.34 | n/a (missing debt (latest), debt (1y back)) |  |
-| PEG | WATCH | 2025-12-31 | 3.0x | 862.0x | 20.9x | +0.9 pp | n/a (missing equity, liabilities) | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| PFE | WATCH | 2025-12-31 | 3.8x | 7.0x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | +0.9 pp | 6.31 | 5 |  |
-| RCL | WATCH | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 4.4x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 3.29 | n/a (missing debt (latest), debt (1y back)) |  |
-| SNOW | WATCH | 2026-01-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 0.03 | n/a (missing debt (latest), debt (1y back)) |  |
-| SNPS | WATCH | 2025-10-31 | n/a (missing interest expense) | 7.8x | 1.3x | n/a (missing debt (3y back), debt (4y back), interest (latest)) | 5.88 | 3 |  |
-| SO | WATCH | 2025-12-31 | 2.2x | n/a (missing debt) | no liquidity | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 3.95 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
-| SRE | WATCH | 2025-12-31 | n/a (missing EBIT, interest expense) | n/a (missing debt) | no liquidity | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | n/a (missing EBIT) | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
-| TDG | WATCH | 2025-09-30 | n/a (missing interest expense) | 14.6x | 0.5x | n/a (missing interest (latest), interest (3y back)) | 4.03 | 6 |  |
-| TEAM | WATCH | 2026-06-30 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), interest (latest)) | -0.61 | n/a (missing debt (latest), debt (1y back)) |  |
-| TRGP | WATCH | 2025-12-31 | n/a (missing interest expense) | 29.6x | 2.8x | n/a (missing interest (latest), interest (3y back)) | 4.27 | 7 |  |
-| TTWO | WATCH | 2026-03-31 | -0.7x | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back)) | 1.67 | n/a (missing debt (latest), debt (1y back)) |  |
-| VST | WATCH | 2025-12-31 | n/a (missing interest expense) | 13.7x | 2.6x | n/a (missing debt (3y back), debt (4y back), interest (latest)) | 3.29 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| WBD | WATCH | 2025-12-31 | n/a (missing interest expense) | 9.1x | 2.4x | n/a (missing interest (latest)) | 3.57 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
-| WM | WATCH | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 1.9x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | 5.31 | n/a (missing debt (latest), debt (1y back)) |  |
-| YUM | WATCH | 2025-12-31 | 4.7x | n/a (missing debt) | 1.6x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 2.49 | n/a (missing debt (latest), debt (1y back)) |  |
+| YUM | FRAGILE | 2025-12-31 | 4.7x | n/a (missing debt) | 1.6x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 2.49 | n/a (missing debt (latest), debt (1y back)) |  |
 | A | SOUND | 2025-10-31 | 13.2x | 1.4x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | +0.3 pp | 6.73 | 5 |  |
 | AAPL | SOUND | 2025-09-27 | n/a (missing interest expense) | 0.4x | 0.2x | n/a (missing interest (latest)) | 5.56 | 8 |  |
 | ABBV | SOUND | 2025-12-31 | 5.2x | 3.5x | 0.7x | +1.1 pp | 2.91 | 7 |  |
@@ -157,7 +157,7 @@
 | GOOGL | SOUND | 2025-12-31 | n/a (missing interest expense) | net cash | 0.0x | n/a (missing interest (latest)) | 10.04 | 6 |  |
 | HCA | SOUND | 2025-12-31 | 5.4x | 5.6x | n/a (missing debt due in 1y) | +0.4 pp | 4.12 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | HD | SOUND | 2026-02-01 | n/a (missing interest expense) | 3.8x | 0.8x | n/a (missing interest (latest)) | 7.79 | 4 |  |
-| HON | SOUND | 2025-12-31 | 6.0x | 4.1x | 0.5x | +1.9 pp | 7.11 | 5 |  |
+| HON | SOUND | 2025-12-31 | 6.0x | 4.0x | 0.5x | +1.98 pp | 7.11 | 5 |  |
 | HWM | SOUND | 2025-12-31 | 11.6x | 1.6x | 0.2x | +0.1 pp | 7.82 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | IDXX | SOUND | 2025-12-31 | n/a (missing interest expense) | 0.3x | 0.1x | n/a (missing interest (latest)) | 13.68 | 8 |  |
 | INTU | SOUND | 2026-07-31 | 23.0x | 0.3x | 0.2x | -0.1 pp | 8.05 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
@@ -204,7 +204,7 @@
 | APH | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 0.3x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 8.28 | n/a (missing debt (latest), debt (1y back)) |  |
 | AVGO | INSUFFICIENT DATA | 2025-11-02 | n/a (missing interest expense) | 1.8x | 0.3x | n/a (missing debt (1y back), debt (3y back), interest (latest)) | n/a (missing equity) | n/a (missing net income (latest), debt (1y back)) |  |
 | BDX | INSUFFICIENT DATA | 2025-09-30 | 4.2x | n/a (missing debt, FCF) | n/a (missing FCF) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 5.54 | n/a (missing operating cash flow (latest), debt (latest), operating cash flow (1y back), debt (1y back)) |  |
-| BIIB | INSUFFICIENT DATA | 2025-12-31 | 6.8x | n/a (missing cash) | n/a (missing cash) | +0.3 pp | n/a (missing equity) | 5 |  |
+| BIIB | INSUFFICIENT DATA | 2025-12-31 | 6.8x | n/a (missing cash) | n/a (missing cash) | +1.0 pp | n/a (missing equity) | 4 |  |
 | BKNG | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 0.2x | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing interest (latest)) | 10.89 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | BKR | INSUFFICIENT DATA | 2025-12-31 | n/a (missing EBIT, interest expense) | n/a (missing debt, cash) | n/a (missing cash) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | n/a (missing EBIT) | n/a (missing debt (latest), shares (latest), gross profit (latest), debt (1y back), shares (1y back), gross profit (1y back)) |  |
 | BMY | INSUFFICIENT DATA | 2025-12-31 | n/a (missing EBIT, interest expense) | 2.9x | 0.2x | n/a (missing interest (latest)) | n/a (missing EBIT) | 8 |  |
@@ -227,7 +227,7 @@
 | DASH | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | 4.71 | n/a (missing debt (latest), gross profit (latest), debt (1y back), gross profit (1y back)) |  |
 | DHI | INSUFFICIENT DATA | 2025-09-30 | n/a (missing EBIT, interest expense) | n/a (missing debt) | 0.6x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | n/a (missing current assets, current liabilities, EBIT) | n/a (missing debt (latest), current assets (latest), current liabilities (latest), debt (1y back), current assets (1y back), current liabilities (1y back)) |  |
 | DHR | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing cash) | n/a (missing cash) | n/a (missing interest (latest)) | 7.71 | 5 |  |
-| EBAY | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 0.6x | n/a (missing debt (latest), debt (1y back), interest (latest)) | 11.96 | n/a (missing debt (latest), debt (1y back)) |  |
+| EBAY | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | n/a (missing debt) | 0.6x | n/a (missing debt (latest), debt (1y back), interest (latest)) | 12.01 | n/a (missing debt (latest), debt (1y back)) |  |
 | ED | INSUFFICIENT DATA | 2025-12-31 | 2.4x | n/a (missing FCF) | n/a (missing FCF) | +1.2 pp | 4.68 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | EL | INSUFFICIENT DATA | 2026-06-30 | n/a (missing interest expense) | n/a (missing debt, cash) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, cash) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest)) | n/a (missing equity, liabilities) | n/a (missing debt (latest), debt (1y back)) |  |
 | EME | INSUFFICIENT DATA | 2025-12-31 | 142.5x | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back)) | 8.04 | n/a (missing debt (latest), debt (1y back)) |  |
