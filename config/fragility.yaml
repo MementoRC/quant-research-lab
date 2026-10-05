@@ -1,0 +1,28 @@
+# PRE-REGISTERED balance-sheet fragility screen (EXPLORATION ONLY; spec
+# docs/superpowers/specs/2026-10-05-fragility-screen-design.md). Pre-registered
+# 2026-10-05 by the owner, fixed before the first run; changes only by a dated
+# amendment comment here. The thresholds are judgment calls made before seeing
+# any result; nobody tunes them after a look. Its sha256 is recorded in every report.
+version: 1
+date: "2026-10-05"
+decided_by: owner
+# owner: any single failed check flags the company, stricter filter
+breach_to_fragile: 1
+# SOUND must rest on most of the six measures
+min_available_for_sound: 4
+# below 2x, a modest profit dip means unpaid interest
+interest_coverage_min: 2.0
+# more than six years of free cash flow to repay net debt
+net_debt_to_fcf_max: 6.0
+# years 1-3 repayments exceed cash plus a year of FCF
+maturities_to_liquidity_max: 1.0
+# Altman's distress zone for Z''
+altman_z_min: 1.1
+# score 0-2 is the weak group in Piotroski's study
+piotroski_max_weak: 2
+# effective rate up more than 2 points in three years
+rate_rise_max_pp: 2.0
+# financials (SIC 6000-6799)
+not_applicable_sic: [[6000, 6799]]
+# override list for tickers whose SIC is missing or wrong; empty at registration
+not_applicable_tickers: []

@@ -1,8 +1,38 @@
 from pathlib import Path
 
-from qrl.site_core import build_core_comparison
+from qrl.site_core import FRAGILITY_PATH, build_core_comparison, build_fragility
 
 ROOT = Path(__file__).resolve().parents[1]
+
+SAMPLE_FRAGILITY = """# Balance-sheet fragility screen (exploration only)
+
+- as-of date: 2025-06-01
+- membership month-end: 2025-05-31
+- universe size: 3
+- newest filing date seen: 2025-02-09
+- config/fragility.yaml sha256: `abc`
+- breach_to_fragile (N): 1
+
+## Summary
+
+| class | count |
+| --- | --- |
+| FRAGILE | 1 |
+| WATCH | 0 |
+| SOUND | 1 |
+
+## Fragile and watch
+
+| ticker | class | breached measures | fiscal year end |
+| --- | --- | --- | --- |
+| CCC | FRAGILE | coverage 1.2x < 2.0x | 2024-12-31 |
+
+## All companies
+
+| ticker | class |
+| --- | --- |
+| CCC | FRAGILE |
+"""
 
 
 def test_parses_committed_files():
@@ -41,3 +71,61 @@ def test_only_compare_present(tmp_path):
     assert block is not None
     assert "reveal" not in block
     assert len(block["research"]) == 7
+
+
+def test_fragility_absent_returns_none(tmp_path):
+    assert build_fragility(tmp_path) is None
+
+
+def test_fragility_parses_sample(tmp_path):
+    (tmp_path / "research").mkdir()
+    (tmp_path / FRAGILITY_PATH).write_text(SAMPLE_FRAGILITY)
+    block = build_fragility(tmp_path)
+    assert block is not None
+    assert FRAGILITY_PATH == "research/fragility.md"
+    assert block["source"] == FRAGILITY_PATH
+    assert block["header"]["as-of date"] == "2025-06-01"
+    assert block["header"]["universe size"] == "3"
+    assert block["summary"] == [
+        {"class": "FRAGILE", "count": "1"},
+        {"class": "WATCH", "count": "0"},
+        {"class": "SOUND", "count": "1"},
+    ]
+    assert block["flagged"] == [
+        {
+            "ticker": "CCC",
+            "class": "FRAGILE",
+            "breached measures": "coverage 1.2x < 2.0x",
+            "fiscal year end": "2024-12-31",
+        }
+    ]
+
+
+def test_fragility_parses_rendered_report(tmp_path):
+    import pandas as pd
+
+    from qrl import fragility as fr
+
+    cfg = fr.load_fragility_config(ROOT / "config" / "fragility.yaml")[0]
+    report = fr.build_report(
+        [],
+        as_of=pd.Timestamp("2025-06-01"),
+        month_end=pd.Timestamp("2025-05-31"),
+        facts=pd.DataFrame(columns=["filed"]),
+        cfg=cfg,
+        config_sha256="a" * 64,
+        universe_sha256="b" * 64,
+    )
+    (tmp_path / "research").mkdir()
+    (tmp_path / FRAGILITY_PATH).write_text(fr.render_markdown(report))
+    block = build_fragility(tmp_path)
+    assert block is not None
+    assert block["flagged"] == []
+    assert block["header"]["config/fragility.yaml sha256"] == "a" * 64
+    assert [r["class"] for r in block["summary"]] == [
+        "FRAGILE",
+        "WATCH",
+        "SOUND",
+        "INSUFFICIENT DATA",
+        "NOT APPLICABLE",
+    ]
