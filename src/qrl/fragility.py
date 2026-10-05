@@ -50,6 +50,13 @@ MEASURE_LABELS = {
 
 _MAT = "LongTermDebtMaturitiesRepaymentsOfPrincipalIn"
 MATURITY_TAGS = (_MAT + "NextTwelveMonths", _MAT + "YearTwo", _MAT + "YearThree")
+MATURITY_LABELS = dict(
+    zip(MATURITY_TAGS, ("debt due in 1y", "debt due in 2y", "debt due in 3y"), strict=True)
+)
+# Only annual reports DECIDE the fiscal year ends (a 10-Q can carry a 12-month flow that is not a
+# fiscal year). Any filing may SUPPLY a value for those exact periods: SEC lists some fiscal-year
+# figures only under a later filing that repeats them (proxy, 10-Q prior-year column).
+ANNUAL_FORMS = frozenset({"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"})
 DEBT_TOTAL = ("LongTermDebt",)
 CASH = ("CashAndCashEquivalentsAtCarryingValue",)
 SHORT_INVESTMENTS = ("ShortTermInvestments", "MarketableSecuritiesCurrent")
@@ -226,6 +233,11 @@ class _View:
     def __init__(self, facts: pd.DataFrame, ticker: str, date: pd.Timestamp) -> None:
         sub = facts[facts["ticker"] == ticker].dropna(subset=["val", "end", "filed"])
         sub = sub[sub["filed"] < date]
+        anchors = sub[sub["concept"].isin(ANCHORS) & sub["form"].isin(ANNUAL_FORMS)]
+        anchor_ends: set[pd.Timestamp] = set()
+        for _, grp in anchors.groupby("concept"):
+            anchor_ends |= set(fd.filter_duration(grp, "annual")["end"])
+        self._fiscal_ends = sorted(anchor_ends)
         self._by: dict[str, dict[pd.Timestamp, float]] = {}
         self.used: dict[str, float] = {}
         for concept, grp in sub.groupby("concept"):
@@ -247,10 +259,7 @@ class _View:
         return None
 
     def fiscal_ends(self) -> list[pd.Timestamp]:
-        ends: set[pd.Timestamp] = set()
-        for concept in ANCHORS:
-            ends |= set(self._by.get(concept, {}))
-        return sorted(ends)
+        return list(self._fiscal_ends)
 
 
 def _prior_end(ends: Sequence[pd.Timestamp], end: pd.Timestamp | None) -> pd.Timestamp | None:
@@ -298,6 +307,20 @@ def _need(items: Mapping[str, float | None]) -> tuple[dict[str, float], str]:
     return got, ", ".join(k for k, x in items.items() if x is None)
 
 
+def _fmt_vs(value: float, threshold: float, dp: int) -> tuple[str, str]:
+    """Value and threshold text at one precision: more decimals (to 4) while they look equal,
+    and no negative zero."""
+    while dp < 4 and f"{value:.{dp}f}" == f"{threshold:.{dp}f}":
+        dp += 1
+    vtext = f"{value:.{dp}f}"
+    while dp < 4 and vtext.startswith("-") and float(vtext) == 0:
+        dp += 1
+        vtext = f"{value:.{dp}f}"
+    if vtext.startswith("-") and float(vtext) == 0:
+        vtext = vtext[1:]
+    return vtext, f"{threshold:.{dp}f}"
+
+
 def _debt(v: _View, e: pd.Timestamp | None) -> float | None:
     total = v.get(DEBT_TOTAL, e)
     if total is None:
@@ -341,9 +364,10 @@ def _measure_coverage(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
     if got["interest expense"] <= 0:
         return _na("interest expense <= 0")
     cov = got["EBIT"] / got["interest expense"]
-    text = f"{cov:.1f}x"
+    val, thr = _fmt_vs(cov, cfg.interest_coverage_min, 1)
+    text = f"{val}x"
     if cov < cfg.interest_coverage_min:
-        detail = f"coverage {text} < {cfg.interest_coverage_min:.1f}x"
+        detail = f"coverage {text} < {thr}x"
         return Measure("breach", text, cov, detail)
     return Measure("ok", text, cov)
 
@@ -361,29 +385,33 @@ def _measure_net_debt(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
     if fcf <= 0:
         return Measure("breach", "FCF <= 0", None, "net debt / FCF: FCF <= 0 with net debt > 0")
     ratio = net / fcf
-    text = f"{ratio:.1f}x"
+    val, thr = _fmt_vs(ratio, cfg.net_debt_to_fcf_max, 1)
+    text = f"{val}x"
     if ratio > cfg.net_debt_to_fcf_max:
-        detail = f"net debt/FCF {text} > {cfg.net_debt_to_fcf_max:.1f}x"
+        detail = f"net debt / FCF {text} > {thr}x"
         return Measure("breach", text, ratio, detail)
     return Measure("ok", text, ratio)
 
 
 def _measure_maturities(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
     e = ends[0]
-    due = {tag: v.get((tag,), e) for tag in MATURITY_TAGS}
+    due = {label: v.get((tag,), e) for tag, label in MATURITY_LABELS.items()}
     got, miss = _need({**due, "cash": _cash(v, e), "FCF": _fcf(v, e)})
     if miss:
         return _na(f"missing {miss}")
-    total = sum(got[tag] for tag in MATURITY_TAGS)
+    total = sum(got[label] for label in MATURITY_LABELS.values())
     if total <= 0:
         return Measure("ok", "0.0x", 0.0)
     liquidity = got["cash"] + got["FCF"]
     if liquidity <= 0:
-        return Measure("breach", "no liquidity", None, "maturities due with no cash plus FCF")
+        return Measure(
+            "breach", "no liquidity", None, "maturities due with no liquidity (cash + FCF <= 0)"
+        )
     ratio = total / liquidity
-    text = f"{ratio:.1f}x"
+    val, thr = _fmt_vs(ratio, cfg.maturities_to_liquidity_max, 1)
+    text = f"{val}x"
     if ratio > cfg.maturities_to_liquidity_max:
-        detail = f"maturities {text} > {cfg.maturities_to_liquidity_max:.1f}x of liquidity"
+        detail = f"maturities {text} > {thr}x of liquidity"
         return Measure("breach", text, ratio, detail)
     return Measure("ok", text, ratio)
 
@@ -411,9 +439,10 @@ def _measure_rate_trend(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
     if now_debt <= 0 or then_debt <= 0:
         return _na("average debt <= 0")
     change = (got["interest (latest)"] / now_debt - got["interest (3y back)"] / then_debt) * 100
-    text = f"{change:+.1f} pp"
+    val, thr = _fmt_vs(change, cfg.rate_rise_max_pp, 1)
+    text = f"{'' if val.startswith('-') else '+'}{val} pp"
     if change > cfg.rate_rise_max_pp:
-        detail = f"rate {text} > {cfg.rate_rise_max_pp:.1f} pp in 3y"
+        detail = f"rate {text} > {thr} pp in 3y"
         return Measure("breach", text, change, detail)
     return Measure("ok", text, change)
 
@@ -448,9 +477,9 @@ def _measure_altman(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
         + 1.05 * p["equity"] / li
         + 3.25
     )
-    text = f"{z:.2f}"
+    text, thr = _fmt_vs(z, cfg.altman_z_min, 2)
     if z < cfg.altman_z_min:
-        return Measure("breach", text, z, f"Altman Z'' {text} < {cfg.altman_z_min:.2f}")
+        return Measure("breach", text, z, f"Altman Z'' {text} < {thr}")
     return Measure("ok", text, z)
 
 
@@ -500,9 +529,9 @@ def _measure_piotroski(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
     assets_before = v.get(("Assets",), ends[2])
     got, miss = _need(
         {
-            **{f"{k} (current)": x for k, x in cur.items()},
-            **{f"{k} (prior)": x for k, x in prev.items()},
-            "assets (two years back)": assets_before,
+            **{f"{k} (latest)": x for k, x in cur.items()},
+            **{f"{k} (1y back)": x for k, x in prev.items()},
+            "assets (2y back)": assets_before,
         }
     )
     if miss:
@@ -510,9 +539,9 @@ def _measure_piotroski(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
     try:
         score = sum(
             _pio_signals(
-                {k: got[f"{k} (current)"] for k in cur},
-                {k: got[f"{k} (prior)"] for k in prev},
-                got["assets (two years back)"],
+                {k: got[f"{k} (latest)"] for k in cur},
+                {k: got[f"{k} (1y back)"] for k in prev},
+                got["assets (2y back)"],
             )
         )
     except ZeroDivisionError:
