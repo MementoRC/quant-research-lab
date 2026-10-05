@@ -873,3 +873,125 @@ def test_cli_without_sic_cache_marks_industry_unknown(world, no_network):
     md = world["out_md"].read_text()
     assert "| AAA | INSUFFICIENT DATA |" in md
     assert "industry unknown" in md
+
+
+# --------------------------------------------------------------------------- amendments
+
+
+def test_ten_q_twelve_month_flow_does_not_anchor_fiscal_year(cfg):
+    f = make_facts()
+    for concept in ("NetCashProvidedByUsedInOperatingActivities", "NetIncomeLoss"):
+        f = add_fact(f, concept, "2025-03-31", 99, "2025-05-01")
+        f.loc[f.index[-1], "form"] = "10-Q"
+    res = run(f, cfg)
+    assert res.fy_end == pd.Timestamp("2024-12-31")
+
+
+def test_fy_end_value_supplied_only_by_ten_q_is_used(cfg):
+    f = make_facts()
+    mask = (f["concept"] == "LongTermDebt") & (f["end"] == pd.Timestamp("2024-12-31"))
+    f.loc[mask, "form"] = "10-Q"
+    f.loc[mask, "filed"] = pd.Timestamp("2025-03-01")
+    res = run(f, cfg)
+    assert res.fy_end == pd.Timestamp("2024-12-31")
+    assert res.measures["net_debt_fcf"].status != "n/a"
+
+
+def test_twelve_month_flow_supplied_only_by_proxy_is_used():
+    f = make_facts()
+    mask = (f["concept"] == "NetIncomeLoss") & (f["end"] == pd.Timestamp("2024-12-31"))
+    f.loc[mask, "form"] = "DEF 14A"
+    f.loc[mask, "filed"] = pd.Timestamp("2025-03-01")
+    view = fr._View(f, "AAA", ASOF)
+    assert view.get(["NetIncomeLoss"], pd.Timestamp("2024-12-31")) == 70.0
+    assert pd.Timestamp("2024-12-31") in view.fiscal_ends()
+
+
+def test_company_with_only_ten_q_anchors_has_no_fiscal_year(cfg):
+    f = make_facts()
+    f["form"] = "10-Q"
+    res = run(f, cfg)
+    assert res.cls == fr.INSUFFICIENT
+    assert res.fy_end is None
+
+
+def test_annual_forms_include_foreign_filers():
+    assert {"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"} == set(fr.ANNUAL_FORMS)
+
+
+def test_missing_maturities_use_friendly_labels(cfg):
+    f = make_facts(drop=(MAT + "NextTwelveMonths", MAT + "YearTwo", MAT + "YearThree"))
+    disp = run(f, cfg).measures["maturities"].display
+    assert "LongTermDebt" not in disp
+    for label in ("debt due in 1y", "debt due in 2y", "debt due in 3y"):
+        assert label in disp
+
+
+def test_breach_detail_wording(cfg):
+    nd = run(make_facts(latest={"NetCashProvidedByUsedInOperatingActivities": 49}), cfg)
+    assert nd.measures["net_debt_fcf"].detail.startswith("net debt / FCF ")
+    no_liq = run(
+        make_facts(
+            latest={
+                "CashAndCashEquivalentsAtCarryingValue": 0,
+                "NetCashProvidedByUsedInOperatingActivities": 20,
+            }
+        ),
+        cfg,
+    )
+    m = no_liq.measures["maturities"]
+    assert m.display == "no liquidity"
+    assert m.detail == "maturities due with no liquidity (cash + FCF <= 0)"
+
+
+def test_piotroski_missing_inputs_use_year_wording(cfg):
+    f = make_facts(drop=("GrossProfit", "Revenues"))
+    disp = run(f, cfg).measures["piotroski"].display
+    assert "(latest)" in disp
+    assert "(1y back)" in disp
+    assert "(current)" not in disp
+    assert "(prior)" not in disp
+    f = make_facts(values={"Assets": [1000, 1000, None, 1000, 1000]})
+    assert "assets (2y back)" in run(f, cfg).measures["piotroski"].display
+
+
+def test_net_debt_breach_detail_extra_decimals_when_equal_at_one_dp(cfg):
+    ocf = 30 + 120 / 6.04  # net debt 120, FCF = 120 / 6.04
+    m = run(make_facts(latest={"NetCashProvidedByUsedInOperatingActivities": ocf}), cfg)
+    m = m.measures["net_debt_fcf"]
+    assert m.status == "breach"
+    assert m.detail == "net debt / FCF 6.04x > 6.00x"
+    assert m.display == "6.04x"
+
+
+def test_maturities_breach_detail_extra_decimals(cfg):
+    m = run(make_facts(latest={MAT + "NextTwelveMonths": 140.72}), cfg).measures["maturities"]
+    assert m.status == "breach"
+    assert m.detail == "maturities 1.004x > 1.000x of liquidity"
+    assert m.display == "1.004x"
+
+
+def test_negative_coverage_never_prints_negative_zero(cfg):
+    res = run(make_facts(latest={"InterestExpense": 100, "OperatingIncomeLoss": -4}), cfg)
+    m = res.measures["coverage"]
+    assert m.display == "-0.04x"
+    assert m.detail == "coverage -0.04x < 2.00x"
+
+
+def test_plain_coverage_breach_keeps_one_decimal(cfg):
+    m = run(make_facts(latest={"InterestExpense": 80}), cfg).measures["coverage"]
+    assert m.display == "1.2x"
+    assert m.detail == "coverage 1.2x < 2.0x"
+
+
+@pytest.mark.parametrize(
+    ("value", "threshold", "dp", "expected"),
+    [
+        (1.2, 2.0, 1, ("1.2", "2.0")),
+        (6.04, 6.0, 1, ("6.04", "6.00")),
+        (-0.00001, 2.0, 1, ("0.0000", "2.0000")),
+        (-0.04, 2.0, 1, ("-0.04", "2.00")),
+    ],
+)
+def test_fmt_vs(value, threshold, dp, expected):
+    assert fr._fmt_vs(value, threshold, dp) == expected

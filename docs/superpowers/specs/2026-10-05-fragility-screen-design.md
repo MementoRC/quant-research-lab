@@ -276,3 +276,30 @@ Synthetic company facts and submissions, no network.
 Stage 2 discovery watchlist, wiring the filter into any run or config, any
 price-based signal, drawdown-profile changes, buy/sell recommendations,
 trailing-four-quarter measures, any PLAN.md amendment.
+
+## Amendments
+
+### 2026-10-05 — after run 1 (display and data-quality fixes)
+
+- **Annual reports decide the fiscal year.** Fiscal year ends are taken only
+  from annual reports: form 10-K, 10-K/A, 20-F, 20-F/A, 40-F or 40-F/A. Values
+  for those fiscal-year periods may come from any filing, because SEC's
+  company-facts data sometimes lists a fiscal-year figure only under a later
+  filing that repeats it (a proxy statement, or a 10-Q's prior-year column).
+  A quarterly report can no longer make a mid-year date a fiscal year end (run
+  1: AMZN anchored on 2026-06-30). The 350-380 day duration test stays as it
+  was.
+- **Labels.** The maturity inputs are named "debt due in 1y", "debt due in 2y"
+  and "debt due in 3y" in "missing ..." reasons instead of raw SEC tag names.
+  Wording is made consistent: "net debt / FCF" (with spaces) in breach details;
+  "maturities due with no liquidity (cash + FCF <= 0)" to match the table cell
+  "no liquidity"; the Piotroski missing-input names use "(latest)", "(1y back)"
+  and "assets (2y back)", the same year wording as the rate trend.
+- **Display rounding.** A value and its threshold are now shown at the same
+  precision. When they would look equal after rounding (for example "6.0x > 6.0x"),
+  extra decimals are added, up to four. A value that rounds to "-0.0" is shown
+  with more decimals, or without the minus sign if it is still zero at four.
+  The table cell and the breach detail use the same value text.
+- **Not changed.** `config/fragility.yaml` (same sha256), every threshold, and
+  the breach and classification rule. Run 1's report is kept unchanged at
+  `research/fragility_run1.md`.
