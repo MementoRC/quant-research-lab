@@ -479,3 +479,13 @@ def test_decision_year_one_picks_risk_off_when_it_is_worse(tmp_path):
     assert row["state"] == "risk_off"  # the better state (QQQ +5%) would give 1.01
     assert row["nominal"] == pytest.approx(1 - 0.10 - 0.04)
     assert row["real"] == pytest.approx(0.86)
+
+
+def test_decision_tied_states_name_the_same_worse_state_in_both_tables(tmp_path):
+    cfg = load(tmp_path)
+    a = next(p for p in cfg.portfolios if p.id == "A")
+    s = Scenario("tie", "judgement-based, v1", {"QQQ": -0.10, "GLD": -0.10}, 0.0)
+    (scen,) = scenario_rows([a], [s])
+    (year,) = year_one_rows([a], [s], [0.04])
+    assert scen["states"]["risk_on"]["nominal_loss"] == scen["states"]["risk_off"]["nominal_loss"]
+    assert year["state"] == scen["worst"]

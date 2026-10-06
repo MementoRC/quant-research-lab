@@ -63,6 +63,13 @@ def real_return(nominal: float, inflation: float) -> float:
     return (1 + nominal) / (1 + inflation) - 1
 
 
+def worst_state(states: dict[str, dict[str, float]], scenario: Scenario) -> tuple[str, float]:
+    """The worse state (the larger nominal loss) and its return. One rule for
+    every table, so a tie names the same state everywhere."""
+    loss, name = max((-scenario_return(mix, scenario), n) for n, mix in states.items())
+    return name, -loss
+
+
 def scenario_rows(portfolios: list[Portfolio], scenarios: list[Scenario]) -> list[dict]:
     """Per portfolio x scenario: nominal and real loss (positive = loss) for
     every state, and the worse state (the larger nominal loss)."""
@@ -77,7 +84,7 @@ def scenario_rows(portfolios: list[Portfolio], scenarios: list[Scenario]) -> lis
                     "nominal_loss": -r,
                     "real_loss": -real_return(r, s.inflation),
                 }
-            worst = max((v["nominal_loss"], n) for n, v in by_state.items())[1]
+            worst, _ = worst_state(states, s)
             rows.append(
                 {
                     "portfolio": p.id,
@@ -260,7 +267,7 @@ def year_one_rows(
     for p in portfolios:
         states = portfolio_states(p)
         for s in scenarios:
-            ret, state = min((scenario_return(mix, s), name) for name, mix in states.items())
+            state, ret = worst_state(states, s)
             for rate in rates:
                 nominal, real = year_one_value(ret, rate, s.inflation)
                 rows.append(
