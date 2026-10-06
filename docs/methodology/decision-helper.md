@@ -141,7 +141,7 @@ other than gold. The report states this.
 | file | role |
 |---|---|
 | `config/decision.yaml` | portfolios, blends, scenarios, rates, start years; sha256-hashed |
-| `src/qrl/decision.py` | all logic: weights, blends, scenario losses, both states, withdrawal paths |
+| `src/qrl/decision*.py` | all logic, split into focused modules (config, weights/scenarios, withdrawals, report): `decision_config.py`, `decision.py`, `decision_withdraw.py`, `decision_report.py` |
 | `scripts/decision.py` | IO, wiring, formatting only; no thresholds or logic |
 | `research/decision.md` | committed report |
 | `pixi.toml` | task `decision` |
@@ -154,9 +154,10 @@ alone. Blends containing a switching core take that core's two branches
 combined with the other component's fixed weights (AG and A-CASH each
 have exactly two states, since only A switches). The stress module's
 `run_stress`, `replay_loss` and `frozen_loss` accept any weight builder.
-Stress cells use the stress module unchanged (its replay runs without
-`cost_bps`), so stress losses exclude trading costs while withdrawal paths
-include them; the report says so. RSP is added to the price cache, and
+Stress cells use the stress module unchanged; its replay calls the engine
+without an explicit `cost_bps`, so the engine's default 5 bps applies,
+while withdrawal paths use `criteria.yaml`'s `cost_bps`. The report states
+both. RSP is added to the price cache, and
 CPIAUCNSA to `config/macro.yaml` (neither file is locked or hash-bound).
 No locked file (`engine.py`, `metrics.py`, `periods.py`, `checks.py`,
 `criteria.yaml`, `combined*.yaml`, `paper.yaml`, `factor.yaml`) and no
