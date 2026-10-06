@@ -242,3 +242,35 @@ def withdrawal_rows(
                 }
             )
     return rows
+
+
+def year_one_value(ret: float, rate: float, inflation: float) -> tuple[float, float]:
+    """Value after one year as a fraction of the start: (1 + scenario return)
+    minus the year's withdrawals (12 x rate / 12; no raise in year one),
+    nominal, and real (deflated by the scenario's inflation)."""
+    nominal = 1 + ret - rate
+    return nominal, nominal / (1 + inflation)
+
+
+def year_one_rows(
+    portfolios: list[Portfolio], scenarios: list[Scenario], rates: list[float]
+) -> list[dict]:
+    """Per portfolio x scenario x rate, using the worse state (lower return)."""
+    rows = []
+    for p in portfolios:
+        states = portfolio_states(p)
+        for s in scenarios:
+            ret, state = min((scenario_return(mix, s), name) for name, mix in states.items())
+            for rate in rates:
+                nominal, real = year_one_value(ret, rate, s.inflation)
+                rows.append(
+                    {
+                        "portfolio": p.id,
+                        "scenario": s.name,
+                        "state": state,
+                        "rate": rate,
+                        "nominal": nominal,
+                        "real": real,
+                    }
+                )
+    return rows

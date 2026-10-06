@@ -24,6 +24,8 @@ from qrl.decision import (
     stress_rows,
     window_rows,
     withdrawal_rows,
+    year_one_rows,
+    year_one_value,
 )
 from qrl.decision_config import Portfolio, Scenario
 from qrl.stress import Cell
@@ -440,3 +442,40 @@ def test_decision_withdrawal_rows_refuse_missing_cpi(tmp_path):
     small = replace(cfg, portfolios=cfg.portfolios[:1], rates=[0.04], start_years=[2005])
     with pytest.raises(ValueError, match="missing CPI"):
         withdrawal_rows(small, prices(), cpi().loc[:"2010-12-31"], criteria())
+
+
+def test_decision_year_one_value_hand_checked():
+    nominal, real = year_one_value(-0.146, 0.04, 0.08)
+    assert nominal == pytest.approx(1 - 0.146 - 0.04)
+    assert real == pytest.approx(0.814 / 1.08)
+
+
+def test_decision_year_one_withdrawals_are_not_raised_by_inflation():
+    # Year one withdraws exactly the rate, even at 8% inflation (no x1.08 raise).
+    nominal, real = year_one_value(0.0, 0.04, 0.08)
+    assert nominal == pytest.approx(0.96)
+    assert real == pytest.approx(0.96 / 1.08)
+
+
+def test_decision_year_one_rows_use_the_worse_state(tmp_path):
+    cfg = load(tmp_path)
+    rows = year_one_rows(cfg.portfolios, cfg.scenarios, cfg.rates)
+    assert len(rows) == 12 * 3 * 4
+    a = next(
+        r
+        for r in rows
+        if r["portfolio"] == "A" and r["scenario"] == "treasury_dollar_crisis" and r["rate"] == 0.04
+    )
+    assert a["state"] == "risk_on"
+    assert a["nominal"] == pytest.approx(1 - 0.30 - 0.04)
+    assert a["real"] == pytest.approx(0.66 / 1.08)
+
+
+def test_decision_year_one_picks_risk_off_when_it_is_worse(tmp_path):
+    cfg = load(tmp_path)
+    a = next(p for p in cfg.portfolios if p.id == "A")
+    s = Scenario("flip", "judgement-based, v1", {"QQQ": 0.05, "GLD": -0.10}, 0.0)
+    (row,) = year_one_rows([a], [s], [0.04])
+    assert row["state"] == "risk_off"  # the better state (QQQ +5%) would give 1.01
+    assert row["nominal"] == pytest.approx(1 - 0.10 - 0.04)
+    assert row["real"] == pytest.approx(0.86)
