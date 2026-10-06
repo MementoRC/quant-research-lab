@@ -327,6 +327,48 @@ def test_core_compare_markdown_records_hash_and_trial_count(compared):
     assert "bonds 40%, gold 20%" in row
 
 
+def _report(out: dict, **extra) -> dict:
+    return {
+        **out,
+        "candidates_sha256": "ab" * 32,
+        "stress_sha256": "cd" * 32,
+        "trial_count": 7,
+        "research_period": {"start": "2005-01-01", "end": "2018-12-31"},
+        "max_drawdown": 0.35,
+        "capital_split": SPLIT,
+        **extra,
+    }
+
+
+def test_core_compare_benchmark_rows_ids_and_drawdown():
+    rows = core_compare.benchmark_metrics(_data(), _criteria(), SPLIT, "QQQ", 0.35)
+    assert [r["id"] for r in rows] == ["QQQ@split", "QQQ@100"]
+    split_dd, full_dd = (r["research"]["max_drawdown"] for r in rows)
+    assert full_dd > split_dd
+    assert all(r["breach_count"] == int(r["research_breach"]) for r in rows)
+
+
+def test_core_compare_benchmark_error_row_is_recorded():
+    rows = core_compare.benchmark_metrics(
+        _data(start="2005-02-01"), _criteria(), SPLIT, "QQQ", 0.35
+    )
+    assert all("error" in r["research"] for r in rows)
+
+
+def test_core_compare_markdown_benchmark_section_only_when_present(compared):
+    out, _ = compared
+    base = render_markdown(_report(out))
+    assert "## Benchmark" not in base
+    rows = core_compare.benchmark_metrics(_data(), _criteria(), SPLIT, "QQQ", 0.35)
+    md = render_markdown(_report(out, benchmark=rows))
+    assert "## Benchmark (not a candidate; not counted in the trial count)" in md
+    assert "| QQQ@split |" in md
+    assert "| QQQ@100 |" in md
+    assert "- trial count: 7" in md
+    assert md.index("## Benchmark") < md.index("## Stress cells")
+    assert md.replace(md[md.index("## Benchmark") : md.index("## Stress cells")], "") == base
+
+
 def _fake_ohlcv(drop: str | None = None):
     def fake(tickers, refresh=False):
         open_, close = synthetic_prices(tickers, start="1999-01-01", end="2021-12-31")

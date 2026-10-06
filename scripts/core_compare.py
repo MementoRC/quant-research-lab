@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from qrl.core_compare import (  # noqa: E402
+    benchmark_metrics,
     load_core_candidates,
     render_markdown,
     run_core_compare,
@@ -51,7 +52,10 @@ def main(argv: list[str] | None = None) -> int:
     profile = load_profile(ROOT / "config" / "profile.yaml")
     cands, cand_hash = load_core_candidates(ROOT / "config" / "core_candidates.yaml")
 
-    tickers = sorted({EQUITY_PROXY} | {t for c in cands for t in REGISTRY[c.fn].tickers(c.params)})
+    bench = str(criteria["pass"]["beat_benchmark"])
+    tickers = sorted(
+        {EQUITY_PROXY, bench} | {t for c in cands for t in REGISTRY[c.fn].tickers(c.params)}
+    )
     data = load_ohlcv(tickers, refresh=True)  # as scripts/stress.py
     missing = [t for t in tickers if t not in data["close"].columns]
     if missing:
@@ -78,6 +82,9 @@ def main(argv: list[str] | None = None) -> int:
         "max_drawdown": profile["max_drawdown"],
         "capital_split": profile["capital_split"],
         **result,
+        "benchmark": benchmark_metrics(
+            data, criteria, profile["capital_split"], bench, profile["max_drawdown"]
+        ),
     }
     out_json, out_md = Path(args.out_json), Path(args.out_md)
     out_json.parent.mkdir(parents=True, exist_ok=True)

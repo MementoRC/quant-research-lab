@@ -22,6 +22,15 @@ Diagnostic of the pre-registered cores; it selects nothing. Spec: docs/superpowe
 | F | switched mix, SPY 200d signal | 5.2% | 0.74 | 15.8% | 6.39 | 0 |
 | G | static 25% each SPY/TLT/GLD/SHY | 5.3% | 0.96 | 11.4% | 0.00 | 0 |
 
+## Benchmark (not a candidate; not counted in the trial count)
+
+| id | rule | CAGR | Sharpe | max drawdown | turnover/yr | breaches |
+|---|---|---|---|---|---|---|
+| QQQ@split | QQQ buy-and-hold at core share (rest cash) | 9.1% | 0.62 | 45.1% | 0.00 | 1 |
+| QQQ@100 | QQQ buy-and-hold, 100% | 11.1% | 0.62 | 53.4% | 0.00 | 1 |
+
+Breaches: research-period drawdown vs the cap only (0/1). Stress cells for 80% QQQ equal candidate A's `A[risk_on]` rows above.
+
 ## Stress cells
 
 | id | portfolio | scenario | mode | loss | proxied to cash | flag |
