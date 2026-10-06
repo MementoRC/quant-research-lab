@@ -46,7 +46,9 @@ def main(argv: list[str] | None = None) -> int:
             args.config, ROOT / "config" / "core_candidates.yaml", stress_cfg, data_end(criteria)
         )
         tickers = sorted({EQUITY_PROXY} | {t for p in cfg.portfolios for t in portfolio_tickers(p)})
-        data = load_ohlcv(tickers, refresh=True, cache_dir=ROOT / "data" / "cache")
+        # refresh=False: the cache is shared with other runs, so only tickers not
+        # yet cached (e.g. RSP) are fetched; the 2018-12-31 cut makes newer bars moot
+        data = load_ohlcv(tickers, refresh=False, cache_dir=ROOT / "data" / "cache")
         missing = [t for t in tickers if t not in data["close"].columns]
         if missing:
             # the loader drops tickers it cannot fetch

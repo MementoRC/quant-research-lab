@@ -1,12 +1,12 @@
 # Decision helper: portfolios, scenarios and withdrawals
 
-Status: draft spec, 2026-10-06. Owner-approved design; not yet implemented.
+Status: implemented 2026-10-06 (`pixi run decision`, writes
+`research/decision.md`). Owner-approved design.
 
 ## Purpose
 
 The research pipeline is complete. This report supports a different
-question: how to deploy savings, mostly held in cash, while withdrawing
-for income. This
+question: how to deploy savings while withdrawing for income. This
 report is a decision aid: it compares a fixed set of portfolios under
 historical crashes, judgement-based shocks and inflation-indexed
 withdrawals. It selects nothing and recommends nothing. It replaces the
