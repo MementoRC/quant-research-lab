@@ -72,6 +72,76 @@ def test_monthly_withdrawals_refuse_missing_cpi():
         monthly_withdrawals(0.04, 2005, 2007, cpi().loc[:"2005-06-30"])
 
 
+def _hand_cpi(level_2004: float, level_2005: float) -> pd.Series:
+    # Availability-dated: usable on 2004-01-01 is 100, on 2005-01-01 level_2004,
+    # on 2006-01-01 level_2005.
+    return pd.Series(
+        [100.0, level_2004, level_2005],
+        index=pd.to_datetime(["2003-12-31", "2004-12-31", "2005-12-31"]),
+    )
+
+
+def test_cpi_raise_applies_in_january_only_never_inside_a_year():
+    # CPI usable 1 Jan 2005 / 1 Jan 2004 = 110 / 100: YoY exactly 10%.
+    amounts = monthly_withdrawals(0.12, 2004, 2005, _hand_cpi(110.0, 121.0))
+    assert amounts[2004] == pytest.approx(0.01)
+    assert amounts[2005] == pytest.approx(0.011)
+    idx = pd.bdate_range("2004-01-01", "2005-12-31")
+    values = withdrawal_path(pd.Series(0.0, index=idx), amounts).values
+    steps = -values.diff().fillna(values.iloc[0] - 1.0)
+    taken = steps[steps.abs() > 1e-12]
+    assert len(taken) == 24
+    np.testing.assert_allclose(taken.iloc[:12].to_numpy(), 0.01)
+    np.testing.assert_allclose(taken.iloc[12:].to_numpy(), 0.011)
+    assert (taken.iloc[:12].index.year == 2004).all()
+    assert (taken.iloc[12:].index.year == 2005).all()
+
+
+def test_negative_cpi_yoy_lowers_the_amount_with_no_floor():
+    # CPI falls 2%: next year's amount = 0.01 x 0.98 = 0.0098.
+    amounts = monthly_withdrawals(0.12, 2004, 2005, _hand_cpi(98.0, 98.0))
+    assert amounts[2005] == pytest.approx(0.0098)
+
+
+def test_path_metrics_on_a_depleted_path():
+    idx = pd.to_datetime(["2005-01-03", "2005-02-01", "2005-03-01"])
+    m = path_metrics(WithdrawalPath(pd.Series([0.5, 0.0, 0.0], index=idx), "2005-02"), cpi())
+    assert m["max_drawdown"] == 1.0
+    assert m["lowest"] == 0.0
+    assert m["depleted"] == "2005-02"
+    assert m["below_peak_at_end"] is True
+
+
+def test_value_reaching_zero_on_a_non_withdrawal_day_is_depleted():
+    idx = pd.to_datetime(["2005-01-03", "2005-01-04", "2005-01-05"])
+    path = withdrawal_path(pd.Series([0.0, -1.0, 0.5], index=idx), {2005: 0.01})
+    assert path.depleted == "2005-01"
+    assert path.values.iloc[0] == pytest.approx(0.99)
+    assert (path.values.iloc[1:] == 0.0).all()
+
+
+def test_nan_return_refused_with_the_date():
+    idx = pd.to_datetime(["2005-01-03", "2005-01-04"])
+    with pytest.raises(ValueError, match="NaN return on 2005-01-04"):
+        withdrawal_path(pd.Series([0.0, np.nan], index=idx), {2005: 0.01})
+
+
+def test_below_peak_at_end_with_longest_spell_recovered_earlier():
+    idx = pd.to_datetime(["2005-01-03", "2005-02-01", "2005-08-01", "2005-09-01"])
+    m = path_metrics(
+        WithdrawalPath(pd.Series([1.0, 0.9, 1.1, 1.0], index=idx), None), cpi(monthly_growth=0.01)
+    )
+    assert m["below_peak_months"] == 7
+    assert m["recovered"] is True
+    assert m["below_peak_at_end"] is True
+
+
+def test_not_below_peak_at_end_when_ending_at_a_new_high():
+    idx = pd.to_datetime(["2005-01-03", "2005-02-01", "2005-03-01"])
+    m = path_metrics(WithdrawalPath(pd.Series([1.0, 0.9, 1.1], index=idx), None), cpi())
+    assert m["below_peak_at_end"] is False
+
+
 def test_longest_below_peak_recovered():
     idx = pd.to_datetime(["2005-01-03", "2005-02-01", "2005-05-02", "2005-06-01"])
     # peak in January, back above it in May: 4 months

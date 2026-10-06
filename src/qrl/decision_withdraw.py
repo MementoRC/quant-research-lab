@@ -60,13 +60,15 @@ def withdrawal_path(returns: pd.Series, monthly: dict[int, float]) -> Withdrawal
     prev: tuple[int, int] | None = None
     depleted: str | None = None
     for i, ts in enumerate(idx):
+        if np.isnan(rets[i]):
+            raise ValueError(f"NaN return on {ts.date()}")
         month = (ts.year, ts.month)
         if value > 0:
             value *= 1.0 + rets[i]
             if month != prev:
                 value -= monthly[ts.year]
-                if value <= 0:
-                    value, depleted = 0.0, f"{ts:%Y-%m}"
+            if value <= 0:
+                value, depleted = 0.0, f"{ts:%Y-%m}"
         prev = month
         out[i] = value
     return WithdrawalPath(pd.Series(out, index=idx), depleted)
@@ -100,7 +102,8 @@ def path_metrics(path: WithdrawalPath, cpi: pd.Series) -> dict:
     """Ending value (nominal, and real: deflated by the CPI usable on the last
     day over the CPI usable on the first), lowest value, max drawdown of the
     value path (the starting 1.0 counts as a peak), longest time below a prior
-    peak, and the depletion month."""
+    peak (with whether it recovered), whether the last value is below the
+    running peak, and the depletion month."""
     values = path.values.to_numpy(dtype=float)
     idx = pd.DatetimeIndex(path.values.index)
     deflator = usable_cpi(cpi, idx[-1]) / usable_cpi(cpi, idx[0])
@@ -113,5 +116,6 @@ def path_metrics(path: WithdrawalPath, cpi: pd.Series) -> dict:
         "max_drawdown": float((1.0 - values / peaks).max()),
         "below_peak_months": months,
         "recovered": recovered,
+        "below_peak_at_end": bool(values[-1] < peaks[-1]),
         "depleted": path.depleted,
     }
