@@ -214,3 +214,11 @@ candidates file, or a ticker the loader could not fetch, fails loudly.
 Changing the core, any PLAN.md amendment or new run, ranking or selecting a
 winner, showing validation-window cells (a later separate step), sleeve
 interaction (the sleeve is empty here), leverage, forecasting.
+
+## Amendment 2026-10-05: benchmark rows
+
+After the first report, two plain buy-and-hold rows for the criteria benchmark
+ticker (QQQ) were added to the report: one at the core share of the capital
+split (rest cash) and one at 100%. They are reference-only, research period
+only, select nothing, and are not candidates: `config/core_candidates.yaml` and
+the trial count (7) are unchanged.

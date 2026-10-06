@@ -264,6 +264,36 @@ def run_core_compare(
     return {"excluded_windows": [w.name for w in excluded], "candidates": results}
 
 
+def benchmark_metrics(
+    data: dict[str, pd.DataFrame], criteria: dict, split: dict, ticker: str, max_drawdown: float
+) -> list[dict]:
+    """Reference rows (NOT candidates, not counted in the trial count): plain
+    `ticker` buy-and-hold over the research period, at the core share of the
+    split (rest cash; like-for-like with the candidate rows) and at 100%."""
+    mix = Candidate("benchmark", "benchmark", "core_mix", {"risk_on": {ticker: 1.0}})
+    variants = (
+        (f"{ticker}@split", f"{ticker} buy-and-hold at core share (rest cash)", split),
+        (f"{ticker}@100", f"{ticker} buy-and-hold, 100%", {"core": 1.0, "sleeve": 0.0}),
+    )
+    rows = []
+    for row_id, label, row_split in variants:
+        try:
+            research = research_metrics(mix, data, criteria, row_split)
+        except ValueError as exc:  # recorded, never skipped (AGENTS.md)
+            research = {"error": str(exc)}
+        breach = bool(research.get("max_drawdown", 0.0) > max_drawdown)
+        rows.append(
+            {
+                "id": row_id,
+                "label": label,
+                "research": research,
+                "research_breach": breach,
+                "breach_count": int(breach),
+            }
+        )
+    return rows
+
+
 def _pct(x: float | None) -> str:
     return "n/a" if x is None else f"{x + 0.0:.1%}"  # + 0.0 turns -0.0 into 0.0
 
@@ -293,6 +323,22 @@ def _cell_row(cand_id: str, cell: dict) -> str:
     )
 
 
+def _benchmark_section(rows: list[dict] | None) -> list[str]:
+    if not rows:
+        return []
+    return [
+        "## Benchmark (not a candidate; not counted in the trial count)",
+        "",
+        "| id | rule | CAGR | Sharpe | max drawdown | turnover/yr | breaches |",
+        "|---|---|---|---|---|---|---|",
+        *(_research_row(r) for r in rows),
+        "",
+        "Breaches: research-period drawdown vs the cap only (0/1). Stress cells for 80% QQQ "
+        "equal candidate A's `A[risk_on]` rows above.",
+        "",
+    ]
+
+
 def render_markdown(report: dict) -> str:
     """Deterministic markdown (no timestamp) so a re-run on the same data diffs."""
     rp, split = report["research_period"], report["capital_split"]
@@ -319,6 +365,7 @@ def render_markdown(report: dict) -> str:
         "|---|---|---|---|---|---|---|",
         *(_research_row(c) for c in report["candidates"]),
         "",
+        *_benchmark_section(report.get("benchmark")),
         "## Stress cells",
         "",
         "| id | portfolio | scenario | mode | loss | proxied to cash | flag |",
