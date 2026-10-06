@@ -4,9 +4,23 @@ Offline. Spec: docs/methodology/decision-helper.md."""
 from __future__ import annotations
 
 import pytest
+from decision_helpers import (
+    CANDIDATES,
+    CANDIDATES_SHA,
+    END,
+    GOOD,
+    load,
+    stress_cfg,
+    write,
+)
 
 from qrl.core_compare import Candidate
-from qrl.decision_config import Portfolio, held_tickers, portfolio_states
+from qrl.decision_config import (
+    Portfolio,
+    held_tickers,
+    load_decision_config,
+    portfolio_states,
+)
 
 A = Candidate("A", "trend", "core_trend", {"risk_on": "QQQ", "risk_off": "GLD", "lookback": 200})
 G = Candidate(
@@ -75,3 +89,99 @@ def test_decision_held_tickers_exclude_signal_only_tickers():
     )
     assert held_tickers([_one(A), _one(CASH)]) == {"QQQ", "GLD", "SHY"}
     assert held_tickers([_one(signal_only)]) == {"SPY", "IEF"}
+
+
+def test_decision_held_tickers_exclude_zero_weight_tickers():
+    zero = Candidate("Z", "zero weight", "core_mix", {"risk_on": {"SPY": 1.0, "GLD": 0.0}})
+    assert held_tickers([_one(zero)]) == {"SPY"}
+
+
+def test_decision_config_loads_good(tmp_path):
+    cfg = load(tmp_path)
+    assert [p.id for p in cfg.portfolios] == [*"ABCDEFG", "CASH", "G-EW", "AG", "G-CASH", "A-CASH"]
+    assert cfg.candidate_count == 7
+    assert cfg.candidates_sha256 == CANDIDATES_SHA
+    assert len(cfg.sha256) == 64
+    assert [w.name for w in cfg.windows] == ["dotcom_2000", "gfc_2008"]
+    assert [s.name for s in cfg.scenarios] == [
+        "treasury_dollar_crisis",
+        "trade_oil_shock",
+        "ai_megacap_crash",
+    ]
+    assert cfg.rates == [0.02, 0.033, 0.04, 0.05]
+    assert cfg.start_years == list(range(2005, 2015))
+    assert cfg.proxied_threshold == 0.25
+    by_id = {p.id: p for p in cfg.portfolios}
+    assert [(c.id, s) for c, s in by_id["A-CASH"].parts] == [("A", 0.5), ("CASH", 0.5)]
+    assert [(c.id, s) for c, s in by_id["G-CASH"].parts] == [("G", 0.5), ("CASH", 0.5)]
+
+
+def test_decision_config_refuses_candidates_sha_mismatch(tmp_path):
+    edited = tmp_path / "core_candidates.yaml"
+    edited.write_text(CANDIDATES.read_text() + "# edited\n")
+    with pytest.raises(ValueError, match="sha256 mismatch"):
+        load_decision_config(write(tmp_path, GOOD), edited, stress_cfg(), END)
+
+
+def test_decision_config_refuses_scenario_missing_a_held_fund(tmp_path):
+    with pytest.raises(ValueError, match="missing held fund"):
+        load(tmp_path, GOOD.replace("RSP: -0.22, ", ""))
+
+
+def test_decision_config_refuses_return_at_or_below_minus_one(tmp_path):
+    with pytest.raises(ValueError, match="above -1"):
+        load(tmp_path, GOOD.replace("QQQ: -0.45", "QQQ: -1.0"))
+
+
+def test_decision_config_refuses_window_past_data_end(tmp_path):
+    text = GOOD.replace("windows: [dotcom_2000, gfc_2008]", "windows: [dotcom_2000, covid_2020]")
+    with pytest.raises(ValueError, match="past the data end"):
+        load(tmp_path, text)
+
+
+def test_decision_config_refuses_unknown_window(tmp_path):
+    text = GOOD.replace("windows: [dotcom_2000, gfc_2008]", "windows: [dotcom_2000, nope]")
+    with pytest.raises(ValueError, match="not in stress.yaml"):
+        load(tmp_path, text)
+
+
+def test_decision_config_refuses_start_year_past_data_end(tmp_path):
+    with pytest.raises(ValueError, match="past the data end"):
+        load(tmp_path, GOOD.replace("2014]", "2014, 2019]"))
+
+
+def test_decision_config_refuses_blend_not_at_full_capital(tmp_path):
+    with pytest.raises(ValueError, match="not 100%"):
+        load(tmp_path, GOOD.replace("parts: {A: 0.5, G: 0.5}", "parts: {A: 0.5, G: 0.4}"))
+
+
+def test_decision_config_refuses_static_mix_not_at_full_capital(tmp_path):
+    with pytest.raises(ValueError, match="not 100%"):
+        load(tmp_path, GOOD.replace("mix: {SHY: 1.0}", "mix: {SHY: 0.9}"))
+
+
+def test_decision_config_refuses_unknown_blend_component(tmp_path):
+    text = GOOD.replace("parts: {G: 0.5, CASH: 0.5}", "parts: {G: 0.5, CASHX: 0.5}")
+    with pytest.raises(ValueError, match="unknown component"):
+        load(tmp_path, text)
+
+
+def test_decision_config_refuses_duplicate_portfolio_id(tmp_path):
+    with pytest.raises(ValueError, match="duplicate portfolio id"):
+        load(tmp_path, GOOD.replace("id: G-EW", "id: CASH"))
+
+
+def test_decision_config_refuses_duplicate_scenario_name(tmp_path):
+    text = GOOD.replace("name: trade_oil_shock", "name: treasury_dollar_crisis")
+    with pytest.raises(ValueError, match="duplicate scenario"):
+        load(tmp_path, text)
+
+
+def test_decision_config_refuses_missing_key(tmp_path):
+    with pytest.raises(ValueError, match="missing key"):
+        load(tmp_path, GOOD.replace("proxied_indicative_above: 0.25\n", ""))
+
+
+def test_decision_config_refuses_malformed_yaml(tmp_path):
+    with pytest.raises(ValueError, match="valid YAML"):
+        load(tmp_path, "version: 1\nstatic: [unclosed\n")
