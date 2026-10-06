@@ -318,6 +318,44 @@ def test_decision_portfolio_returns_cost_hits_switching_turnover(tmp_path):
     assert (1 + paid).prod() < (1 + free).prod()
 
 
+def test_decision_later_start_year_is_fresh_purchase_with_cost(tmp_path):
+    by_id = {p.id: p for p in load(tmp_path).portfolios}
+    data = _cut()
+    start = pd.Timestamp("2006-01-02")
+    r = portfolio_returns(by_id["CASH"], data, start, 5.0)
+    assert r.index[0] == start
+    assert r.index[-1] == END
+    o, c = data["open"]["SHY"], data["close"]["SHY"]
+    # bought fresh at the 2006 open: open-to-close return less 5 bps x turnover 1
+    assert r.iloc[0] == pytest.approx(c.loc[start] / o.loc[start] * (1 - 5.0 / 10_000) - 1)
+    free = portfolio_returns(by_id["CASH"], data, start, 0.0)
+    assert free.iloc[0] == pytest.approx(c.loc[start] / o.loc[start] - 1)
+    assert free.iloc[0] != pytest.approx(r.iloc[0], abs=1e-6)
+
+
+def test_decision_withdrawal_rows_later_start_uses_its_own_deflator(tmp_path, monkeypatch):
+    # Zero returns, CPI +0.2% a month (q = 1.002**12 a year). Start 2008: 11
+    # years of 12 withdrawals, year k at 0.04 x q**k, so end = 1 - 0.04 x
+    # sum(q**k, k=0..10). The CPI usable on the last day (Nov 2018) over the
+    # one usable on the first (Nov 2007) is 1.002**132 = q**11, not the 2005
+    # deflator (q**14, Nov 2004 to Nov 2018).
+    cfg = load(tmp_path)
+    one = replace(cfg, portfolios=cfg.portfolios[:1], rates=[0.04], start_years=[2005, 2008])
+
+    def fake(p, data, start, cost_bps):
+        return pd.Series(0.0, index=pd.bdate_range(start, END))
+
+    monkeypatch.setattr(decision, "portfolio_returns", fake)
+    (row,) = withdrawal_rows(one, prices(), cpi(monthly_growth=0.002), criteria())
+    q = 1.002**12
+    end_2008 = 1 - 0.04 * sum(q**k for k in range(11))
+    end_2005 = 1 - 0.04 * sum(q**k for k in range(14))
+    assert row["per_year"][2008]["end_nominal"] == pytest.approx(end_2008)
+    assert row["per_year"][2008]["end_real"] == pytest.approx(end_2008 / q**11)
+    assert row["per_year"][2008]["end_real"] != pytest.approx(end_2008 / q**14, rel=1e-3)
+    assert row["per_year"][2005]["end_real"] == pytest.approx(end_2005 / q**14)
+
+
 def test_decision_refuses_held_fund_unpriced_at_start(tmp_path):
     by_id = {p.id: p for p in load(tmp_path).portfolios}
     data = _cut()
