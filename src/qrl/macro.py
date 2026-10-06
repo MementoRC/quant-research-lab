@@ -1,4 +1,4 @@
-"""FRED macro series (yield-curve spread, credit spread, jobless claims),
+"""FRED macro series (yield-curve spread, credit spread, jobless claims, CPI),
 fetched from FRED's free keyless CSV endpoint and lagged to the date each
 observation actually becomes available, so a backtest can never see a value
 before it was published.
@@ -66,8 +66,11 @@ def fetch_series(series_id: str, refresh: bool = False, cache_dir: Path = CACHE_
 def lag_to_availability(series: pd.Series, lag: dict) -> pd.Series:
     """Reindex `series` from observation date to the date it becomes known.
 
-    `lag` is a mapping like `{"unit": "business_days"|"calendar_days", "value": N}`,
-    matching the `lag:` block of a series in `config/macro.yaml`.
+    `lag` is a mapping like `{"unit": "business_days"|"calendar_days"|"month_ends",
+    "value": N}`, matching the `lag:` block of a series in `config/macro.yaml`.
+    `month_ends` rolls the observation date forward to the N-th month end: a
+    monthly series dated the 1st of month M with N=2 becomes usable on the
+    last day of month M+1.
     """
     unit, value = lag["unit"], lag["value"]
     out = series.copy()
@@ -75,6 +78,8 @@ def lag_to_availability(series: pd.Series, lag: dict) -> pd.Series:
         out.index = series.index + pd.tseries.offsets.BDay(value)
     elif unit == "calendar_days":
         out.index = series.index + pd.Timedelta(days=value)
+    elif unit == "month_ends":
+        out.index = series.index + pd.tseries.offsets.MonthEnd(value)
     else:
         raise ValueError(f"Unknown lag unit: {unit!r}")
     # A few real FRED series (e.g. an ICE credit-spread index) occasionally

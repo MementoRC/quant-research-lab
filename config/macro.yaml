@@ -53,3 +53,15 @@ series:
       # close (Saturday + 5) would already be safe since 8:30 ET is well
       # before that close, but the extra day guards against holiday-shifted
       # release calendars.
+
+  CPIAUCNSA:
+    description: Consumer Price Index for All Urban Consumers, all items, not seasonally adjusted (index 1982-84=100)
+    frequency: monthly
+    lag:
+      unit: month_ends
+      value: 2
+      # FRED dates month M's index on the 1st of M; BLS publishes it mid-month
+      # M+1. Usable from the last day of month M+1 = observation date rolled
+      # forward to the 2nd month end (2018-01-01 -> 2018-02-28). Not seasonally
+      # adjusted, so it is not revised: the downloaded values are the
+      # first-release values. Used by the decision helper (withdrawal raises).
