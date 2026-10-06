@@ -163,7 +163,7 @@ def test_exactly_one_unseal_holdout_true_call_site_in_src():
 def test_new_milestone_2_6_files_do_not_spell_out_the_literal_elsewhere():
     # The ONE real call site inside qrl.holdout.unseal, and nowhere else --
     # no docstring or comment in these new files spells out the literal
-    # keyword argument (qrl.periods is pre-existing, locked by AGENTS.md,
+    # keyword argument (qrl.periods is pre-existing, locked by the research rules,
     # and already mentions it once in its own sealed-holdout error message;
     # this test does not touch that file).
     holdout_src = (ROOT / "src" / "qrl" / "holdout.py").read_text()

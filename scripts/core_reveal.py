@@ -1,6 +1,6 @@
 """Core shortlist reveal: the owner's ONE look at the covid_2020 and
 inflation_2022 stress windows for the cores in config/core_shortlist.yaml
-(spec: docs/superpowers/specs/2026-10-04-core-reveal-design.md). EXPLORATION
+(spec: docs/methodology/core-reveal.md). EXPLORATION
 ONLY: it selects nothing and changes no config. The look is recorded in the
 ledger BEFORE anything is computed; any existing core_reveal event refuses a
 re-run unless --force is given with a non-empty --reason.

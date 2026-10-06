@@ -1,6 +1,6 @@
 """Tests for the core_mix strategy family (static or trend-switched fixed mixes).
 Offline; small hand-built frames and synthetic prices only.
-Spec: docs/superpowers/specs/2026-10-03-core-compare-design.md.
+Spec: docs/methodology/core-comparison.md.
 """
 
 from __future__ import annotations

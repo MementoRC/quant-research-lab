@@ -4,7 +4,7 @@ low_investment) and the `qrl.factor_data` provider behind their extra `fields`.
 The generic look-ahead loop in tests/test_strategies.py only builds close frames
 and only walks `REGISTRY`; the factor families sit in `SLEEVE_REGISTRY` and need
 fundamentals frames, so their look-ahead checks live here. They read the
-families' `EXAMPLE_PARAMS` from that file (so the registration rule of AGENTS.md
+families' `EXAMPLE_PARAMS` from that file (so the strategy registration rule
 is still enforced) and reuse `qrl.checks.assert_causal` with random fixed
 fundamentals/membership frames and a tampered close.
 """

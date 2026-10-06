@@ -1,7 +1,7 @@
 """Stress scenarios: a DIAGNOSTIC of how much the current portfolio loses
 under historical shock windows and pre-registered hypothetical shocks,
 against the profile's max-drawdown cap. It forecasts nothing, tunes nothing
-and selects nothing (spec: docs/superpowers/specs/2026-10-03-stress-scenarios-design.md).
+and selects nothing (spec: docs/methodology/stress-scenarios.md).
 
 Pure functions only: callers inject data and configs. Never slices the
 holdout: windows ending on/after the holdout start are refused at load, and

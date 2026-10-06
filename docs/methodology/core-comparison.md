@@ -14,7 +14,7 @@ It changes nothing in `config/portfolio.yaml`, `config/combined.yaml`,
 `config/profile.yaml` or `config/factor.yaml`, and does not touch
 `src/qrl/engine.py`, `metrics.py`, `periods.py`, `checks.py` or any existing
 test. (It adds one entry to `EXAMPLE_PARAMS` in `tests/test_strategies.py`,
-which AGENTS.md requires for every new strategy; adding an entry does not
+which the research rules require for every new strategy; adding an entry does not
 weaken a test. It also updates the predecessor's new `tests/test_stress.py`
 tests for the new required `bonds` class, without weakening them.)
 
@@ -147,15 +147,15 @@ unavailable cells.
 
 - Printed table (the markdown below).
 - `research/core_compare.md`: deterministic (no timestamp) so a re-run on the
-  same data is diffable. The owner decides to keep it; the plan's final task
-  commits the first generated version.
+  same data is diffable. The owner decides to keep it; the first generated
+  version is committed.
 - `reports/core_compare.json` (gitignored): generated_at, candidates file
   sha256, trial count, stress.yaml sha256, research period, cap, capital
   split, excluded windows, and per candidate: params, research metrics,
   breach counts, every cell.
 
 Every candidate tested appears in the output, with the candidates-file hash
-and the trial count (AGENTS.md: record every variant).
+and the trial count (research rule: record every variant).
 
 ## Guardrails
 

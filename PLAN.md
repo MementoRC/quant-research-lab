@@ -12,7 +12,7 @@ Last updated: September 2026, Phase 3 milestone 3.2.
 ## 1. Origin and goal
 
 The project is inspired by a YouTube walkthrough of using an agentic AI model (the
-video used OpenAI's Codex app) to build a systematic trading research process. The
+video used an AI coding agent app) to build a systematic trading research process. The
 video's central argument, which this project adopts:
 
 - The AI does not predict prices or make trading decisions.
@@ -23,7 +23,7 @@ video's central argument, which this project adopts:
   and replaces them, not any single strategy.
 
 The goal is a personal, tool-agnostic version of that process: runnable locally with
-any coding agent (Claude Code, Codex, or by hand), with results published to a static
+any coding agent (or by hand), with results published to a static
 dashboard on GitHub Pages.
 
 This is a research and learning tool, not a source of financial advice.
@@ -104,7 +104,7 @@ Treat its numbers as unverified.
 | Where Python runs | GitHub Actions for daily builds; the local machine for research | Actions has a 6-hour job limit and Yahoo rate-limits its servers, so long searches run locally. |
 | Data flow | Python writes `site/data/results.json`; the dashboard only reads it | Keeps the site static and simple. |
 | Engine style | Vectorized, daily bars, target weights per day | Fast enough for large searches; easy to test for timing errors. |
-| AI agent | Tool-agnostic; rules live in `AGENTS.md` | Works with Claude Code (via `CLAUDE.md` importing `AGENTS.md`), Codex, or manual work. |
+| AI agent | Tool-agnostic; the research rules are fixed in the repository and enforced in code and tests | Works with any tooling or by hand. |
 | Guardrails | Enforced in code and tests, not just instructions | An agent under pressure to find winners will bend written rules. |
 | Privacy | Nothing account-specific is ever published | Pages sites are public even from private repos. |
 
@@ -254,7 +254,7 @@ The loop runs locally, overnight, with the agent. It does not run in Actions.
 the thresholds above (`min_deflated_sharpe`, `neighborhood.fraction_required`,
 `max_correlation`, `top_n_to_validate`, `rank_by`) live in a new
 `config/validation.yaml` rather than being added to `config/criteria.yaml`.
-`criteria.yaml` is locked (AGENTS.md) and its hash is checked on every
+`criteria.yaml` is locked (research rules) and its hash is checked on every
 `Ledger.record_test` call; editing it would change the hash and invalidate
 any research run already in flight. `validation.yaml` is hashed the same way
 (`qrl.validation.load_validation_config`), and every `validation_events` row
@@ -378,7 +378,7 @@ for "engine support for leverage (weights summing above 1)" is therefore
 NOT implemented, deliberately. `src/qrl/engine.py:63-64` still rejects any
 weight row summing above 1.0, and
 `tests/test_engine.py::test_rejects_leverage_and_shorts` is unchanged -- so
-AGENTS.md's lock on `engine.py` was never contested. Enabling leverage
+The research-rules lock on `engine.py` was never contested. Enabling leverage
 later is a config decision plus an engine change, in that order.
 
 The risk fields live in a new `risk:` block in `config/profile.yaml`, NOT
@@ -590,16 +590,3 @@ These need answers before or during Phase 2:
 6. **News layer:** include it as a paper-only experiment, or skip it.
    **ANSWERED (2026-09-24):** skipped. It cannot be honestly backtested
    (section 3) and nothing else in Phase 3 depends on it.
-
----
-
-## 9. Starting Phase 2 with a coding agent
-
-Suggested opening prompt:
-
-> Read PLAN.md and AGENTS.md. Phase 1 is complete. First, run `pytest -q` and
-> `python scripts/build_site.py` on real data and fix any data problems without
-> changing the engine or criteria. Then start Phase 2, milestone 2.0. Work one
-> milestone at a time; after each, run the tests, commit, and stop to summarize what
-> changed and any decisions you need from me. Ask me the open decisions in section 8
-> when they become relevant.

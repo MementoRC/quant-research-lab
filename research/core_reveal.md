@@ -2,7 +2,7 @@
 
 > VALIDATION-SEEN: these cells use validation-period data (2020, 2022). One look, recorded in the ledger (event id 1).
 
-Diagnostic of the shortlisted cores; it selects nothing. Spec: docs/superpowers/specs/2026-10-04-core-reveal-design.md.
+Diagnostic of the shortlisted cores; it selects nothing. Spec: docs/methodology/core-reveal.md.
 
 - shortlist sha256: `2176e90a095a11ed555d4879472bd9f9a43f12d9897d0df849cfc2ef90f53cfa`
 - candidates file sha256: `1a84847ed4ae59e81627c420b88f7736357f0bdc0bcb654a945c5d2ad88107e3`

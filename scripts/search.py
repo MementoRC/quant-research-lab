@@ -1,7 +1,7 @@
 """Unattended search-loop CLI (milestone 2.4): seed a run, test batches of
 candidates against the research period only, and summarize progress for the
-agent driving the loop between batches. See AGENTS.md's "Unattended search
-protocol" for the exact command sequence.
+agent driving the loop between batches. Per batch: `search summary`, then
+`search batch`, then `search note`.
 
 Usage:
     python scripts/search.py seed --lane A --synthetic

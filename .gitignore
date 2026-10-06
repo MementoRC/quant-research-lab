@@ -10,6 +10,10 @@ config/sec.local.yaml
 .pytest_cache/
 .claude/
 .mcp.json
+# local agent/tooling files (not part of the project)
+CLAUDE.md
+AGENTS.md
+docs/superpowers/
 .pixi/
 .coverage
 .ruff_cache/
@@ -17,7 +21,7 @@ config/sec.local.yaml
 logs/
 reports/
 # The ledger itself IS tracked: it records every variant ever tested, and the
-# trial count is what makes a candidate's deflated Sharpe auditable (AGENTS.md).
+# trial count is what makes a candidate's deflated Sharpe auditable.
 # A re-run cannot reconstruct it -- different candidates, different history.
 # Its -wal/-shm journals stay ignored; they are transient, not the record.
 research/ledger.sqlite-wal

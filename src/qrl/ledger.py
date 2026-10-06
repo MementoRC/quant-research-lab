@@ -305,7 +305,7 @@ class Ledger:
         """Additive migration: a ledger created before milestone 2.5 has a
         `validation_events` table without `validation_config_hash`. Add it as
         a nullable column rather than dropping or recreating the table (see
-        AGENTS.md and this module's docstring -- no destructive migration)."""
+        the research rules and this module's docstring -- no destructive migration)."""
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(validation_events)")}
         if "validation_config_hash" not in columns:
             self._conn.execute(

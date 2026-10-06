@@ -21,7 +21,7 @@ operator's attention immediately, not at the next screen refresh.
 
 Every function here is pure: pandas frames and plain callables/arguments in,
 dataclasses out, no file or network IO anywhere in this module. That is
-deliberate, not an oversight (see AGENTS.md's milestone-3.1 postmortem this
+deliberate, not an oversight (see the milestone-3.1 postmortem this
 module is a direct response to): logic that lives in a script instead of a
 library is invisible to `pytest --cov=qrl`, so `run_daily_health` takes its
 inputs as callables (`load_close`, `build_weights`, `combine`) precisely so

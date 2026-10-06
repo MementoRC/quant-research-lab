@@ -1,6 +1,6 @@
 """Tests for the core-comparison exploration (qrl.core_compare,
 scripts/core_compare.py). Offline; synthetic prices only.
-Spec: docs/superpowers/specs/2026-10-03-core-compare-design.md.
+Spec: docs/methodology/core-comparison.md.
 """
 
 from __future__ import annotations

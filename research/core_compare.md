@@ -1,6 +1,6 @@
 # Core comparison (exploration only)
 
-Diagnostic of the pre-registered cores; it selects nothing. Spec: docs/superpowers/specs/2026-10-03-core-compare-design.md.
+Diagnostic of the pre-registered cores; it selects nothing. Spec: docs/methodology/core-comparison.md.
 
 - candidates file sha256: `1a84847ed4ae59e81627c420b88f7736357f0bdc0bcb654a945c5d2ad88107e3`
 - trial count: 7

@@ -1,5 +1,5 @@
 """Stress-scenario DIAGNOSTIC (spec:
-docs/superpowers/specs/2026-10-03-stress-scenarios-design.md). Builds the
+docs/methodology/stress-scenarios.md). Builds the
 chosen portfolio (config/portfolio.yaml) and core + each paper-track
 candidate (config/paper.yaml), runs config/stress.yaml's scenarios through
 `qrl.stress`, prints a table and writes reports/stress.json (gitignored).
