@@ -87,15 +87,21 @@ Shared definitions:
   when reported). Finance/operating leases are excluded (inconsistent tagging).
   Amended run 5: further fallbacks (a)-(d), including convertible-only
   filers (d, added after an audit found DASH/PANW misread as no-debt), and an
-  untagged no-debt rule, see Amendments 2026-10-05 (run 5).
-- Cash = `CashAndCashEquivalentsAtCarryingValue` + `ShortTermInvestments` (or
-  `MarketableSecuritiesCurrent`) when tagged, else cash alone.
+  untagged no-debt rule, see Amendments 2026-10-05 (run 5). Amended run 6: the
+  split form also accepts `LongTermDebtNoncurrent` + `DebtCurrent`, see
+  Amendments 2026-10-06 (run 6).
+- Cash = `CashAndCashEquivalentsAtCarryingValue` (amended run 6: else
+  `CashAndCashEquivalentsFairValueDisclosure`) + `ShortTermInvestments`
+  (or `MarketableSecuritiesCurrent`) when tagged, else cash alone.
 - Interest expense = `InterestExpense`; else `InterestExpenseDebt`; else
   `InterestAndDebtExpense`; else `InterestExpenseNonoperating` (amended run 5).
 - EBIT = `OperatingIncomeLoss`; else
   `IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest`
+  (amended run 6: else
+  `IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments`)
   + interest expense.
-- FCF = `NetCashProvidedByUsedInOperatingActivities` −
+- FCF = `NetCashProvidedByUsedInOperatingActivities` (amended run 6: else
+  `NetCashProvidedByUsedInOperatingActivitiesContinuingOperations`) −
   `PaymentsToAcquirePropertyPlantAndEquipment` (else
   `PaymentsToAcquireProductiveAssets`).
 
@@ -120,7 +126,8 @@ Piotroski signals (current year vs prior year): ROA > 0 (`NetIncomeLoss` /
 long-term debt / average assets down; current ratio up; shares not increased
 (`WeightedAverageNumberOfSharesOutstandingBasic`); gross margin up (gross
 profit from `GrossProfit`, else revenue − cost via `fundamentals.REVENUE_CONCEPTS`
-and `COST_CONCEPTS`); asset turnover (revenue / assets) up. Any signal that
+(amended run 6: plus `RevenueFromContractWithCustomerIncludingAssessedTax`,
+fragility only) and `COST_CONCEPTS`); asset turnover (revenue / assets) up. Any signal that
 cannot be computed makes the whole score unavailable; a partial score is never
 reported.
 
@@ -373,3 +380,30 @@ trailing-four-quarter measures, any PLAN.md amendment.
   only debt is convertible notes under tags that were not listed.
 - Paid-cash and "costs incurred" interest tags are different concepts and are
   not used.
+
+### 2026-10-06 — run 6 (same-concept fallbacks)
+
+Owner-approved after run 5. Each tag is appended at LOWER priority than the
+existing ones (a new tag is ignored when an old one has a value). No threshold,
+K, N or SIC change.
+
+- **Cash.** After `CashAndCashEquivalentsAtCarryingValue`: `CashAndCashEquivalentsFairValueDisclosure`,
+  Short-term investments logic unchanged. `Cash` was tried and dropped before the
+  run-6 report: in the audit it was a sub-line (TGT 250M), not cash and equivalents.
+- **EBIT.** The pretax fallback also tries
+  `IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments`
+  after the existing pretax tag; still + interest expense, interest still required.
+- **Operating cash flow.** After `NetCashProvidedByUsedInOperatingActivities`:
+  `NetCashProvidedByUsedInOperatingActivitiesContinuingOperations`. Fiscal-year
+  anchors still use the original tag only.
+- **Debt, primary chain split form.** `LongTermDebtNoncurrent` + the first of
+  `LongTermDebtCurrent` (+ `ShortTermBorrowings`), else `DebtCurrent` (no
+  `ShortTermBorrowings`: `DebtCurrent` already includes it). A noncurrent part
+  with no current part is still unavailable.
+- **Revenue for gross profit (fragility only).**
+  `RevenueFromContractWithCustomerIncludingAssessedTax` after the existing
+  revenue concepts; the shared `fundamentals.REVENUE_CONCEPTS` is unchanged.
+- **Rejected.** Proxies were considered and rejected by the owner: restricted
+  cash tags, interest paid (`InterestPaid*`), `CostsAndExpenses` /
+  `OperatingExpenses` as cost of revenue, oil and gas capex components, and
+  zero-imputation of a missing current debt.

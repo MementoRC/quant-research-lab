@@ -58,7 +58,12 @@ MATURITY_LABELS = dict(
 # figures only under a later filing that repeats them (proxy, 10-Q prior-year column).
 ANNUAL_FORMS = frozenset({"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"})
 DEBT_TOTAL = ("LongTermDebt",)
-CASH = ("CashAndCashEquivalentsAtCarryingValue",)
+# Run 6 amendment (2026-10-06): same-concept fallbacks appended, lower priority than the old tags
+# (cash, pretax income, operating cash flow, revenue, noncurrent + DebtCurrent debt). No proxies.
+CASH = (
+    "CashAndCashEquivalentsAtCarryingValue",
+    "CashAndCashEquivalentsFairValueDisclosure",
+)
 SHORT_INVESTMENTS = ("ShortTermInvestments", "MarketableSecuritiesCurrent")
 # Run 5 amendment (2026-10-05): InterestExpenseNonoperating appended; the debt fallbacks and the
 # untagged no-debt rule below. Paid-cash and "costs incurred" tags are different concepts: not used.
@@ -102,10 +107,17 @@ INTEREST = (
 )
 PRETAX = (
     "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+    "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
 )
 CAPEX = ("PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets")
-OCF = ("NetCashProvidedByUsedInOperatingActivities",)
-ANCHORS = (*OCF, "NetIncomeLoss", "OperatingIncomeLoss")
+OCF = (
+    "NetCashProvidedByUsedInOperatingActivities",
+    "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+)
+# Fiscal-year anchors stay on the original tag: the run 6 fallback does not decide fiscal years.
+ANCHORS = (OCF[0], "NetIncomeLoss", "OperatingIncomeLoss")
+# Gross-profit revenue (fragility only; `fd.REVENUE_CONCEPTS` is shared with pit_universe/factor).
+REVENUE = (*fd.REVENUE_CONCEPTS, "RevenueFromContractWithCustomerIncludingAssessedTax")
 
 # Balance-sheet items: a point in time at the fiscal year end.
 INSTANT_CONCEPTS = frozenset(
@@ -132,8 +144,9 @@ FRAGILITY_CONCEPTS: dict[str, Iterable[str]] = {
                 *INTEREST,
                 *PRETAX,
                 *CAPEX,
+                *OCF,
                 *ANCHORS,
-                *fd.REVENUE_CONCEPTS,
+                *REVENUE,
                 *pit_universe.COST_CONCEPTS,
                 "GrossProfit",
                 "WeightedAverageNumberOfSharesOutstandingBasic",
@@ -373,14 +386,20 @@ def _fmt_vs(value: float, threshold: float, dp: int) -> tuple[str, str]:
 
 
 def _debt_primary(v: _View, e: pd.Timestamp) -> float | None:
+    """Total (+ short-term borrowings), else noncurrent + LongTermDebtCurrent (+ short-term
+    borrowings), else noncurrent + DebtCurrent (run 6; DebtCurrent already includes short-term
+    borrowings). A noncurrent part with no current part gives None."""
     total = v.get(DEBT_TOTAL, e)
-    if total is None:
-        noncurrent = v.get(("LongTermDebtNoncurrent",), e)
-        current = v.get(("LongTermDebtCurrent",), e)
-        if noncurrent is None or current is None:
-            return None
-        total = noncurrent + current
-    return total + (v.get(("ShortTermBorrowings",), e) or 0.0)
+    if total is not None:
+        return total + (v.get(("ShortTermBorrowings",), e) or 0.0)
+    noncurrent = v.get(("LongTermDebtNoncurrent",), e)
+    if noncurrent is None:
+        return None
+    current = v.get(("LongTermDebtCurrent",), e)
+    if current is not None:
+        return noncurrent + current + (v.get(("ShortTermBorrowings",), e) or 0.0)
+    debt_current = v.get(("DebtCurrent",), e)
+    return None if debt_current is None else noncurrent + debt_current
 
 
 def _debt_fallback(v: _View, e: pd.Timestamp) -> float | None:
@@ -600,7 +619,7 @@ def _measure_altman(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
 
 
 def _pio_year(v: _View, e: pd.Timestamp | None) -> dict[str, float | None]:
-    revenue = v.get(fd.REVENUE_CONCEPTS, e)
+    revenue = v.get(REVENUE, e)
     gross = v.get(("GrossProfit",), e)
     if gross is None:
         cost = v.get(pit_universe.COST_CONCEPTS, e)

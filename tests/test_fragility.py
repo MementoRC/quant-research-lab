@@ -1244,3 +1244,104 @@ def test_convertible_current_part_alone_is_not_completed(cfg):
     res = run(_untagged(latest={"ConvertibleDebtCurrent": 20}), cfg)
     assert res.measures["net_debt_fcf"].display == "n/a (missing debt)"
     assert res.note == ""
+
+
+# --------------------------------------------------------------------------- run 6 amendment
+
+CASH_TAG = "CashAndCashEquivalentsAtCarryingValue"
+CASH_FV = "CashAndCashEquivalentsFairValueDisclosure"
+PRETAX_OLD = (
+    "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"
+)
+PRETAX_NEW = "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"
+OCF_TAG = "NetCashProvidedByUsedInOperatingActivities"
+OCF_CONT = OCF_TAG + "ContinuingOperations"
+REV_NEW = "RevenueFromContractWithCustomerIncludingAssessedTax"
+
+
+def test_run6_cash_fallbacks_and_priority(cfg):
+    fv = make_facts(drop=(CASH_TAG,), latest={CASH_FV: 100})
+    assert _nd(fv, cfg).value == pytest.approx(1.5)
+    # the original tag wins over the new one
+    old = make_facts(latest={CASH_FV: 500})
+    assert _nd(old, cfg).value == pytest.approx(1.5)
+    # short-term investments still add to the fallback cash
+    inv = make_facts(drop=(CASH_TAG,), latest={CASH_FV: 70, "ShortTermInvestments": 30})
+    assert _nd(inv, cfg).value == pytest.approx(1.5)
+
+
+def test_run6_bare_cash_tag_is_not_a_fallback(cfg):
+    f = make_facts(drop=(CASH_TAG,), latest={"Cash": 100})
+    display = _nd(f, cfg).display
+    assert "missing" in display
+    assert "cash" in display
+
+
+def test_run6_ebit_pretax_fallback_and_priority(cfg):
+    f = make_facts(drop=("OperatingIncomeLoss",), latest={PRETAX_NEW: 85})
+    assert run(f, cfg).measures["coverage"].value == pytest.approx(100 / 15)
+    # the existing pretax tag wins over the new one; OperatingIncomeLoss wins over both
+    f = make_facts(drop=("OperatingIncomeLoss",), latest={PRETAX_OLD: 85, PRETAX_NEW: 999})
+    assert run(f, cfg).measures["coverage"].value == pytest.approx(100 / 15)
+    f = make_facts(latest={PRETAX_NEW: 999})
+    assert run(f, cfg).measures["coverage"].value == pytest.approx(100 / 15)
+    # interest is still required
+    f = make_facts(drop=("OperatingIncomeLoss", "InterestExpense"), latest={PRETAX_NEW: 85})
+    assert "missing EBIT" in run(f, cfg).measures["coverage"].display
+
+
+def test_run6_ocf_fallback_and_priority(cfg):
+    f = make_facts(drop=(OCF_TAG,), latest={OCF_CONT: 110})
+    assert _nd(f, cfg).value == pytest.approx(1.5)  # FCF 80
+    f = make_facts(latest={OCF_CONT: 999})
+    assert _nd(f, cfg).value == pytest.approx(1.5)
+
+
+def test_run6_ocf_fallback_does_not_decide_fiscal_years(cfg):
+    only = make_facts(drop=(OCF_TAG, "NetIncomeLoss", "OperatingIncomeLoss"), latest={OCF_CONT: 1})
+    assert run(only, cfg).cls == fr.INSUFFICIENT
+
+
+@pytest.mark.parametrize(
+    ("latest", "debt"),
+    [
+        ({"LongTermDebtNoncurrent": 200, "DebtCurrent": 30, "ShortTermBorrowings": 10}, 230),
+        ({"LongTermDebtNoncurrent": 200, "DebtCurrent": 30}, 230),
+        # LongTermDebtCurrent comes first and then adds ShortTermBorrowings
+        (
+            {
+                "LongTermDebtNoncurrent": 200,
+                "LongTermDebtCurrent": 20,
+                "DebtCurrent": 99,
+                "ShortTermBorrowings": 10,
+            },
+            230,
+        ),
+    ],
+)
+def test_run6_primary_noncurrent_plus_debt_current(cfg, latest, debt):
+    # DebtCurrent already includes ShortTermBorrowings: never double counted
+    f = make_facts(drop=("LongTermDebt",), latest=latest)
+    assert fr._debt_primary(fr._View(f, "AAA", ASOF), pd.Timestamp("2024-12-31")) == debt
+    assert _nd(f, cfg).value == pytest.approx((debt - 100) / 80)
+
+
+def test_run6_noncurrent_without_current_part_is_still_unavailable(cfg):
+    f = make_facts(drop=("LongTermDebt",), latest={"LongTermDebtNoncurrent": 220})
+    assert fr._debt_primary(fr._View(f, "AAA", ASOF), pd.Timestamp("2024-12-31")) is None
+    assert _nd(f, cfg).status == "n/a"
+
+
+def test_run6_revenue_fallback_for_gross_profit_and_priority():
+    end = pd.Timestamp("2024-12-31")
+    only = make_facts(drop=("GrossProfit", "Revenues"), latest={REV_NEW: 580, "CostOfRevenue": 300})
+    assert fr._pio_year(fr._View(only, "AAA", ASOF), end)["gross profit"] == 280
+    both = make_facts(drop=("GrossProfit",), latest={REV_NEW: 999, "CostOfRevenue": 300})
+    year = fr._pio_year(fr._View(both, "AAA", ASOF), end)
+    assert year["revenue"] == 580
+    assert year["gross profit"] == 280
+
+
+def test_run6_revenue_constant_shared_with_other_modules_is_unchanged():
+    assert REV_NEW not in fd.REVENUE_CONCEPTS
+    assert REV_NEW in fr.REVENUE
