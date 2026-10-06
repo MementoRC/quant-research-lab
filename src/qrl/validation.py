@@ -1,5 +1,5 @@
-"""Milestone 2.5: validate research survivors honestly (PLAN.md section 2.5,
-and section 3's "Thousands of candidates guarantee lucky winners" /
+"""Milestone 2.5: validate research survivors honestly (milestone 2.5,
+and its "Thousands of candidates guarantee lucky winners" /
 "The holdout was contaminated").
 
 Four checks, applied to top research survivors in rank order:
@@ -21,8 +21,8 @@ Four checks, applied to top research survivors in rank order:
   returns correlate too highly with an already-accepted, stronger survivor.
 
 `config/validation.yaml` holds these thresholds in a file separate from the
-locked `config/criteria.yaml` -- see that file's header comment and PLAN.md
-2.5 for why. `load_validation_config` hashes it exactly like
+locked `config/criteria.yaml` -- see that file's header comment and
+milestone 2.5 for why. `load_validation_config` hashes it exactly like
 `qrl.criteria.load_criteria` hashes criteria.yaml.
 
 No dependency on scipy (not in this project's dependencies): the normal CDF
@@ -210,7 +210,7 @@ def deflated_sharpe_ratio(
       normal = 3) kurtosis of that same daily return series.
     - `trial_srs` should have one entry per test in the run (see
       `Ledger.trial_sharpes`), so `len(trial_srs)` is the multiple-testing
-      trial count N PLAN.md 2.3-2.5 requires.
+      trial count N milestones 2.3-2.5 require.
     """
     daily_sr = annualized_to_daily_sharpe(observed_sr)
     daily_trials = [annualized_to_daily_sharpe(sr) for sr in trial_srs]
@@ -374,7 +374,7 @@ def validate_survivors(
     stopped at, in survivor rank order.
 
     Combined-rule runs pass `combined_cfg`/`combined_hash`
-    (`qrl.combined.load_combined_config`; PLAN.md 2.5 amendment
+    (`qrl.combined.load_combined_config`; milestone 2.5 amendment
     2026-10-01). Then survivors are ranked by `combined_cfg["rank_by"]`,
     neighbours and the validation-period evaluation are graded by the
     combined rule (via `evaluate_candidate(..., combined_cfg=...)`), and the

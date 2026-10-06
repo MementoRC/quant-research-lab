@@ -1,4 +1,4 @@
-"""Tests for milestone 2.7: qrl.portfolio (PLAN.md section 2.7).
+"""Tests for milestone 2.7: qrl.portfolio (milestone 2.7).
 
 Covers: capital_split is respected, the combined portfolio stays long-only
 and sums to at most 1, sleeve members are equal-weighted within the

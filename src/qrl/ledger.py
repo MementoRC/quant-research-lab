@@ -2,7 +2,7 @@
 
 The ledger exists so a lucky winner can be told apart from a real one: every
 variant tried, including failures, is recorded, and the total attempt count
-feeds the deflated Sharpe check in a later milestone (see PLAN.md 2.3-2.5).
+feeds the deflated Sharpe check in a later milestone (milestones 2.3-2.5).
 
 Storage is local and gitignored (`research/ledger.sqlite`); only the small,
 deterministic `research/top_candidates.csv` export (see `scripts/export_ledger.py`)
@@ -21,13 +21,13 @@ Guardrails enforced here, not just documented:
 Milestone 2.5 addition: `validation_events.validation_config_hash` records
 the hash of `config/validation.yaml` a validation ran under (see
 `qrl.validation`, a new file kept separate from the locked criteria.yaml so
-its own thresholds can evolve without invalidating in-flight runs; PLAN.md
-2.5). Added as a nullable column via an additive migration in `_init_schema`
+its own thresholds can evolve without invalidating in-flight runs;
+milestone 2.5). Added as a nullable column via an additive migration in `_init_schema`
 so existing ledgers are never dropped or recreated. `trial_sharpes` returns
 one Sharpe per test in a run, the trial distribution the deflated Sharpe
 ratio needs.
 
-Milestone 2.6 additions (PLAN.md 2.6, see `qrl.walkforward` and
+Milestone 2.6 additions (see `qrl.walkforward` and
 `qrl.holdout`):
 - `meta_tests`: every walk-forward meta-setting combination tried by
   `qrl.walkforward.tune_meta`, logged unconditionally (passing or not --
@@ -52,7 +52,7 @@ raises if a later call disagrees with what a run started with, but returns
 False (not an error) for a run seeded before this existed -- an unverifiable
 legacy run is flagged, not blocked outright.
 
-Combined pass rule addition (PLAN.md 2.5, amendment 2026-10-01; see
+Combined pass rule addition (milestone 2.5, amendment 2026-10-01; see
 `qrl.combined`): `runs.pass_rule` and `runs.combined_config_hash`, both
 additive nullable columns. NULL `pass_rule` means 'standalone', so runs 1-3
 keep their rule. A combined run stores `config/combined.yaml`'s bound hash at
@@ -331,7 +331,7 @@ class Ledger:
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(runs)")}
         if "data_source" not in columns:
             self._conn.execute("ALTER TABLE runs ADD COLUMN data_source TEXT")
-        # Combined pass rule (PLAN.md 2.5 amendment 2026-10-01): both nullable,
+        # Combined pass rule (milestone 2.5 amendment 2026-10-01): both nullable,
         # so every pre-existing run keeps NULL, which `pass_rule` reads as
         # 'standalone' -- runs 1-3 keep their rule and verdicts untouched.
         if "pass_rule" not in columns:
@@ -553,7 +553,7 @@ class Ledger:
 
     def record_meta_test(self, run_id: int, meta: dict, window: str, metrics: dict) -> int:
         """Log one meta-setting combination tried by `qrl.walkforward.tune_meta`
-        (PLAN.md 2.6: every meta-setting tried must be recorded, not just the
+        (milestone 2.6: every meta-setting tried must be recorded, not just the
         winner). `window` is a free-text description of the date range tuned
         over (e.g. `"2005-01-01:2022-12-31"`), for the reader's benefit --
         not parsed or validated here."""
@@ -754,6 +754,6 @@ class Ledger:
         metrics have no `key`, e.g. one that errored before a backtest
         ran), so `len(...)` is the run's total test count -- the multiple
         testing trial count `qrl.validation.deflated_sharpe_ratio` needs
-        (PLAN.md 2.3-2.5). Combined-rule runs pass `key="improvement_sharpe"`."""
+        (milestones 2.3-2.5). Combined-rule runs pass `key="improvement_sharpe"`."""
         rows = self._conn.execute(_SELECT_METRICS_BY_RUN, (run_id,)).fetchall()
         return [float(json.loads(row["metrics_json"]).get(key, 0.0)) for row in rows]

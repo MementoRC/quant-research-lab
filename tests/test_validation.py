@@ -1,5 +1,5 @@
 """Tests for the milestone 2.5 validation module: qrl.validation, offline and
-on synthetic data only. See PLAN.md section 2.5 and section 3 ("Thousands of
+on synthetic data only. See milestone 2.5 ("Thousands of
 candidates guarantee lucky winners", "The holdout was contaminated") for why
 each check exists.
 """

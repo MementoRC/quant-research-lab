@@ -38,7 +38,7 @@ from the sleeve's universe.
   bias is worse (today's listed filers only, so companies that failed are
   missing). Not designed here.
 
-It is EXPLORATION ONLY until a dated PLAN.md amendment says otherwise. It
+It is EXPLORATION ONLY until a dated, pre-registered amendment says otherwise. It
 changes no existing run, config or result.
 
 ## Data it builds on
@@ -196,7 +196,7 @@ unavailable; a breach is evidence, a gap is not.
 
 `excluded_tickers` is NOT wired into any existing run, strategy or config.
 `config/factor.yaml` and the PIT universe hash bind runs 4-6 and stay
-untouched. Using the filter in the sleeve needs a dated PLAN.md amendment and
+untouched. Using the filter in the sleeve needs a dated, pre-registered amendment and
 a new run, a later step the owner decides.
 
 ## Outputs and CLI
@@ -286,7 +286,7 @@ Synthetic company facts and submissions, no network.
 
 Stage 2 discovery watchlist, wiring the filter into any run or config, any
 price-based signal, drawdown-profile changes, buy/sell recommendations,
-trailing-four-quarter measures, any PLAN.md amendment.
+trailing-four-quarter measures, any rule amendment.
 
 ## Amendments
 

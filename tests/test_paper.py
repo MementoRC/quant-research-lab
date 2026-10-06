@@ -1,4 +1,4 @@
-"""Forward paper tracker (PLAN.md 3.2, amendment 2026-10-02)."""
+"""Forward paper tracker (milestone 3.2, amendment 2026-10-02)."""
 
 from __future__ import annotations
 

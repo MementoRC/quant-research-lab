@@ -1,5 +1,5 @@
 """Tests for milestone 2.6's holdout gateway: qrl.holdout, offline and on
-synthetic data only. See PLAN.md section 2.6 and section 3 ("The holdout
+synthetic data only. See milestone 2.6 ("The holdout
 was contaminated").
 """
 

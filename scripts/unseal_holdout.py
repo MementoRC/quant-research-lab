@@ -8,7 +8,7 @@ THIS IS ONE-SHOT AND IRREVERSIBLE: it exists to run the FINAL,
 ALREADY-CHOSEN walk-forward process on the holdout period, once, for the
 whole project. Never run this to pick between candidates, tune
 meta-settings, or "see how it does" -- every look at the holdout after this
-makes any later number dishonest (PLAN.md section 3, "The holdout was
+makes any later number dishonest ("The holdout was
 contaminated"). Exercise this CLI only against a scratch ledger with
 synthetic data; the owner, not an agent, decides when to spend the real
 holdout.

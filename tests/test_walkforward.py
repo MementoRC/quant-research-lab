@@ -1,5 +1,5 @@
 """Tests for milestone 2.6: qrl.walkforward, offline and on synthetic data
-only. See PLAN.md section 2.6 and section 3 ("The holdout was
+only. See milestone 2.6 ("The holdout was
 contaminated", the over-eviction point).
 """
 

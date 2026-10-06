@@ -15,7 +15,7 @@ the validation period (2019-01-01..2022-12-31); neither reaches the holdout,
 which starts 2023-01-01.
 
 It is still EXPLORATION ONLY: it selects nothing, writes no config and does not
-change the core. Switching the core still needs a dated PLAN.md amendment and a
+change the core. Switching the core still needs a dated, pre-registered amendment and a
 new run.
 
 Consequence, stated plainly: after the reveal, E, F and G are "validation-seen"
@@ -186,4 +186,4 @@ use synthetic data and a temporary ledger).
 ## Out of scope
 
 Revealing for A-D, any other validation window, research metrics on
-validation, choosing a winner, switching the core, any PLAN.md amendment.
+validation, choosing a winner, switching the core, any rule amendment.

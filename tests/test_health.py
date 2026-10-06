@@ -1,5 +1,5 @@
-"""Tests for milestone 3.2's DAILY health checks (qrl.health, PLAN.md
-section 3.2). Every check test asserts the check actually FIRES on a
+"""Tests for milestone 3.2's DAILY health checks (qrl.health,
+milestone 3.2). Every check test asserts the check actually FIRES on a
 crafted failing input, not merely that it passes on good input -- a check
 that cannot fail is worse than no check (see health.py's module docstring).
 All frames here are small and hand-built with `pd.bdate_range`; nothing
@@ -269,7 +269,7 @@ def test_risk_detail_embeds_ticker_weights_so_artifact_must_stay_private(shipped
     exact weight. This is NOT a leak to plug -- an on-call operator needs
     the real weight to judge severity -- it is a DELIBERATE, documented
     property that makes `reports/daily_health.json` private (gitignored)
-    and unfit to ever publish to `site/` (PLAN.md 3.4). This test pins the
+    and unfit to ever publish to `site/`. This test pins the
     embedding so nobody "fixes" it into a scrubbed message later."""
     idx = pd.bdate_range("2026-09-01", periods=3)
     breaching = pd.DataFrame({"ZZZ_TICKER": [0.0, 0.0, 0.10]}, index=idx)

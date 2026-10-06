@@ -21,7 +21,7 @@ tests for the new required `bonds` class, without weakening them.)
 Out of scope: actually switching the core. The core is bound into runs 4/5
 through `combined_config_hash` (`combined.yaml` raw bytes + `capital_split` +
 core spec), and the paper-track candidates were selected against QQQ/GLD.
-Switching it would need a dated PLAN.md amendment and a new run, decided by
+Switching it would need a dated, pre-registered amendment and a new run, decided by
 the owner after reading this report.
 
 ## Candidates — `config/core_candidates.yaml`
@@ -211,7 +211,7 @@ candidates file, or a ticker the loader could not fetch, fails loudly.
 
 ## Out of scope
 
-Changing the core, any PLAN.md amendment or new run, ranking or selecting a
+Changing the core, any rule amendment or new run, ranking or selecting a
 winner, showing validation-window cells (a later separate step), sleeve
 interaction (the sleeve is empty here), leverage, forecasting.
 

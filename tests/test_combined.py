@@ -1,4 +1,4 @@
-"""Tests for the combined pass rule (PLAN.md 2.5, amendment 2026-10-01):
+"""Tests for the combined pass rule (milestone 2.5, amendment 2026-10-01):
 qrl.combined, its ledger guard, and its opt-in wiring through
 scripts/search.py, scripts/validate.py and scripts/rebuild_validation.py.
 Offline and on synthetic data only."""

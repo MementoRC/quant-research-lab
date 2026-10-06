@@ -32,7 +32,7 @@ from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 
 _ALL_SPECS = {**REGISTRY, **SLEEVE_REGISTRY}
 
-# The research funnel panel's canonical stage order (PLAN.md 2.7). Today's
+# The research funnel panel's canonical stage order (milestone 2.7). Today's
 # scripts/export_ledger.py only writes "tested" / "passed_research" /
 # "validated" (milestone 2.3's summary shape); "passed_robustness" and
 # "selected" are read if a future export adds them, and shown as "unknown"
@@ -119,7 +119,7 @@ def _portfolio_entries(
     no sleeve at all would look like -- never the core's scaled SHARE of
     the split (that share only makes sense as part of the combined
     portfolio). This is what lets the dashboard show what the sleeve adds
-    (PLAN.md 2.7): comparing core alone against core+sleeve.
+    (milestone 2.7): comparing core alone against core+sleeve.
 
     A non-empty sleeve's extra price fields (high/low/volume, beyond the
     `close` every run already loads) are fetched via `qrl.data.load_ohlcv`
@@ -129,8 +129,8 @@ def _portfolio_entries(
 
     Returns `(descriptors, results_extra, sleeve_holdings, idle_cash_pct)`:
     `descriptors` are lightweight run dicts (mirroring `runs` below, with
-    an `allow_holdout` flag gating each entry by kind -- research rules,
-    PLAN.md section 3), `results_extra` maps their ids to `BacktestResult`,
+    an `allow_holdout` flag gating each entry by kind -- research rules),
+    `results_extra` maps their ids to `BacktestResult`,
     `sleeve_holdings` is the current sleeve's next-open target weights
     (empty if no sleeve is selected), and `idle_cash_pct` is the fraction
     of capital sitting in cash in the combined line because no sleeve is
@@ -224,8 +224,8 @@ def main() -> None:
     # Fixed baselines (config/strategies.yaml, benchmarks) are never searched
     # or tuned, so showing their holdout does not leak anything -- they keep
     # today's behaviour. Anything from the search/selection process gets its
-    # own allow_holdout below (see `_portfolio_entries`); research rules, PLAN.md
-    # section 3 ("The holdout was contaminated").
+    # own allow_holdout below (see `_portfolio_entries`); research rules
+    # ("The holdout was contaminated").
     runs = [dict(c, kind="strategy", allow_holdout=True) for c in configs]
     for b in criteria["benchmarks"]:
         runs.append(

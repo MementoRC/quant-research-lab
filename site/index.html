@@ -195,7 +195,7 @@
         These results use randomly generated demo prices, not market data. Run the build without <code>--synthetic</code> to see real results.
       </div>
       <div class="notice" id="survivorship-notice" ${data.survivorship_biased ? "" : "hidden"}>
-        This universe is <strong>survivorship-biased</strong>: free data only shows tickers that still trade today. Stocks that were delisted, acquired, or went bankrupt during the research period are silently absent, which can inflate backtested returns (PLAN.md section 3).
+        This universe is <strong>survivorship-biased</strong>: free data only shows tickers that still trade today. Stocks that were delisted, acquired, or went bankrupt during the research period are silently absent, which can inflate backtested returns.
       </div>
 
       <header class="hero">
@@ -243,7 +243,7 @@
 
       <section aria-labelledby="core-title" id="core-section" hidden>
         <h2 id="core-title">Core comparison (exploration only)</h2>
-        <p class="section-note">Compares 7 pre-registered alternative cores to the current QQQ/GLD trend core. It selects nothing: switching the core needs a PLAN amendment and a new run.</p>
+        <p class="section-note">Compares 7 pre-registered alternative cores to the current QQQ/GLD trend core. It selects nothing: switching the core needs a dated, pre-registered amendment and a new run.</p>
         <div id="core-research" hidden>
           <h3>Research period</h3>
           <p class="section-note" id="core-research-note"></p>

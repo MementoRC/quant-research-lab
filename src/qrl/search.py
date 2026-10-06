@@ -1,4 +1,4 @@
-"""The library half of the milestone 2.4 search loop (PLAN.md section 6, 2.4).
+"""The library half of the milestone 2.4 search loop (milestone 2.4).
 
 Two pieces live here, both pure and deterministic given a fixed seed:
 
@@ -171,7 +171,7 @@ def evaluate_candidate(
     and computes metrics -- kept singular on purpose, so a research-period
     result and a validation-period result are always graded by the exact
     same cost setting and treatment, never two copies that could drift
-    apart (see PLAN.md 2.5).
+    apart (see milestone 2.5).
 
     `period="holdout"` is refused outright: raises `ValueError` before any
     backtest runs, rather than letting `qrl.periods.slice_period`'s

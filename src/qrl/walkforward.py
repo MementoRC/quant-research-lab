@@ -1,5 +1,5 @@
-"""Milestone 2.6: walk-forward sleeve selection (PLAN.md section 2.6, and
-section 3's "The holdout was contaminated" / the over-eviction point).
+"""Milestone 2.6: walk-forward sleeve selection (milestone 2.6, and
+its "The holdout was contaminated" / the over-eviction point).
 
 Three pieces:
 
@@ -23,7 +23,7 @@ Nothing here ever sets the `unseal_holdout` flag: `walk_forward` and
 supplies, and every caller in this codebase bounds them to research and
 validation dates. The one, one-shot exception -- running this same
 `walk_forward` machinery on the actual holdout period for the final chosen
-process -- goes through `qrl.holdout.unseal` alone (PLAN.md 2.6).
+process -- goes through `qrl.holdout.unseal` alone (milestone 2.6).
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ def _trailing_max_drawdown(trailing: pd.Series) -> float:
 
 
 def _is_evicted(entry: dict, trailing: pd.Series, meta: dict) -> bool:
-    """The over-eviction guard (PLAN.md 2.6, section 3): an incumbent is
+    """The over-eviction guard (milestone 2.6): an incumbent is
     force-dropped only for a stretch that breaches a threshold CALIBRATED
     FROM ITS OWN prior backtest -- never a fixed number shared by every
     strategy, and never an ordinary losing streak within its own historical
@@ -463,7 +463,7 @@ def tune_meta(
     ...) to a list of values to try; every combination
     (`qrl.strategies.iter_grid`) is run through `walk_forward` once and
     logged to the ledger's `meta_tests` table via `Ledger.record_meta_test`
-    -- EVERY meta-setting tried, not just the best (PLAN.md 2.6).
+    -- EVERY meta-setting tried, not just the best (milestone 2.6).
 
     RESEARCH + VALIDATION ONLY: refuses outright (`ValueError`, before
     running anything) if `end` reaches on or after the holdout period's
@@ -484,7 +484,7 @@ def tune_meta(
     if holdout_start is not None and end_ts >= holdout_start:
         raise ValueError(
             "tune_meta refuses to run with end on or after the holdout period's start -- "
-            "meta-settings are tuned on research + validation dates only (PLAN.md 2.6)."
+            "meta-settings are tuned on research + validation dates only (milestone 2.6)."
         )
 
     window = f"{pd.Timestamp(start).date()}:{end_ts.date()}"

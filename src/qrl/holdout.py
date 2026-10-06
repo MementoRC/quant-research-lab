@@ -1,5 +1,5 @@
-"""The single guarded gateway to the sealed holdout period (PLAN.md 2.6, and
-section 3's "The holdout was contaminated").
+"""The single guarded gateway to the sealed holdout period (milestone 2.6, and
+its "The holdout was contaminated").
 
 `qrl.periods.slice_period` raises `HoldoutSealedError` for the holdout
 period unless its `unseal_holdout` flag is passed as true. `unseal` below is
@@ -67,7 +67,7 @@ def unseal(
     if not confirm:
         raise ValueError(
             "holdout.unseal refuses to run without confirm=True -- the holdout is "
-            "unsealed exactly once, for the final chosen process (PLAN.md 2.6)."
+            "unsealed exactly once, for the final chosen process (milestone 2.6)."
         )
 
     prior = ledger.list_holdout_events()

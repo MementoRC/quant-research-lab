@@ -1,7 +1,7 @@
-"""Tests for milestone 2.7's scripts/build_site.py additions (PLAN.md
-section 2.7): the new results.json keys (portfolio, research funnel,
+"""Tests for milestone 2.7's scripts/build_site.py additions (milestone
+2.7): the new results.json keys (portfolio, research funnel,
 survivorship flag), the empty-sleeve degradation, and the holdout-unsealing
-gate by entry kind (research rules, PLAN.md section 3).
+gate by entry kind (research rules).
 
 Runs the real `build_site.main()` on synthetic (offline) data, writing to
 `tmp_path` via the existing `--out` flag -- never into `site/`.

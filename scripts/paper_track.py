@@ -1,4 +1,4 @@
-"""Forward-only paper tracker (PLAN.md 3.2, amendment 2026-10-02).
+"""Forward-only paper tracker (milestone 3.2, amendment 2026-10-02).
 
 Reads the pre-registered `config/paper.yaml`, rebuilds each candidate from the
 ledger (read via `Ledger`, nothing recorded), refreshes prices, and writes a
