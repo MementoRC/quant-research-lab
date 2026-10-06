@@ -1,6 +1,6 @@
 """Tests for the stress-scenario diagnostic (qrl.stress, scripts/stress.py
 wiring into scripts/daily_check.py). Offline; small hand-built frames only.
-Spec: docs/superpowers/specs/2026-10-03-stress-scenarios-design.md.
+Spec: docs/methodology/stress-scenarios.md.
 """
 
 from __future__ import annotations

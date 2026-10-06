@@ -1,4 +1,4 @@
-"""Balance-sheet fragility screen (spec docs/superpowers/specs/2026-10-05-fragility-screen-design.md).
+"""Balance-sheet fragility screen (spec docs/methodology/fragility-screen.md).
 
 Synthetic facts and submissions only; nothing here touches the network.
 """

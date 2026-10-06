@@ -64,7 +64,7 @@ After that it rebuilds on every push to `development` and every weekday at 22:30
 ## Project layout
 
 ```
-config/criteria.yaml     Pass rules, periods, costs, benchmarks (locked; see AGENTS.md)
+config/criteria.yaml     Pass rules, periods, costs, benchmarks (locked: never edited during a research run)
 config/strategies.yaml   Which strategies to run, with parameters
 src/qrl/engine.py        Backtest engine: decide at close, trade next open, costs always on
 src/qrl/metrics.py       CAGR, Sharpe, drawdown, turnover, exposure

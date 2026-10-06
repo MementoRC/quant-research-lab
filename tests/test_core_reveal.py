@@ -1,6 +1,6 @@
 """Tests for the core shortlist reveal (qrl.core_reveal, scripts/core_reveal.py).
 Offline; synthetic prices and a temporary ledger only.
-Spec: docs/superpowers/specs/2026-10-04-core-reveal-design.md.
+Spec: docs/methodology/core-reveal.md.
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ Strategy contract:
     * Long-only, weights per row sum to <= 1 (a sleeve's `capital` share).
 Every strategy in `REGISTRY` is checked by the pre-existing
 tests/test_strategies.py for look-ahead, which requires a matching entry in
-that file's own `EXAMPLE_PARAMS` -- a file AGENTS.md forbids editing here.
+that file's own `EXAMPLE_PARAMS` -- a file the research rules forbid editing here.
 The 2.2 cross-sectional families (trend_pullback, low_range_close,
 quiet_pullback) are therefore kept in a parallel `SLEEVE_REGISTRY` instead of
 `REGISTRY`, so the existing registry (and its test) is untouched; they are
@@ -74,7 +74,7 @@ REGISTRY: dict[str, StrategySpec] = {
             "risk_off": ["GLD", "TLT", "CASH"],
         },
     ),
-    # Exploration only (docs/superpowers/specs/2026-10-03-core-compare-design.md):
+    # Exploration only (docs/methodology/core-comparison.md):
     # fixed-weight mixes for the core comparison; not searched (empty space).
     "core_mix": StrategySpec(core_mix, core_mix_tickers, fields=("close",)),
 }

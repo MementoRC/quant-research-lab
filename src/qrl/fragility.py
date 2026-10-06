@@ -1,6 +1,6 @@
 """Balance-sheet fragility screen (EXPLORATION ONLY).
 
-Spec: docs/superpowers/specs/2026-10-05-fragility-screen-design.md. Six
+Spec: docs/methodology/fragility-screen.md. Six
 balance-sheet measures per company from SEC companyfacts, classified by the
 pre-registered `config/fragility.yaml`. No price data and no returns are used.
 

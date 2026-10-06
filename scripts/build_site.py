@@ -129,7 +129,7 @@ def _portfolio_entries(
 
     Returns `(descriptors, results_extra, sleeve_holdings, idle_cash_pct)`:
     `descriptors` are lightweight run dicts (mirroring `runs` below, with
-    an `allow_holdout` flag gating each entry by kind -- AGENTS.md,
+    an `allow_holdout` flag gating each entry by kind -- research rules,
     PLAN.md section 3), `results_extra` maps their ids to `BacktestResult`,
     `sleeve_holdings` is the current sleeve's next-open target weights
     (empty if no sleeve is selected), and `idle_cash_pct` is the fraction
@@ -224,7 +224,7 @@ def main() -> None:
     # Fixed baselines (config/strategies.yaml, benchmarks) are never searched
     # or tuned, so showing their holdout does not leak anything -- they keep
     # today's behaviour. Anything from the search/selection process gets its
-    # own allow_holdout below (see `_portfolio_entries`); AGENTS.md, PLAN.md
+    # own allow_holdout below (see `_portfolio_entries`); research rules, PLAN.md
     # section 3 ("The holdout was contaminated").
     runs = [dict(c, kind="strategy", allow_holdout=True) for c in configs]
     for b in criteria["benchmarks"]:

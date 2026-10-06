@@ -1,5 +1,5 @@
 """Core comparison: an EXPLORATION of alternative, more resilient cores
-against the current one (spec: docs/superpowers/specs/2026-10-03-core-compare-design.md).
+against the current one (spec: docs/methodology/core-comparison.md).
 It forecasts nothing, tunes nothing and selects nothing. Pure functions;
 callers inject data and configs. Validation and holdout data never enter
 (frames are cut at the research end; windows reaching the validation period
@@ -211,7 +211,7 @@ def _candidate_result(
 ) -> dict:
     try:
         research = research_metrics(cand, data, criteria, split)
-    except ValueError as exc:  # recorded as a failed test, never skipped (AGENTS.md)
+    except ValueError as exc:  # recorded as a failed test, never skipped (research rule)
         research = {"error": str(exc)}
     research_breach = bool(research.get("max_drawdown", 0.0) > max_drawdown)
     stress_breaches = sum(1 for c in cells if c.breach)
@@ -279,7 +279,7 @@ def benchmark_metrics(
     for row_id, label, row_split in variants:
         try:
             research = research_metrics(mix, data, criteria, row_split)
-        except ValueError as exc:  # recorded, never skipped (AGENTS.md)
+        except ValueError as exc:  # recorded, never skipped (research rule)
             research = {"error": str(exc)}
         breach = bool(research.get("max_drawdown", 0.0) > max_drawdown)
         rows.append(
@@ -347,7 +347,7 @@ def render_markdown(report: dict) -> str:
         "# Core comparison (exploration only)",
         "",
         "Diagnostic of the pre-registered cores; it selects nothing. Spec: "
-        "docs/superpowers/specs/2026-10-03-core-compare-design.md.",
+        "docs/methodology/core-comparison.md.",
         "",
         f"- candidates file sha256: `{report['candidates_sha256']}`",
         f"- trial count: {report['trial_count']}",

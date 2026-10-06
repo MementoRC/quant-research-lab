@@ -1,5 +1,5 @@
 """Balance-sheet fragility screen, EXPLORATION ONLY (spec:
-docs/superpowers/specs/2026-10-05-fragility-screen-design.md). Screens every member of the
+docs/methodology/fragility-screen.md). Screens every member of the
 point-in-time universe's latest month-end before --as-of with the pre-registered
 config/fragility.yaml, from the local SEC cache. Writes research/fragility.md (committed)
 and reports/fragility.json (gitignored). No price data, no returns, no config changes.

@@ -1,6 +1,6 @@
 """Core shortlist reveal: ONE look at the covid_2020 and inflation_2022 stress
 windows (inside the validation period) for the owner-shortlisted cores
-(spec: docs/superpowers/specs/2026-10-04-core-reveal-design.md). EXPLORATION
+(spec: docs/methodology/core-reveal.md). EXPLORATION
 ONLY: it selects nothing and changes no config. Pure functions apart from
 `load_core_shortlist` reading its file; callers inject data and configs. Every
 frame is cut at the last revealed window's end, so neither later validation
@@ -214,7 +214,7 @@ def render_markdown(report: dict) -> str:
         f"look, recorded in the ledger (event id {report['event_id']}).",
         "",
         "Diagnostic of the shortlisted cores; it selects nothing. Spec: "
-        "docs/superpowers/specs/2026-10-04-core-reveal-design.md.",
+        "docs/methodology/core-reveal.md.",
         "",
         f"- shortlist sha256: `{report['shortlist_sha256']}`",
         f"- candidates file sha256: `{report['candidates_sha256']}`",

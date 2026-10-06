@@ -6,7 +6,7 @@ equal-weighted within the sleeve's own capital share.
 This module only combines already-computed weight FRAMES into one portfolio
 and validates `config/portfolio.yaml`'s shape. Turning those frames into
 prices, backtests, and dashboard figures -- including the holdout-unsealing
-gate by entry kind (AGENTS.md, PLAN.md section 3) -- is the caller's job;
+gate by entry kind (research rules, PLAN.md section 3) -- is the caller's job;
 see `scripts/build_site.py`.
 """
 

@@ -5,7 +5,7 @@ risk_on / risk_off map ticker -> weight (non-negative, sum <= 1). With
 hold `risk_on` while `signal` closes above its simple moving average over
 `lookback` days, else `risk_off`. Rows are NaN during warm-up and whenever a
 ticker the rule can hold (or the signal) has no price. Row t uses data up to
-the close of day t. Spec: docs/superpowers/specs/2026-10-03-core-compare-design.md.
+the close of day t. Spec: docs/methodology/core-comparison.md.
 """
 
 from __future__ import annotations

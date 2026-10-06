@@ -1,5 +1,5 @@
 """Core-comparison EXPLORATION (spec:
-docs/superpowers/specs/2026-10-03-core-compare-design.md). Evaluates the
+docs/methodology/core-comparison.md). Evaluates the
 pre-registered candidates in config/core_candidates.yaml on research-period
 metrics and on stress cells that never touch the validation or holdout periods
 (covid_2020 and inflation_2022 are computed nowhere here). Prints a table,

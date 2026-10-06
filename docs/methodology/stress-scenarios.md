@@ -8,7 +8,7 @@ Diagnostic only. Answers: "if a shock like X happens, how much does the
 portfolio lose, and does that breach the 35% max-drawdown cap
 (`max_drawdown` in `config/profile.yaml`, the single source used for `breach`)?" It forecasts nothing, tunes nothing, and selects
 nothing. It does not modify `engine.py`, `metrics.py`, `periods.py`,
-`checks.py`, or any locked config (AGENTS.md).
+`checks.py`, or any locked config (research rules).
 
 ## Portfolios tested
 
