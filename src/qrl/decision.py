@@ -12,10 +12,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .core_compare import candidate_weights
-from .decision_config import Portfolio, Scenario, portfolio_states
+from .core_compare import Build, candidate_weights
+from .decision_config import DecisionConfig, Portfolio, Scenario, portfolio_states
 from .periods import period_bounds
+from .portfolio import combine_portfolio
 from .strategies import REGISTRY
+from .stress import Cell, PortfolioDef, StressConfig, run_stress
+
+FULL = {"core": 1.0, "sleeve": 0.0}  # 100% of capital, empty sleeve (as benchmark_metrics)
+_NO_CAP = 1.0  # cells carry losses only; this report compares, it tests no cap
 
 
 def data_end(criteria: dict) -> pd.Timestamp:
@@ -81,3 +86,77 @@ def scenario_rows(portfolios: list[Portfolio], scenarios: list[Scenario]) -> lis
                 }
             )
     return rows
+
+
+def _rule_build(p: Portfolio) -> Build:
+    def build(data: dict[str, pd.DataFrame], keep: list[str]) -> pd.DataFrame:
+        return combine_portfolio(portfolio_weights(p, data["close"]), [], FULL).combined
+
+    return build
+
+
+def _static_build(mix: dict[str, float]) -> Build:
+    def build(data: dict[str, pd.DataFrame], keep: list[str]) -> pd.DataFrame:
+        w = pd.DataFrame({t: float(x) for t, x in mix.items()}, index=data["close"].index)
+        return combine_portfolio(w, [], FULL).combined
+
+    return build
+
+
+def stress_portfolios(
+    portfolios: list[Portfolio],
+) -> tuple[list[PortfolioDef], dict[str, frozenset[str]]]:
+    """PortfolioDefs for `run_stress` plus the cell modes kept per name. A
+    static portfolio X keeps replay and frozen cells. A switching portfolio X
+    keeps its rule's replay cells, and `X[state]` (that state's fixed weights)
+    keeps frozen cells, one per state."""
+    defs: list[PortfolioDef] = []
+    modes: dict[str, frozenset[str]] = {}
+    for p in portfolios:
+        defs.append(PortfolioDef(p.id, _rule_build(p), portfolio_tickers(p)))
+        states = portfolio_states(p)
+        if len(states) == 1:
+            modes[p.id] = frozenset({"replay", "frozen"})
+            continue
+        modes[p.id] = frozenset({"replay"})
+        for state, mix in states.items():
+            name = f"{p.id}[{state}]"
+            defs.append(PortfolioDef(name, _static_build(mix), list(mix)))
+            modes[name] = frozenset({"frozen"})
+    return defs, modes
+
+
+def window_rows(cells: list[Cell], threshold: float) -> list[dict]:
+    """Report rows: loss, per-class proxied share (frozen cells) and the
+    indicative flag (total proxied share above `threshold`)."""
+    rows = []
+    for c in cells:
+        shares = dict(c.detail.get("proxied_share") or {})
+        rows.append(
+            {
+                "portfolio": c.portfolio,
+                "window": c.scenario,
+                "mode": c.mode,
+                "loss": c.loss,
+                "proxied_share": shares,
+                "indicative": float(sum(shares.values())) > threshold,
+                "unavailable": c.unavailable,
+            }
+        )
+    return rows
+
+
+def stress_rows(cfg: DecisionConfig, data: dict[str, pd.DataFrame], criteria: dict) -> list[dict]:
+    """Historical-window cells from `qrl.stress.run_stress`, unchanged. Frames
+    are cut at the data end first, so nothing later reaches it; only the
+    configured windows run (no class-based hypotheticals)."""
+    end = data_end(criteria)
+    cut = {k: v.loc[:end] for k, v in data.items()}
+    defs, modes = stress_portfolios(cfg.portfolios)
+    windows_only = StressConfig(cfg.windows, [], 0)
+    cells = [
+        c
+        for c in run_stress(windows_only, defs, cut, _NO_CAP, criteria)
+        if c.mode in modes[c.portfolio]
+    ]
+    return window_rows(cells, cfg.proxied_threshold)

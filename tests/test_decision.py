@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 from decision_helpers import END, criteria, load, prices
 
+from qrl import decision
 from qrl.decision import (
     data_end,
     portfolio_tickers,
@@ -15,8 +16,12 @@ from qrl.decision import (
     real_return,
     scenario_return,
     scenario_rows,
+    stress_portfolios,
+    stress_rows,
+    window_rows,
 )
 from qrl.decision_config import Portfolio, Scenario
+from qrl.stress import Cell
 
 
 def test_decision_data_end_is_research_end():
@@ -110,6 +115,12 @@ def test_decision_scenario_arithmetic_two_fund_hand_checked():
     assert real_return(r, TWO_FUND.inflation) == pytest.approx(0.854 / 1.08 - 1)  # -20.93%
 
 
+def test_decision_underinvested_weights_treat_missing_weight_as_zero_return():
+    r = scenario_return({"SPY": 0.5}, TWO_FUND)
+    assert r == pytest.approx(-0.125)  # 0.5 x -25%; the other 50% earns 0
+    assert real_return(r, TWO_FUND.inflation) == pytest.approx(0.875 / 1.08 - 1)
+
+
 def test_decision_scenario_rows_both_states_and_worse(tmp_path):
     cfg = load(tmp_path)
     rows = scenario_rows(cfg.portfolios, cfg.scenarios)
@@ -151,3 +162,109 @@ def test_decision_worse_state_is_the_lower_return_when_risk_off_is_worse(tmp_pat
     assert row["states"]["risk_on"]["nominal_loss"] == pytest.approx(-0.05)
     assert row["states"]["risk_off"]["nominal_loss"] == pytest.approx(0.10)
     assert row["worst"] == "risk_off"
+
+
+def _cell(shares: dict[str, float]) -> Cell:
+    return Cell("P", "w", "frozen", "l", 0.1, None, {"proxied_share": shares})
+
+
+def test_decision_indicative_flag_is_strictly_above_threshold_on_summed_shares():
+    flags = [
+        window_rows([_cell(s)], 0.25)[0]["indicative"]
+        for s in (
+            {"equity": 0.25, "bonds": 0.0, "gold": 0.0},  # exactly 25%: not flagged
+            {"equity": 0.2501, "bonds": 0.0, "gold": 0.0},  # just above: flagged
+            {"equity": 0.15, "bonds": 0.15, "gold": 0.0},  # no class above 25%, sum 30%: flagged
+        )
+    ]
+    assert flags == [False, True, True]
+
+
+def test_decision_window_row_without_proxied_share_is_not_indicative():
+    cell = Cell("P", "w", "replay", "l", 0.1, None, {})
+    (row,) = window_rows([cell], 0.25)
+    assert row["proxied_share"] == {}
+    assert row["indicative"] is False
+
+
+INCEPTION = {  # real first trading days; synthetic prices otherwise cover 1999 on
+    "SHY": "2002-07-30",
+    "IEF": "2002-07-30",
+    "TLT": "2002-07-30",
+    "RSP": "2003-05-01",
+    "GLD": "2004-11-18",
+}
+
+
+def _inception_masked(data: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    out = {}
+    for key, frame in data.items():
+        masked = frame.copy()
+        for ticker, first in INCEPTION.items():
+            masked.loc[masked.index < pd.Timestamp(first), ticker] = np.nan
+        out[key] = masked
+    return out
+
+
+def test_decision_stress_portfolios_modes(tmp_path):
+    defs, modes = stress_portfolios(load(tmp_path).portfolios)
+    names = [d.name for d in defs]
+    assert len(defs) == 12 + 2 * 6  # A, B, C, F, AG and A-CASH switch
+    assert "AG[risk_on]" in names
+    assert "AG[risk_off]" in names
+    assert "G-CASH[static]" not in names
+    assert modes["AG"] == frozenset({"replay"})
+    assert modes["AG[risk_off]"] == frozenset({"frozen"})
+    assert modes["G-CASH"] == frozenset({"replay", "frozen"})
+
+
+@pytest.fixture(scope="module")
+def masked_rows(tmp_path_factory):
+    cfg = load(tmp_path_factory.mktemp("decision"))
+    return stress_rows(cfg, _inception_masked(prices()), criteria())
+
+
+def test_decision_window_rows_modes(masked_rows):
+    keys = {(r["portfolio"], r["window"], r["mode"]) for r in masked_rows}
+    assert ("A", "gfc_2008", "replay") in keys
+    assert ("A", "gfc_2008", "frozen") not in keys
+    assert ("A[risk_off]", "gfc_2008", "frozen") in keys
+    assert ("D", "gfc_2008", "replay") in keys
+    assert ("D", "dotcom_2000", "frozen") in keys
+    assert not any(k[1] == "dotcom_2000" and k[2] == "replay" for k in keys)
+    assert {k[1] for k in keys} == {"dotcom_2000", "gfc_2008"}
+
+
+def test_decision_dotcom_cells_report_proxied_share_and_flag(masked_rows):
+    rows = {(r["portfolio"], r["window"], r["mode"]): r for r in masked_rows}
+    cash = rows[("CASH", "dotcom_2000", "frozen")]
+    assert cash["loss"] == pytest.approx(0.0)  # entirely cash by construction
+    assert cash["proxied_share"]["bonds"] == pytest.approx(1.0)
+    assert cash["indicative"] is True
+    gew = rows[("G-EW", "dotcom_2000", "frozen")]
+    assert gew["proxied_share"] == pytest.approx({"equity": 0.25, "gold": 0.25, "bonds": 0.5})
+    assert gew["indicative"] is True
+    a_on = rows[("A[risk_on]", "dotcom_2000", "frozen")]  # QQQ priced in 2000
+    assert a_on["proxied_share"] == pytest.approx({"equity": 0.0, "gold": 0.0, "bonds": 0.0})
+    assert a_on["indicative"] is False
+    g_gfc = rows[("G", "gfc_2008", "frozen")]
+    assert sum(g_gfc["proxied_share"].values()) == 0.0
+    assert g_gfc["indicative"] is False
+    assert rows[("A", "gfc_2008", "replay")]["loss"] is not None
+
+
+def test_decision_stress_frames_cut_at_data_end(tmp_path, monkeypatch):
+    seen: dict = {}
+    real = decision.run_stress
+
+    def spy(cfg, portfolios, data, max_drawdown, criteria_):
+        seen["last"] = data["close"].index.max()
+        seen["windows"] = [w.name for w in cfg.windows]
+        seen["hypotheticals"] = cfg.hypotheticals
+        return real(cfg, portfolios, data, max_drawdown, criteria_)
+
+    monkeypatch.setattr(decision, "run_stress", spy)
+    stress_rows(load(tmp_path), prices(), criteria())
+    assert seen["last"] <= END
+    assert seen["windows"] == ["dotcom_2000", "gfc_2008"]
+    assert seen["hypotheticals"] == []
