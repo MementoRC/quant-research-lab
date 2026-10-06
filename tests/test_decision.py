@@ -3,22 +3,27 @@ prices and CPI only. Spec: docs/methodology/decision-helper.md."""
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
-from decision_helpers import END, criteria, load, prices
+from decision_helpers import END, cpi, criteria, load, prices
 
 from qrl import decision
 from qrl.decision import (
     data_end,
+    portfolio_returns,
     portfolio_tickers,
     portfolio_weights,
     real_return,
     scenario_return,
     scenario_rows,
+    start_dates,
     stress_portfolios,
     stress_rows,
     window_rows,
+    withdrawal_rows,
 )
 from qrl.decision_config import Portfolio, Scenario
 from qrl.stress import Cell
@@ -268,3 +273,132 @@ def test_decision_stress_frames_cut_at_data_end(tmp_path, monkeypatch):
     assert seen["last"] <= END
     assert seen["windows"] == ["dotcom_2000", "gfc_2008"]
     assert seen["hypotheticals"] == []
+
+
+def _cut() -> dict[str, pd.DataFrame]:
+    return {k: v.loc[:END].copy() for k, v in prices().items()}
+
+
+def test_decision_start_dates_first_trading_day_of_january():
+    idx = pd.bdate_range("2004-12-01", "2006-02-01")
+    assert start_dates(idx, [2005, 2006], END) == {
+        2005: pd.Timestamp("2005-01-03"),
+        2006: pd.Timestamp("2006-01-02"),
+    }
+
+
+def test_decision_start_dates_refuse_year_without_data():
+    with pytest.raises(ValueError, match="no trading day"):
+        start_dates(pd.bdate_range("2004-12-01", "2005-06-01"), [2006], END)
+
+
+def test_decision_portfolio_returns_start_fresh_with_costs(tmp_path):
+    by_id = {p.id: p for p in load(tmp_path).portfolios}
+    data = _cut()
+    start = pd.Timestamp("2005-01-03")
+    r = portfolio_returns(by_id["CASH"], data, start, 5.0)
+    assert r.index[0] == start
+    assert r.index[-1] == END
+    o, c = data["open"]["SHY"], data["close"]["SHY"]
+    # bought at the start-day open (cost 5 bps on turnover 1), held to the close
+    assert r.iloc[0] == pytest.approx(c.loc[start] / o.loc[start] * (1 - 5.0 / 10_000) - 1)
+    free = portfolio_returns(by_id["CASH"], data, start, 0.0)
+    assert free.iloc[0] == pytest.approx(c.loc[start] / o.loc[start] - 1)
+    assert free.iloc[0] != pytest.approx(r.iloc[0], abs=1e-6)
+
+
+def test_decision_portfolio_returns_cost_hits_switching_turnover(tmp_path):
+    by_id = {p.id: p for p in load(tmp_path).portfolios}
+    data = _cut()
+    start = pd.Timestamp("2005-01-03")
+    paid = portfolio_returns(by_id["A"], data, start, 50.0)
+    free = portfolio_returns(by_id["A"], data, start, 0.0)
+    assert (paid <= free + 1e-15).all()
+    assert (paid < free - 1e-6).sum() >= 2  # the purchase plus at least one switch
+    assert (1 + paid).prod() < (1 + free).prod()
+
+
+def test_decision_refuses_held_fund_unpriced_at_start(tmp_path):
+    by_id = {p.id: p for p in load(tmp_path).portfolios}
+    data = _cut()
+    start = pd.Timestamp("2007-01-01")
+    data["close"].loc[start, "RSP"] = np.nan
+    with pytest.raises(ValueError, match="unpriced at the start"):
+        portfolio_returns(by_id["G-EW"], data, start, 5.0)
+
+
+def test_decision_refuses_nan_weights_after_start(tmp_path, monkeypatch):
+    by_id = {p.id: p for p in load(tmp_path).portfolios}
+    real = decision.portfolio_weights
+
+    def holey(p, close):
+        w = real(p, close).copy()
+        w.loc[pd.Timestamp("2010-06-01")] = np.nan
+        return w
+
+    monkeypatch.setattr(decision, "portfolio_weights", holey)
+    with pytest.raises(ValueError, match="NaN weights"):
+        portfolio_returns(by_id["G"], _cut(), pd.Timestamp("2005-01-03"), 5.0)
+
+
+def test_decision_withdrawal_rows_shape_on_engine_paths(tmp_path):
+    cfg = load(tmp_path)
+    small = replace(
+        cfg,
+        portfolios=[p for p in cfg.portfolios if p.id in {"A", "CASH"}],
+        rates=[0.04],
+        start_years=[2005, 2006, 2007],
+    )
+    rows = withdrawal_rows(small, prices(), cpi(), criteria())
+    assert [(r["portfolio"], r["rate"]) for r in rows] == [("A", 0.04), ("CASH", 0.04)]
+    for r in rows:
+        assert r["first_year"] == 2005
+        assert r["first"] == r["per_year"][2005]
+        assert r["first"].keys() >= {
+            "end_real",
+            "lowest",
+            "max_drawdown",
+            "below_peak_months",
+            "recovered",
+            "below_peak_at_end",
+            "depleted",
+        }
+        assert r["worst_end_real"] == min(m["end_real"] for m in r["per_year"].values())
+        assert r["per_year"][r["worst_year"]]["end_real"] == r["worst_end_real"]
+
+
+def test_decision_withdrawal_rows_worst_year_is_lowest_real_end(tmp_path, monkeypatch):
+    # Flat CPI, zero returns except start-2006 (-1 bp a day): every path is
+    # 1 - rate x (years held), so 2005 ends 1 - 0.04 x 14 = 0.44 and 2007 ends
+    # 1 - 0.04 x 12 = 0.52; the 2006 path loses on top of its 13 years.
+    cfg = load(tmp_path)
+    one = replace(cfg, portfolios=cfg.portfolios[:1], rates=[0.04], start_years=[2005, 2006, 2007])
+    seen_bps: list[float] = []
+
+    def fake(p, data, start, cost_bps):
+        seen_bps.append(cost_bps)
+        idx = pd.bdate_range(start, END)
+        return pd.Series(-0.0001 if start.year == 2006 else 0.0, index=idx)
+
+    monkeypatch.setattr(decision, "portfolio_returns", fake)
+    flat = cpi(monthly_growth=0.0)
+    (row,) = withdrawal_rows(one, prices(), flat, criteria())
+    per = row["per_year"]
+    assert per[2005]["end_real"] == pytest.approx(0.44)
+    assert per[2007]["end_real"] == pytest.approx(0.52)
+    assert per[2006]["end_real"] < 0.44
+    assert row["worst_year"] == 2006
+    assert row["worst_end_real"] == per[2006]["end_real"]
+    assert row["first_year"] == 2005
+    assert row["first"]["end_real"] == pytest.approx(0.44)
+    assert row["first"]["lowest"] == pytest.approx(0.44)
+    assert row["first"]["below_peak_at_end"] is True  # zero return, only withdrawals
+    assert row["first"]["depleted"] is None
+    assert seen_bps == [criteria()["costs"]["bps_per_unit_turnover"]] * 3
+
+
+def test_decision_withdrawal_rows_refuse_missing_cpi(tmp_path):
+    cfg = load(tmp_path)
+    small = replace(cfg, portfolios=cfg.portfolios[:1], rates=[0.04], start_years=[2005])
+    with pytest.raises(ValueError, match="missing CPI"):
+        withdrawal_rows(small, prices(), cpi().loc[:"2010-12-31"], criteria())

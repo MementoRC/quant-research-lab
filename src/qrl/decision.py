@@ -14,6 +14,8 @@ import pandas as pd
 
 from .core_compare import Build, candidate_weights
 from .decision_config import DecisionConfig, Portfolio, Scenario, portfolio_states
+from .decision_withdraw import monthly_withdrawals, path_metrics, withdrawal_path
+from .engine import run_backtest
 from .periods import period_bounds
 from .portfolio import combine_portfolio
 from .strategies import REGISTRY
@@ -160,3 +162,83 @@ def stress_rows(cfg: DecisionConfig, data: dict[str, pd.DataFrame], criteria: di
         if c.mode in modes[c.portfolio]
     ]
     return window_rows(cells, cfg.proxied_threshold)
+
+
+def start_dates(
+    index: pd.DatetimeIndex, years: list[int], end: pd.Timestamp
+) -> dict[int, pd.Timestamp]:
+    """First trading day on or after 1 January of each start year."""
+    out = {}
+    for year in years:
+        days = index[(index >= pd.Timestamp(year=year, month=1, day=1)) & (index <= end)]
+        if days.empty:
+            raise ValueError(f"no trading day in {year} on or before {end.date()}")
+        out[year] = pd.Timestamp(days[0])
+    return out
+
+
+def portfolio_returns(
+    p: Portfolio, data: dict[str, pd.DataFrame], start: pd.Timestamp, cost_bps: float
+) -> pd.Series:
+    """Daily net returns from `start` to the end of `data` (already cut), the
+    portfolio bought fresh at the start-day open (the prior trading day's
+    target row) and paying the engine's costs. Weights are built from the
+    earliest data (warm-up). Refuses a held fund unpriced at `start` and NaN
+    weights from the prior trading day on; a NaN is never turned into cash."""
+    close = data["close"]
+    held = sorted({t for mix in portfolio_states(p).values() for t in mix})
+    unpriced = [t for t in held if t not in close.columns or pd.isna(close.at[start, t])]
+    if unpriced:
+        raise ValueError(
+            f"portfolio {p.id}: held fund(s) {unpriced} unpriced at the start {start.date()}"
+        )
+    weights = portfolio_weights(p, close)
+    pos = int(weights.index.searchsorted(start))
+    if pos == 0:
+        raise ValueError(f"portfolio {p.id}: no trading day before the start {start.date()}")
+    target = weights.iloc[pos - 1 :]
+    if target.isna().any(axis=None):
+        raise ValueError(
+            f"portfolio {p.id}: NaN weights on or after the start {start.date()} "
+            "(a NaN is never turned into cash)"
+        )
+    combined = combine_portfolio(target, [], FULL).combined
+    cols = list(combined.columns)
+    result = run_backtest(data["open"][cols], close[cols], combined, cost_bps=cost_bps)
+    return result.returns.loc[start:]
+
+
+def withdrawal_rows(
+    cfg: DecisionConfig, data: dict[str, pd.DataFrame], cpi: pd.Series, criteria: dict
+) -> list[dict]:
+    """Per portfolio and rate: the first start year's path metrics, the worst
+    start year by real ending value, and every start year's metrics. Price
+    and CPI (availability-dated) frames are cut at the data end first."""
+    end = data_end(criteria)
+    cut = {k: v.loc[:end] for k, v in data.items()}
+    known_cpi = cpi.loc[:end]
+    cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
+    starts = start_dates(pd.DatetimeIndex(cut["close"].index), cfg.start_years, end)
+    rows: list[dict] = []
+    for p in cfg.portfolios:
+        paths = {year: portfolio_returns(p, cut, day, cost_bps) for year, day in starts.items()}
+        for rate in cfg.rates:
+            per_year: dict[int, dict] = {}
+            for year, returns in paths.items():
+                last = pd.DatetimeIndex(returns.index)[-1]
+                monthly = monthly_withdrawals(rate, year, last.year, known_cpi)
+                per_year[year] = path_metrics(withdrawal_path(returns, monthly), known_cpi)
+            first = min(per_year)
+            worst_real, worst_year = min((m["end_real"], y) for y, m in per_year.items())
+            rows.append(
+                {
+                    "portfolio": p.id,
+                    "rate": rate,
+                    "first_year": first,
+                    "first": per_year[first],
+                    "worst_year": worst_year,
+                    "worst_end_real": worst_real,
+                    "per_year": per_year,
+                }
+            )
+    return rows
