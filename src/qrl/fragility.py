@@ -60,7 +60,46 @@ ANNUAL_FORMS = frozenset({"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"})
 DEBT_TOTAL = ("LongTermDebt",)
 CASH = ("CashAndCashEquivalentsAtCarryingValue",)
 SHORT_INVESTMENTS = ("ShortTermInvestments", "MarketableSecuritiesCurrent")
-INTEREST = ("InterestExpense", "InterestExpenseDebt", "InterestAndDebtExpense")
+# Run 5 amendment (2026-10-05): InterestExpenseNonoperating appended; the debt fallbacks and the
+# untagged no-debt rule below. Paid-cash and "costs incurred" tags are different concepts: not used.
+DEBT_INCL_CURRENT = ("LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",)
+DEBT_NONCURRENT_ALT = ("LongTermDebtAndCapitalLeaseObligations",)
+DEBT_CURRENT_ALT = (
+    "LongTermDebtAndCapitalLeaseObligationsCurrent",
+    "LongTermDebtCurrent",
+    "DebtCurrent",
+)
+DEBT_COMBINED = ("DebtLongtermAndShorttermCombinedAmount",)
+# Fallback (d), convertible-only filers (added after an audit found DASH/PANW misread as no-debt).
+CONVERTIBLE_NONCURRENT = (
+    "ConvertibleDebtNoncurrent",
+    "ConvertibleLongTermNotesPayable",
+    "ConvertibleNotesPayable",
+)
+CONVERTIBLE_CURRENT = ("ConvertibleDebtCurrent", "ConvertibleNotesPayableCurrent")
+# Every debt-family concept: any value at a fiscal year end blocks the untagged no-debt rule.
+DEBT_FAMILY = (
+    *DEBT_TOTAL,
+    "LongTermDebtNoncurrent",
+    "ShortTermBorrowings",
+    *DEBT_INCL_CURRENT,
+    *DEBT_NONCURRENT_ALT,
+    *DEBT_CURRENT_ALT,
+    *DEBT_COMBINED,
+    "DebtInstrumentCarryingAmount",
+    "LongTermNotesPayable",
+    *CONVERTIBLE_NONCURRENT,
+    *CONVERTIBLE_CURRENT,
+    "NotesPayable",
+    "CommercialPaper",
+)
+NO_DEBT_NOTE = "no debt tag; treated as no debt"
+INTEREST = (
+    "InterestExpense",
+    "InterestExpenseDebt",
+    "InterestAndDebtExpense",
+    "InterestExpenseNonoperating",
+)
 PRETAX = (
     "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
 )
@@ -72,9 +111,7 @@ ANCHORS = (*OCF, "NetIncomeLoss", "OperatingIncomeLoss")
 INSTANT_CONCEPTS = frozenset(
     {
         *DEBT_TOTAL,
-        "LongTermDebtNoncurrent",
-        "LongTermDebtCurrent",
-        "ShortTermBorrowings",
+        *DEBT_FAMILY,
         *CASH,
         *SHORT_INVESTMENTS,
         *MATURITY_TAGS,
@@ -243,6 +280,7 @@ class _View:
         self._fiscal_ends = sorted(anchor_ends)
         self._by: dict[str, dict[pd.Timestamp, float]] = {}
         self.used: dict[str, float] = {}
+        self.untagged_no_debt: set[pd.Timestamp] = set()
         for concept, grp in sub.groupby("concept"):
             kind = "instant" if concept in INSTANT_CONCEPTS else "annual"
             grp = fd.filter_duration(grp, kind)
@@ -264,6 +302,12 @@ class _View:
                 self.used[f"{concept}@{end:%Y-%m-%d}"] = val
                 return val
         return None
+
+    def any_value(self, concepts: Iterable[str], end: pd.Timestamp) -> bool:
+        return any(end in self._by.get(c, {}) for c in concepts)
+
+    def any_positive(self, concepts: Iterable[str], end: pd.Timestamp) -> bool:
+        return any(self._by.get(c, {}).get(end, 0.0) > 0 for c in concepts)
 
     def fiscal_ends(self) -> list[pd.Timestamp]:
         return list(self._fiscal_ends)
@@ -328,7 +372,7 @@ def _fmt_vs(value: float, threshold: float, dp: int) -> tuple[str, str]:
     return vtext, f"{threshold:.{dp}f}"
 
 
-def _debt(v: _View, e: pd.Timestamp | None) -> float | None:
+def _debt_primary(v: _View, e: pd.Timestamp) -> float | None:
     total = v.get(DEBT_TOTAL, e)
     if total is None:
         noncurrent = v.get(("LongTermDebtNoncurrent",), e)
@@ -337,6 +381,56 @@ def _debt(v: _View, e: pd.Timestamp | None) -> float | None:
             return None
         total = noncurrent + current
     return total + (v.get(("ShortTermBorrowings",), e) or 0.0)
+
+
+def _debt_fallback(v: _View, e: pd.Timestamp) -> float | None:
+    """Run 5 fallbacks, tried after the primary chain: total incl. current maturities; else
+    noncurrent + one current part; else the combined short + long total. DebtCurrent already
+    includes short-term borrowings, so those are added only with the other current parts."""
+    short = v.get(("ShortTermBorrowings",), e) or 0.0
+    total = v.get(DEBT_INCL_CURRENT, e)
+    if total is not None:
+        return total + short
+    noncurrent = v.get(DEBT_NONCURRENT_ALT, e)
+    if noncurrent is not None:
+        for tag in DEBT_CURRENT_ALT:
+            current = v.get((tag,), e)
+            if current is not None:
+                return noncurrent + current + (0.0 if tag == "DebtCurrent" else short)
+    combined = v.get(DEBT_COMBINED, e)
+    if combined is not None:
+        return combined
+    return _debt_convertible(v, e, short)
+
+
+def _debt_convertible(v: _View, e: pd.Timestamp, short: float) -> float | None:
+    """Fallback (d): convertible-only filers; the noncurrent convertible is required."""
+    noncurrent = v.get(CONVERTIBLE_NONCURRENT, e)
+    if noncurrent is None:
+        return None
+    return noncurrent + (v.get(CONVERTIBLE_CURRENT, e) or 0.0) + short
+
+
+def _untagged_no_debt(v: _View, e: pd.Timestamp) -> bool:
+    """Rule 3: a real balance sheet, no debt-family value, and no positive interest expense."""
+    return (
+        not v.any_value(DEBT_FAMILY, e)
+        and v.any_value(("Assets",), e)
+        and v.any_value(("Liabilities",), e)
+        and not v.any_positive(INTEREST, e)
+    )
+
+
+def _debt(v: _View, e: pd.Timestamp | None) -> float | None:
+    if e is None:
+        return None
+    debt = _debt_primary(v, e)
+    if debt is None:
+        debt = _debt_fallback(v, e)
+    if debt is None and _untagged_no_debt(v, e):
+        v.untagged_no_debt.add(e)
+        return 0.0
+    return debt
 
 
 def _cash(v: _View, e: pd.Timestamp | None) -> float | None:
@@ -650,8 +744,10 @@ def fragility_as_of(
         return CompanyResult(ticker, INSUFFICIENT, measures, sic=sic, note=note)
     measures = {k: _MEASURE_FUNCS[k](view, ends, cfg) for k in MEASURE_KEYS}
     cls, note = classify(measures, cfg), ""
+    if ends[0] in view.untagged_no_debt:
+        note = NO_DEBT_NOTE
     if sic is None:
-        cls, note = INSUFFICIENT, "industry unknown"
+        cls, note = INSUFFICIENT, "; ".join(n for n in (note, "industry unknown") if n)
     return CompanyResult(ticker, cls, measures, ends[0], sic, note, dict(view.used))
 
 

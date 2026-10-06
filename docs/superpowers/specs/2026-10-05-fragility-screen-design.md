@@ -85,10 +85,13 @@ Shared definitions:
 - Debt = `LongTermDebt` (total, includes current portion); else
   `LongTermDebtNoncurrent` + `LongTermDebtCurrent`; (+ `ShortTermBorrowings`
   when reported). Finance/operating leases are excluded (inconsistent tagging).
+  Amended run 5: further fallbacks (a)-(d), including convertible-only
+  filers (d, added after an audit found DASH/PANW misread as no-debt), and an
+  untagged no-debt rule, see Amendments 2026-10-05 (run 5).
 - Cash = `CashAndCashEquivalentsAtCarryingValue` + `ShortTermInvestments` (or
   `MarketableSecuritiesCurrent`) when tagged, else cash alone.
 - Interest expense = `InterestExpense`; else `InterestExpenseDebt`; else
-  `InterestAndDebtExpense`.
+  `InterestAndDebtExpense`; else `InterestExpenseNonoperating` (amended run 5).
 - EBIT = `OperatingIncomeLoss`; else
   `IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest`
   + interest expense.
@@ -338,3 +341,35 @@ trailing-four-quarter measures, any PLAN.md amendment.
 - **Motivation.** In run 3, FIX (net cash) was WATCH on a +4.3 pp rate-trend
   breach. The effective rate on a tiny debt balance is noise.
 - Config sha256 changes with this amendment.
+
+### 2026-10-05 — run 5 (debt tag fallbacks, untagged no-debt rule)
+
+- **Interest expense.** `InterestExpenseNonoperating` is appended as the last
+  fallback.
+- **Debt fallbacks**, tried in order only when the primary chain (`LongTermDebt`;
+  else `LongTermDebtNoncurrent` + `LongTermDebtCurrent`; + `ShortTermBorrowings`)
+  gives nothing:
+  (a) `LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities`
+  + `ShortTermBorrowings`; (b) `LongTermDebtAndCapitalLeaseObligations` + the
+  first available of `LongTermDebtAndCapitalLeaseObligationsCurrent`,
+  `LongTermDebtCurrent`, `DebtCurrent` (+ `ShortTermBorrowings`, except with
+  `DebtCurrent`, which already includes it); (c)
+  `DebtLongtermAndShorttermCombinedAmount`; (d) convertible-only filers: the
+  first available noncurrent of `ConvertibleDebtNoncurrent`,
+  `ConvertibleLongTermNotesPayable`, `ConvertibleNotesPayable` (required) + the
+  first available current of `ConvertibleDebtCurrent`,
+  `ConvertibleNotesPayableCurrent` (optional) + `ShortTermBorrowings`
+  (optional). (d) is a strict fallback: used only when the primary chain and
+  (a)-(c) all fail.
+- **Untagged no-debt rule.** A fiscal year end with no debt-family value at all
+  (`DEBT_FAMILY` in `src/qrl/fragility.py`), a real balance sheet (`Assets` and
+  `Liabilities` present) and no positive interest expense in any interest tag
+  is treated as no debt, with the note "no debt tag; treated as no debt".
+- **Audit correction.** `DEBT_FAMILY` gained `ConvertibleLongTermNotesPayable`,
+  `ConvertibleDebtNoncurrent`, `ConvertibleDebtCurrent` and
+  `ConvertibleNotesPayableCurrent` (with fallback (d)) after an audit found
+  DASH (`ConvertibleLongTermNotesPayable` 2.724B at 2025-12-31) and PANW
+  (`ConvertibleDebtNoncurrent` 1.774B at 2026-07-31) misread as no-debt: their
+  only debt is convertible notes under tags that were not listed.
+- Paid-cash and "costs incurred" interest tags are different concepts and are
+  not used.

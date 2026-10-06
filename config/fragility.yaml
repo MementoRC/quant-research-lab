@@ -5,6 +5,7 @@
 # any result; nobody tunes them after a look. Its sha256 is recorded in every report.
 # Amendment 2026-10-05 (owner, after seeing run 2): breach_to_fragile 1 -> 2; see spec ## Amendments.
 # Amendment 2026-10-05 (owner, after seeing run 3): rate-trend check skipped when net debt <= 5% of assets; see spec ## Amendments.
+# Amendment 2026-10-05 (owner, after run 4): XBRL tag fallbacks and untagged no-debt rule (no threshold change); see spec ## Amendments.
 version: 1
 date: "2026-10-05"
 decided_by: owner
