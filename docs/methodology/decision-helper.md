@@ -113,7 +113,7 @@ other than gold. The report states this.
 - The withdrawal is the annual rate / 12 times the starting value, raised
   each January by the year-over-year change in the latest CPI usable on
   1 January under the publication lag below.
-- CPI: FRED `CPIAUCNSA` (not seasonally adjusted; unlike CPIAUCSL it is not
+- CPI: FRED `CPIAUCNS` (not seasonally adjusted; unlike CPIAUCSL it is not
   revised, so the downloaded values are the first-release values). Added
   as a new entry in `config/macro.yaml` with a lag: month M's index is
   usable from the last day of month M+1 (it is published mid-month M+1).
@@ -158,7 +158,7 @@ Stress cells use the stress module unchanged; its replay calls the engine
 without an explicit `cost_bps`, so the engine's default 5 bps applies,
 while withdrawal paths use `criteria.yaml`'s `cost_bps`. The report states
 both. RSP is added to the price cache, and
-CPIAUCNSA to `config/macro.yaml` (neither file is locked or hash-bound).
+CPIAUCNS to `config/macro.yaml` (neither file is locked or hash-bound).
 No locked file (`engine.py`, `metrics.py`, `periods.py`, `checks.py`,
 `criteria.yaml`, `combined*.yaml`, `paper.yaml`, `factor.yaml`) and no
 hash-bound config (`core_candidates.yaml`, `core_shortlist.yaml`,

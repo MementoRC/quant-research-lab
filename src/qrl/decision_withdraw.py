@@ -1,7 +1,7 @@
 """Withdrawal paths for the decision helper (spec:
 docs/methodology/decision-helper.md, "Withdrawals"). Every value is a
 fraction of the starting value (the report prints percentages only). `cpi`
-is the CPIAUCNSA series indexed by AVAILABILITY date (`qrl.macro`'s
+is the CPIAUCNS series indexed by AVAILABILITY date (`qrl.macro`'s
 `month_ends` lag: month M is usable from the last day of month M+1), so no
 value is used before it was published.
 """
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-CPI_SERIES = "CPIAUCNSA"
+CPI_SERIES = "CPIAUCNS"
 MAX_CPI_AGE = pd.Timedelta(days=45)  # monthly series: an older latest value means a gap
 
 

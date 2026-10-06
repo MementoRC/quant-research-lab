@@ -54,7 +54,7 @@ series:
       # before that close, but the extra day guards against holiday-shifted
       # release calendars.
 
-  CPIAUCNSA:
+  CPIAUCNS:
     description: Consumer Price Index for All Urban Consumers, all items, not seasonally adjusted (index 1982-84=100)
     frequency: monthly
     lag:

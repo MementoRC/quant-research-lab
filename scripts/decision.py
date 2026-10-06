@@ -54,14 +54,16 @@ def main(argv: list[str] | None = None) -> int:
             # the loader drops tickers it cannot fetch
             print(f"refused: no price data for: {missing}")
             return 1
+        # refresh=False: the cache is shared; only an uncached series is fetched, and
+        # the 2018-12-31 cut makes newer values moot
         cpi = load_macro(
             ids=[CPI_SERIES],
-            refresh=True,
+            refresh=False,
             cache_dir=ROOT / "data" / "cache",
             config_path=ROOT / "config" / "macro.yaml",
         )[CPI_SERIES]
         report = run_decision(cfg, data, cpi, criteria, stress_hash)
-    except ValueError as exc:  # a spec refusal (config or run): nothing is written
+    except (ValueError, RuntimeError) as exc:  # spec refusal or failed download: nothing written
         print(f"refused: {exc}")
         return 1
     markdown = render_markdown(report)

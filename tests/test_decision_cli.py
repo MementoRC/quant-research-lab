@@ -161,6 +161,18 @@ def test_decision_main_refuses_when_loading_criteria_fails(tmp_path, monkeypatch
     assert not out.exists()
 
 
+def test_decision_main_refuses_when_a_download_fails(tmp_path, monkeypatch, capsys):
+    def boom(**kwargs):
+        raise RuntimeError("Failed to fetch X")
+
+    monkeypatch.setattr(cli, "load_ohlcv", _fake_ohlcv())
+    monkeypatch.setattr(cli, "load_macro", boom)
+    out = tmp_path / "decision.md"
+    assert cli.main(["--config", str(_quick_config(tmp_path)), "--out-md", str(out)]) == 1
+    assert capsys.readouterr().out.startswith("refused: ")
+    assert not out.exists()
+
+
 def test_decision_main_reports_a_refusal(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_ohlcv", _fake_ohlcv())
     monkeypatch.setattr(cli, "load_macro", _fake_macro(cpi().loc[:"2005-06-30"]))

@@ -82,4 +82,4 @@ def cpi(
     FRED does) is usable from the last day of month M+1."""
     obs = pd.date_range(start, end, freq="MS")
     values = 100.0 * (1.0 + monthly_growth) ** np.arange(len(obs))
-    return pd.Series(values, index=obs + pd.offsets.MonthEnd(2), name="CPIAUCNSA")
+    return pd.Series(values, index=obs + pd.offsets.MonthEnd(2), name="CPIAUCNS")
