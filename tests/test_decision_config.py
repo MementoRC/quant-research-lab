@@ -3,6 +3,8 @@ Offline. Spec: docs/methodology/decision-helper.md."""
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 from decision_helpers import (
     CANDIDATES,
@@ -101,7 +103,7 @@ def test_decision_config_loads_good(tmp_path):
     assert [p.id for p in cfg.portfolios] == [*"ABCDEFG", "CASH", "G-EW", "AG", "G-CASH", "A-CASH"]
     assert cfg.candidate_count == 7
     assert cfg.candidates_sha256 == CANDIDATES_SHA
-    assert len(cfg.sha256) == 64
+    assert cfg.sha256 == hashlib.sha256((tmp_path / "decision.yaml").read_bytes()).hexdigest()
     assert [w.name for w in cfg.windows] == ["dotcom_2000", "gfc_2008"]
     assert [s.name for s in cfg.scenarios] == [
         "treasury_dollar_crisis",
@@ -114,6 +116,18 @@ def test_decision_config_loads_good(tmp_path):
     by_id = {p.id: p for p in cfg.portfolios}
     assert [(c.id, s) for c, s in by_id["A-CASH"].parts] == [("A", 0.5), ("CASH", 0.5)]
     assert [(c.id, s) for c, s in by_id["G-CASH"].parts] == [("G", 0.5), ("CASH", 0.5)]
+
+
+def test_decision_config_hash_changes_when_yaml_is_edited(tmp_path):
+    first = load(tmp_path).sha256
+    second = load(tmp_path, GOOD + "# edited\n").sha256
+    assert first != second
+    assert second == hashlib.sha256((tmp_path / "decision.yaml").read_bytes()).hexdigest()
+
+
+def test_decision_config_refuses_inflation_at_or_below_minus_one(tmp_path):
+    with pytest.raises(ValueError, match="above -1"):
+        load(tmp_path, GOOD.replace("inflation: 0.08", "inflation: -1.0"))
 
 
 def test_decision_config_refuses_candidates_sha_mismatch(tmp_path):
