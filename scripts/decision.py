@@ -38,18 +38,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-md", default=str(ROOT / "research" / "decision.md"))
     args = ap.parse_args(argv)
 
-    criteria, _ = load_criteria(ROOT / "config" / "criteria.yaml")
-    holdout_start, _ = period_bounds(criteria, "holdout")
-    stress_cfg, stress_hash = load_stress_config(ROOT / "config" / "stress.yaml", holdout_start)
     try:
+        criteria, _ = load_criteria(ROOT / "config" / "criteria.yaml")
+        holdout_start, _ = period_bounds(criteria, "holdout")
+        stress_cfg, stress_hash = load_stress_config(ROOT / "config" / "stress.yaml", holdout_start)
         cfg = load_decision_config(
             args.config, ROOT / "config" / "core_candidates.yaml", stress_cfg, data_end(criteria)
         )
         tickers = sorted({EQUITY_PROXY} | {t for p in cfg.portfolios for t in portfolio_tickers(p)})
-        data = load_ohlcv(tickers, refresh=True)  # caches every ticker, RSP included
+        data = load_ohlcv(tickers, refresh=True, cache_dir=ROOT / "data" / "cache")
         missing = [t for t in tickers if t not in data["close"].columns]
         if missing:
-            print(f"no price data for: {missing}")  # the loader drops tickers it cannot fetch
+            # the loader drops tickers it cannot fetch
+            print(f"refused: no price data for: {missing}")
             return 1
         cpi = load_macro(
             ids=[CPI_SERIES],
@@ -64,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     markdown = render_markdown(report)
     out = Path(args.out_md)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(markdown)
+    out.write_text(markdown, encoding="utf-8")
     print(markdown)
     print(f"Wrote {out}")
     return 0

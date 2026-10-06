@@ -96,7 +96,8 @@ cli = _load_cli()
 
 
 def _fake_ohlcv(drop: str | None = None):
-    def fake(tickers, refresh=False):
+    def fake(tickers, refresh=False, cache_dir=None):
+        assert cache_dir == ROOT / "data" / "cache"
         open_, close = synthetic_prices(tickers, start="1999-01-01", end="2021-12-31")
         if drop is not None:
             open_, close = open_.drop(columns=drop), close.drop(columns=drop)
@@ -133,7 +134,30 @@ def test_decision_main_fails_on_missing_ticker(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_macro", _fake_macro(cpi()))
     out = tmp_path / "decision.md"
     assert cli.main(["--config", str(_quick_config(tmp_path)), "--out-md", str(out)]) == 1
-    assert "RSP" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert printed.startswith("refused: ")
+    assert "RSP" in printed
+    assert not out.exists()
+
+
+def test_decision_main_refuses_a_bad_config(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "load_ohlcv", _fake_ohlcv())
+    monkeypatch.setattr(cli, "load_macro", _fake_macro(cpi()))
+    bad = write(tmp_path, GOOD.replace("1a84847e", "00000000", 1))
+    out = tmp_path / "decision.md"
+    assert cli.main(["--config", str(bad), "--out-md", str(out)]) == 1
+    assert capsys.readouterr().out.startswith("refused: ")
+    assert not out.exists()
+
+
+def test_decision_main_refuses_when_loading_criteria_fails(tmp_path, monkeypatch, capsys):
+    def boom(path):
+        raise ValueError("criteria broken")
+
+    monkeypatch.setattr(cli, "load_criteria", boom)
+    out = tmp_path / "decision.md"
+    assert cli.main(["--config", str(_quick_config(tmp_path)), "--out-md", str(out)]) == 1
+    assert capsys.readouterr().out == "refused: criteria broken\n"
     assert not out.exists()
 
 
