@@ -8,8 +8,15 @@ import pandas as pd
 import pytest
 from decision_helpers import END, criteria, load, prices
 
-from qrl.decision import data_end, portfolio_tickers, portfolio_weights
-from qrl.decision_config import Portfolio
+from qrl.decision import (
+    data_end,
+    portfolio_tickers,
+    portfolio_weights,
+    real_return,
+    scenario_return,
+    scenario_rows,
+)
+from qrl.decision_config import Portfolio, Scenario
 
 
 def test_decision_data_end_is_research_end():
@@ -92,3 +99,55 @@ def test_decision_nan_part_makes_the_whole_row_nan(tmp_path):
     w = portfolio_weights(by_id["A-CASH"], close)
     assert w.loc[day].isna().all()  # never zero-filled into cash
     assert w.drop(index=day).loc["2006":].notna().all(axis=None)
+
+
+TWO_FUND = Scenario("s", "judgement-based, v1", {"SPY": -0.25, "SHY": 0.01}, 0.08)
+
+
+def test_decision_scenario_arithmetic_two_fund_hand_checked():
+    r = scenario_return({"SPY": 0.6, "SHY": 0.4}, TWO_FUND)
+    assert r == pytest.approx(-0.146)  # 0.6 x -25% + 0.4 x +1%
+    assert real_return(r, TWO_FUND.inflation) == pytest.approx(0.854 / 1.08 - 1)  # -20.93%
+
+
+def test_decision_scenario_rows_both_states_and_worse(tmp_path):
+    cfg = load(tmp_path)
+    rows = scenario_rows(cfg.portfolios, cfg.scenarios)
+    assert len(rows) == 12 * 3
+
+    def row(pid: str, scenario: str) -> dict:
+        return next(r for r in rows if r["portfolio"] == pid and r["scenario"] == scenario)
+
+    a = row("A", "treasury_dollar_crisis")
+    assert set(a["states"]) == {"risk_on", "risk_off"}
+    assert a["states"]["risk_on"]["nominal_loss"] == pytest.approx(0.30)  # QQQ -30%
+    assert a["states"]["risk_off"]["nominal_loss"] == pytest.approx(-0.25)  # GLD +25% (a gain)
+    assert a["states"]["risk_on"]["real_loss"] == pytest.approx(1 - 0.70 / 1.08)
+    assert a["states"]["risk_off"]["real_loss"] == pytest.approx(1 - 1.25 / 1.08)
+    assert a["worst"] == "risk_on"
+    assert a["label"] == "judgement-based, v1"
+    d = row("D", "ai_megacap_crash")
+    assert list(d["states"]) == ["static"]
+    assert d["states"]["static"]["nominal_loss"] == pytest.approx(0.156)  # 0.6 x -30% + 0.4 x +6%
+    assert d["states"]["static"]["real_loss"] == pytest.approx(1 - 0.844 / 1.02)
+    assert d["worst"] == "static"
+    ac = row("A-CASH", "ai_megacap_crash")
+    assert set(ac["states"]) == {"risk_on", "risk_off"}
+    assert ac["states"]["risk_on"]["nominal_loss"] == pytest.approx(0.21)  # 0.5 x -45% + 0.5 x +3%
+    assert ac["states"]["risk_off"]["nominal_loss"] == pytest.approx(-0.04)  # 0.5 x +5% + 0.5 x +3%
+    assert ac["states"]["risk_on"]["real_loss"] == pytest.approx(1 - 0.79 / 1.02)
+    assert ac["worst"] == "risk_on"
+    cash = row("CASH", "trade_oil_shock")
+    assert cash["states"]["static"]["nominal_loss"] == pytest.approx(-0.02)
+    assert cash["states"]["static"]["real_loss"] == pytest.approx(1 - 1.02 / 1.07)
+
+
+def test_decision_worse_state_is_the_lower_return_when_risk_off_is_worse(tmp_path):
+    cfg = load(tmp_path)
+    # Hand-built: in this scenario GLD falls 10% and QQQ rises 5%, so A's risk_off is worse.
+    s = Scenario("flip", "judgement-based, v1", {"QQQ": 0.05, "GLD": -0.10}, 0.0)
+    a = next(p for p in cfg.portfolios if p.id == "A")
+    (row,) = scenario_rows([a], [s])
+    assert row["states"]["risk_on"]["nominal_loss"] == pytest.approx(-0.05)
+    assert row["states"]["risk_off"]["nominal_loss"] == pytest.approx(0.10)
+    assert row["worst"] == "risk_off"
