@@ -259,6 +259,39 @@ def year_one_value(ret: float, rate: float, inflation: float) -> tuple[float, fl
     return nominal, nominal / (1 + inflation)
 
 
+def run_decision(
+    cfg: DecisionConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+    stress_sha256: str,
+) -> dict:
+    """The whole report as plain data (rendered by `qrl.decision_report`).
+    Raises ValueError on any refusal (spec "Refusals")."""
+    return {
+        "data_end": str(data_end(criteria).date()),
+        "decision_sha256": cfg.sha256,
+        "candidates_sha256": cfg.candidates_sha256,
+        "stress_sha256": stress_sha256,
+        "candidate_count": cfg.candidate_count,
+        "cost_bps": float(criteria["costs"]["bps_per_unit_turnover"]),
+        "proxied_threshold": cfg.proxied_threshold,
+        "rates": cfg.rates,
+        "start_years": cfg.start_years,
+        "portfolios": [
+            {"id": p.id, "label": p.label, "states": portfolio_states(p)} for p in cfg.portfolios
+        ],
+        "scenarios": [
+            {"name": s.name, "label": s.label, "returns": s.returns, "inflation": s.inflation}
+            for s in cfg.scenarios
+        ],
+        "windows": stress_rows(cfg, data, criteria),
+        "scenario_rows": scenario_rows(cfg.portfolios, cfg.scenarios),
+        "withdrawals": withdrawal_rows(cfg, data, cpi, criteria),
+        "year_one": year_one_rows(cfg.portfolios, cfg.scenarios, cfg.rates),
+    }
+
+
 def year_one_rows(
     portfolios: list[Portfolio], scenarios: list[Scenario], rates: list[float]
 ) -> list[dict]:
