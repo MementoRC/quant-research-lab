@@ -34,7 +34,7 @@ none of this is stored):
 - Concurrent writers to the same run during an invocation would break the
   contiguity assumption; it is reported as "unknown"/integrity diffs, never
   guessed.
-- Standalone runs only: a run seeded with the combined pass rule (PLAN.md
+- Standalone runs only: a run seeded with the combined pass rule (milestone
   2.5, amendment 2026-10-01) is refused with exit 2.
 
 Usage:

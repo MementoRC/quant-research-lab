@@ -1,4 +1,4 @@
-"""Tests for milestone 3.1: qrl.risk (PLAN.md section 3.1).
+"""Tests for milestone 3.1: qrl.risk (milestone 3.1).
 
 Owner decision, 2026-09-24: no leverage. Covers `load_risk_limits`
 validation, `check_gross_exposure` (combined-frame cap),

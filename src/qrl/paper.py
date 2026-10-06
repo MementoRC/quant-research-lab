@@ -1,4 +1,4 @@
-"""Forward-only paper tracking of pre-registered candidates (PLAN.md 3.2,
+"""Forward-only paper tracking of pre-registered candidates (milestone 3.2,
 amendment 2026-10-02).
 
 The rule lives in `config/paper.yaml` and is fixed for the whole track. Each

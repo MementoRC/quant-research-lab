@@ -1,12 +1,12 @@
 """Milestone 2.7: combine a core strategy and the selected sleeve into one
-target-weight portfolio (PLAN.md section 2.7), using the profile's capital
+target-weight portfolio (milestone 2.7), using the profile's capital
 split (`config/profile.yaml`'s `capital_split`). Sleeve strategies are
 equal-weighted within the sleeve's own capital share.
 
 This module only combines already-computed weight FRAMES into one portfolio
 and validates `config/portfolio.yaml`'s shape. Turning those frames into
 prices, backtests, and dashboard figures -- including the holdout-unsealing
-gate by entry kind (research rules, PLAN.md section 3) -- is the caller's job;
+gate by entry kind (research rules) -- is the caller's job;
 see `scripts/build_site.py`.
 """
 

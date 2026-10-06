@@ -1,8 +1,8 @@
 """Milestone 2.6 walk-forward sleeve-selection CLI: grid-search meta-settings
 and walk the sleeve forward, over RESEARCH + VALIDATION dates only (never
 the holdout -- see `qrl.holdout` for the one guarded, one-shot exception).
-See `qrl.walkforward` for the exact selection/eviction/stitching rules and
-PLAN.md section 2.6.
+See `qrl.walkforward` for the exact selection/eviction/stitching rules
+(milestone 2.6).
 
 Usage:
     python scripts/walkforward.py tune --run 1 --synthetic
@@ -34,7 +34,7 @@ from qrl.walkforward import tune_meta, walk_forward  # noqa: E402
 
 DEFAULT_UNIVERSE_TICKERS = ("QQQ", "GLD", "TLT")
 
-# A small default grid: enough to demonstrate every meta knob PLAN.md 2.6
+# A small default grid: enough to demonstrate every meta knob milestone 2.6
 # names (sleeve size, lookback, reselection frequency, eviction multiples)
 # without an unattended run taking long. `--search-space` overrides it.
 DEFAULT_META_SEARCH_SPACE: dict[str, list] = {

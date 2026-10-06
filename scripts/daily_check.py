@@ -1,5 +1,5 @@
 """Milestone 3.2's DAILY health check: data arrived, signals computed, no
-errors, and risk-cap compliance (PLAN.md section 3.2). Wires the real
+errors, and risk-cap compliance (milestone 3.2). Wires the real
 universe, prices, chosen portfolio, and risk limits into
 `qrl.health.run_daily_health`, then writes a JSON report to `reports/`.
 
@@ -9,7 +9,7 @@ its exact position weight VERBATIM (see `qrl.health.HealthReport.to_dict`'s
 docstring). That is intentional -- an on-call operator needs the real
 weight -- but it means this file must stay under `reports/` (gitignored)
 and must NEVER be wired into `scripts/build_site.py` or any other public
-`site/` output (PLAN.md 3.4). See the comment at the write call below.
+`site/` output. See the comment at the write call below.
 
 All check logic lives in `qrl.health`; this script does IO, wiring, and
 formatting only.
@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     # other public site/ output. report.to_dict()'s check details MAY embed
     # ticker symbols and exact position weights verbatim when a risk cap is
     # breached (see qrl.health.HealthReport.to_dict's docstring); this file
-    # must stay under reports/ and gitignored (PLAN.md 3.4).
+    # must stay under reports/ and gitignored.
     warnings_ = _stress_warnings()
     out.write_text(
         json.dumps({**report.to_dict(), "stress_warnings": warnings_}, indent=2, default=str)

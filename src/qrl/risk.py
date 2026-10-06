@@ -1,5 +1,5 @@
 """Risk limits: no-leverage sizing caps, scoped to the frame each cap was
-actually derived against (PLAN.md section 3.1).
+actually derived against (milestone 3.1).
 
 Owner decision, 2026-09-24: NO LEVERAGE. `src/qrl/engine.py:63-64` already
 raises if any weight row sums above 1.0, so `leverage_ceiling` and

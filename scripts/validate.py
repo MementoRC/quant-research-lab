@@ -2,7 +2,7 @@
 through the neighbourhood check, one validation-period evaluation, the
 deflated Sharpe ratio, and the correlation filter, then print the funnel and
 a per-candidate outcome. See `qrl.validation.validate_survivors` for the
-exact protocol and PLAN.md section 2.5 for why each check exists.
+exact protocol and milestone 2.5 for why each check exists.
 
 Usage:
     python scripts/validate.py --run 1 --synthetic

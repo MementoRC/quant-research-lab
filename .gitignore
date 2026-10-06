@@ -10,7 +10,8 @@ config/sec.local.yaml
 .pytest_cache/
 .claude/
 .mcp.json
-# local agent/tooling files (not part of the project)
+# local working files (not part of the project)
+PLAN.md
 CLAUDE.md
 AGENTS.md
 docs/superpowers/

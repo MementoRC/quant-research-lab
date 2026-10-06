@@ -21,12 +21,12 @@ must match it, or the ledger refuses to continue -- see
 `qrl.ledger.data_source_fingerprint` and `Ledger.check_data_source`.
 
 `seed --pass-rule combined` (default `standalone`) pre-registers the combined
-pass rule for the run (PLAN.md 2.5, amendment 2026-10-01; `qrl.combined`):
+pass rule for the run (milestone 2.5, amendment 2026-10-01; `qrl.combined`):
 candidates are graded by whether they improve core + sleeve over the core
 alone, and every later `batch` refuses if `config/combined.yaml`, the
 profile's capital split, or the portfolio's core has changed since seeding.
 
-`seed --pass-rule combined_null` (PLAN.md 2.5, amendment 2026-10-02, run 5)
+`seed --pass-rule combined_null` (milestone 2.5, amendment 2026-10-02, run 5)
 pre-registers the "beat the null" rule: same, but graded against core + the
 equal-weight null sleeve over the run's universe, with thresholds in
 `config/combined_null.yaml` (the default `--combined-config` for such runs).
@@ -528,7 +528,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # sha256; families default to its list, the universe is its PIT universe
     # (--universe is ignored) and the research start is its research_start.
     p_seed.add_argument("--factor-config", default=None)
-    # Pre-registered per run (PLAN.md 2.5 amendment 2026-10-01): 'combined'
+    # Pre-registered per run (milestone 2.5 amendment 2026-10-01): 'combined'
     # binds config/combined.yaml + the capital split + the core spec by hash;
     # 'combined_null' (amendment 2026-10-02, run 5) the same with combined_null.yaml.
     p_seed.add_argument("--pass-rule", choices=PASS_RULES, default="standalone")

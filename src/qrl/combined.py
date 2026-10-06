@@ -1,4 +1,4 @@
-"""The pre-registered "combined" pass rule (PLAN.md 2.5, amendment
+"""The pre-registered "combined" pass rule (milestone 2.5, amendment
 2026-10-01): a sleeve candidate passes if adding it as the sleeve share of the
 profile's capital split, next to the configured core, improves the combined
 portfolio relative to the core alone at 100% of capital.
@@ -261,7 +261,7 @@ def null_baseline_sleeve(
 
     `membership` (a `qrl.pit_universe` long table; factor runs only) makes it
     the equal weight of each day's point-in-time members among `tickers` --
-    the factor-run reading of "the same universe" (PLAN.md Phase 4)."""
+    the factor-run reading of "the same universe" (Phase 4)."""
     cols = list(tickers)
     mask = None if membership is None else membership_mask(membership, close.index, cols)
     weights = null_sleeve_weights(close, cols, "equal_weight", member_mask=mask)

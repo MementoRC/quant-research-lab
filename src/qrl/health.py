@@ -1,4 +1,4 @@
-"""Milestone 3.2's DAILY health checks (PLAN.md section 3.2), and ONLY the
+"""Milestone 3.2's DAILY health checks (milestone 3.2), and ONLY the
 daily half: "data arrived, signals computed, no errors" (plus risk-cap
 compliance, which the owner decided should be its own failing check rather
 than folded into "no errors").
@@ -92,7 +92,7 @@ class HealthReport:
         stripping it would make the monitor worse. The consequence is that
         this dict, and the `reports/daily_health.json` file built from it,
         is PRIVATE -- gitignored -- and must NEVER be published to `site/`
-        or any other public dashboard (PLAN.md 3.4). Only the ABSENCE of a
+        or any other public dashboard. Only the ABSENCE of a
         risk-cap breach keeps this particular output free of position data.
         """
         return {

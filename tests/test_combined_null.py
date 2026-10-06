@@ -1,4 +1,4 @@
-"""Tests for the combined_null ("beat the null") pass rule (PLAN.md 2.5,
+"""Tests for the combined_null ("beat the null") pass rule (milestone 2.5,
 amendment 2026-10-02, run 5): config + hash binding, the null-combined
 baseline, the ledger guard, and the scripts' wiring. Offline, synthetic data,
 tmp ledgers only."""
