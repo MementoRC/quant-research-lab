@@ -1107,3 +1107,140 @@ def test_plain_coverage_breach_keeps_one_decimal(cfg):
 )
 def test_fmt_vs(value, threshold, dp, expected):
     assert fr._fmt_vs(value, threshold, dp) == expected
+
+
+# --------------------------------------------------------------------------- run 5 amendment
+
+NONOP = "InterestExpenseNonoperating"
+LTD_INCL = "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities"
+LTD_NC = "LongTermDebtAndCapitalLeaseObligations"
+LTD_CUR = "LongTermDebtAndCapitalLeaseObligationsCurrent"
+
+
+def _nd(facts, cfg):
+    return run(facts, cfg).measures["net_debt_fcf"]
+
+
+def test_interest_nonoperating_is_the_last_fallback(cfg):
+    f = make_facts(drop=("InterestExpense",), latest={NONOP: 25})
+    assert run(f, cfg).measures["coverage"].value == pytest.approx(4.0)
+    both = make_facts(drop=("InterestExpense",), latest={"InterestAndDebtExpense": 20, NONOP: 25})
+    assert run(both, cfg).measures["coverage"].value == pytest.approx(5.0)
+
+
+@pytest.mark.parametrize(
+    ("latest", "debt"),
+    [
+        ({LTD_INCL: 230, "ShortTermBorrowings": 10}, 240),  # a: total + short-term
+        ({LTD_NC: 200, LTD_CUR: 20, "ShortTermBorrowings": 10}, 230),  # b: first current part
+        ({LTD_NC: 200, "LongTermDebtCurrent": 20, "ShortTermBorrowings": 10}, 230),
+        ({LTD_NC: 200, LTD_CUR: 20, "LongTermDebtCurrent": 99}, 220),  # order of current parts
+        ({LTD_NC: 200, "DebtCurrent": 30, "ShortTermBorrowings": 10}, 230),  # no double count
+        ({"DebtLongtermAndShorttermCombinedAmount": 250, "ShortTermBorrowings": 10}, 250),  # c
+    ],
+)
+def test_debt_fallbacks(cfg, latest, debt):
+    m = _nd(make_facts(drop=("LongTermDebt",), latest=latest), cfg)
+    assert m.value == pytest.approx((debt - 100) / 80)
+
+
+def test_debt_fallback_edge_cases(cfg):
+    # the existing chain wins over a fallback
+    assert _nd(make_facts(latest={LTD_INCL: 999}), cfg).value == pytest.approx(1.5)
+    # a noncurrent part without any current part is not completed with zero
+    f = make_facts(drop=("LongTermDebt",), latest={LTD_NC: 200})
+    assert _nd(f, cfg).status == "n/a"
+    # total (a) comes before noncurrent + current (b)
+    f = make_facts(drop=("LongTermDebt",), latest={LTD_INCL: 230, LTD_NC: 1, LTD_CUR: 1})
+    assert _nd(f, cfg).value == pytest.approx(130 / 80)
+
+
+def _untagged(**kwargs):
+    return make_facts(drop=("LongTermDebt", "InterestExpense", *kwargs.pop("drop", ())), **kwargs)
+
+
+def test_untagged_no_debt_rule_positive(cfg):
+    res = run(_untagged(), cfg)
+    for key in ("coverage", "net_debt_fcf", "rate_trend"):
+        assert res.measures[key].display == "no debt"
+        assert res.measures[key].status == "ok"
+    assert res.note == fr.NO_DEBT_NOTE == "no debt tag; treated as no debt"
+    assert res.cls == fr.SOUND
+
+
+@pytest.mark.parametrize(
+    "facts",
+    [
+        make_facts(drop=("LongTermDebt",)),  # interest expense > 0
+        _untagged(drop=("Liabilities",)),  # no real balance sheet
+        _untagged(drop=("Assets",)),
+        _untagged(latest={"DebtInstrumentCarryingAmount": 50}),
+        _untagged(latest={"CommercialPaper": 5}),
+        _untagged(latest={LTD_NC: 200}),  # a debt tag is there, just not completable
+    ],
+)
+def test_untagged_no_debt_rule_negative(cfg, facts):
+    res = run(facts, cfg)
+    assert res.measures["net_debt_fcf"].display == "n/a (missing debt)"
+    assert res.note == ""
+
+
+def test_untagged_no_debt_blocked_by_positive_interest_in_any_tag(cfg):
+    f = _untagged(latest={NONOP: 5})
+    assert run(f, cfg).measures["net_debt_fcf"].display == "n/a (missing debt)"
+    assert run(f, cfg).note == ""
+    zero = _untagged(latest={NONOP: 0})  # not > 0: still no debt
+    assert run(zero, cfg).note == fr.NO_DEBT_NOTE
+
+
+def test_explicit_zero_debt_gets_no_untagged_note(cfg):
+    res = run(make_facts(latest={"LongTermDebt": 0, "InterestExpense": 0}), cfg)
+    assert res.note == ""
+
+
+CONV_NC = "ConvertibleLongTermNotesPayable"
+
+
+@pytest.mark.parametrize(
+    ("latest", "debt"),
+    [
+        ({"ConvertibleDebtNoncurrent": 200}, 200),  # d: noncurrent only
+        ({CONV_NC: 200, "ConvertibleDebtCurrent": 20}, 220),  # optional current part
+        ({"ConvertibleNotesPayable": 200, "ConvertibleNotesPayableCurrent": 20}, 220),
+        ({"ConvertibleDebtNoncurrent": 200, CONV_NC: 99}, 200),  # order of noncurrent tags
+        ({CONV_NC: 200, "ConvertibleDebtCurrent": 20, "ConvertibleNotesPayableCurrent": 99}, 220),
+        ({CONV_NC: 200, "ShortTermBorrowings": 10}, 210),
+    ],
+)
+def test_convertible_only_fallback(cfg, latest, debt):
+    f = make_facts(drop=("LongTermDebt", "InterestExpense"), latest=latest)
+    res = run(f, cfg)
+    assert res.measures["net_debt_fcf"].value == pytest.approx((debt - 100) / 80)
+    assert res.note == ""
+
+
+def test_convertible_fallback_is_strict_fallback(cfg):
+    assert _nd(make_facts(latest={CONV_NC: 999}), cfg).value == pytest.approx(1.5)
+    f = make_facts(drop=("LongTermDebt",), latest={LTD_INCL: 230, CONV_NC: 999})
+    assert _nd(f, cfg).value == pytest.approx(130 / 80)
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        CONV_NC,
+        "ConvertibleDebtNoncurrent",
+        "ConvertibleDebtCurrent",
+        "ConvertibleNotesPayableCurrent",
+    ],
+)
+def test_convertible_tag_blocks_untagged_no_debt_rule(cfg, tag):
+    res = run(_untagged(latest={tag: 50}), cfg)
+    assert res.note == ""
+    assert res.measures["net_debt_fcf"].display != "no debt"
+
+
+def test_convertible_current_part_alone_is_not_completed(cfg):
+    res = run(_untagged(latest={"ConvertibleDebtCurrent": 20}), cfg)
+    assert res.measures["net_debt_fcf"].display == "n/a (missing debt)"
+    assert res.note == ""
