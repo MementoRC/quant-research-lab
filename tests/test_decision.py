@@ -444,6 +444,15 @@ def test_decision_withdrawal_rows_refuse_missing_cpi(tmp_path):
         withdrawal_rows(small, prices(), cpi().loc[:"2010-12-31"], criteria())
 
 
+def test_decision_report_carries_the_engine_default_cost():
+    import inspect
+
+    from qrl.engine import run_backtest
+
+    default = inspect.signature(run_backtest).parameters["cost_bps"].default
+    assert decision.engine_default_cost_bps() == float(default)
+
+
 def test_decision_year_one_value_hand_checked():
     nominal, real = year_one_value(-0.146, 0.04, 0.08)
     assert nominal == pytest.approx(1 - 0.146 - 0.04)

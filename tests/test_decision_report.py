@@ -44,6 +44,7 @@ def _hand_report(**over) -> dict:
         "stress_sha256": "e1" * 32,
         "candidate_count": 7,
         "cost_bps": 10.0,
+        "engine_cost_bps": 5.0,
         "proxied_threshold": 0.25,
         "rates": [0.04],
         "start_years": [2005, 2006],
@@ -188,21 +189,61 @@ def test_decision_report_hand_built_cells_render_exactly():
     assert "| X | shock | risk_off | -1.0% | 4.0% |  |" in lines
     withdrawal = next(ln for ln in lines if ln.startswith("| X | 90.0% |"))
     assert withdrawal == "| X | 90.0% | 50.0% | 14.6% | 7 months | no | no | 2006 (80.0%) |"
-    assert "| X | 81.4% / 77.5% |" in lines
+    assert "| X (risk_on) | 81.4% / 77.5% |" in lines
 
 
-def test_decision_report_flag_appears_exactly_above_the_threshold():
-    def flagged(share: float) -> bool:
+def test_decision_report_flag_follows_the_indicative_field_only():
+    def flagged(share: float, indicative: bool) -> bool:
         rep = _hand_report()
         rep["windows"][0]["proxied_share"] = {"equity": share}
-        rep["windows"][0]["indicative"] = False  # the renderer judges from the shares
+        rep["windows"][0]["indicative"] = indicative
         return any(
             ln.startswith("| X | w1") and "mostly proxied, indicative only" in ln
             for ln in render_markdown(rep).splitlines()
         )
 
-    assert not flagged(0.25)
-    assert flagged(0.26)
+    assert flagged(0.0, True)  # flag with no shares: the renderer does not recompute
+    assert not flagged(0.9, False)  # big shares but not indicative: no flag
+
+
+def test_decision_report_engine_cost_note_uses_the_report_value():
+    assert "engine's default of 3 bps" in render_markdown(_hand_report(engine_cost_bps=3.0))
+    assert "5 bps" not in render_markdown(_hand_report(engine_cost_bps=3.0))
+
+
+def test_decision_report_dotcom_note_is_not_repeated():
+    md = render_markdown(_hand_report())
+    assert md.count("RSP, GLD and bonds") <= 1
+
+
+def test_decision_report_year_one_names_the_worse_state_for_switching_only():
+    rep = _hand_report()
+    rep["portfolios"].append({"id": "S", "label": "static", "states": {"static": {"SPY": 1.0}}})
+    rep["year_one"].append(
+        {
+            "portfolio": "S",
+            "scenario": "shock",
+            "state": "static",
+            "rate": 0.04,
+            "nominal": 0.9,
+            "real": 0.85,
+        }
+    )
+    lines = render_markdown(rep).splitlines()
+    assert "| X (risk_on) | 81.4% / 77.5% |" in lines
+    assert "| S | 90.0% / 85.0% |" in lines
+
+
+def test_decision_report_negative_zero_percent_renders_as_zero():
+    rep = _hand_report()
+    rep["scenario_rows"][0]["states"]["risk_off"]["nominal_loss"] = -0.0004
+    assert "| X | shock | risk_off | 0.0% | 4.0% |  |" in render_markdown(rep).splitlines()
+
+
+def test_decision_report_exactly_zero_year_one_is_marked_depleted():
+    rep = _hand_report()
+    rep["year_one"][0] |= {"nominal": 0.0, "real": 0.0}
+    assert "0.0% / 0.0% (depleted within year one)" in render_markdown(rep)
 
 
 def test_decision_report_unrecovered_text_only_for_the_unrecovered_case():

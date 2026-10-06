@@ -9,7 +9,9 @@ from __future__ import annotations
 
 
 def _pct(x: float | None) -> str:
-    return "n/a" if x is None else f"{x + 0.0:.1%}"  # + 0.0 turns -0.0 into 0.0
+    if x is None:
+        return "n/a"
+    return f"{round(x, 3) + 0.0:.1%}"  # round first, then + 0.0 turns -0.0 into 0.0
 
 
 def _mix(mix: dict[str, float]) -> str:
@@ -45,13 +47,14 @@ def _notes(report: dict) -> list[str]:
         "blends look smoother than practice: real rebalancing would be less frequent.",
         f"- Costs differ by table. Withdrawal paths pay {report['cost_bps']:g} bps per unit "
         "of turnover (criteria.yaml cost_bps). Historical-window cells come from `qrl.stress` "
-        "unchanged: replay cells use the engine's default of 5 bps, frozen cells pay none. "
+        f"unchanged: replay cells use the engine's default of {report['engine_cost_bps']:g} bps, "
+        "frozen cells pay none. "
         "Scenario cells are instantaneous and carry no cost.",
         "- Switching portfolios (A, B, C, F and blends holding A) are shown in both states, "
         "risk-on and risk-off, because their current state would need sealed data; the worse "
         "is marked.",
-        "- In the dot-com window (2000) RSP, GLD and bonds are proxied: RSP, GLD and bonds "
-        "did not yet trade, so those cells are indicative only.",
+        "- In the dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet "
+        "trade), so those cells are indicative only.",
         "- Known gap: no portfolio holds an asset that gains from a falling dollar other "
         "than gold.",
         "- Prices are dividend-adjusted, so totals are correct; dividend and interest income "
@@ -79,11 +82,10 @@ def _proxied(shares: dict[str, float]) -> str:
     return ", ".join(f"{cls} {s:.0%}" for cls, s in sorted(shares.items()) if s > 0)
 
 
-def _window_flag(row: dict, threshold: float) -> str:
+def _window_flag(row: dict) -> str:
     if row["unavailable"]:
         return f"unavailable: {row['unavailable']}"
-    mostly = sum(row["proxied_share"].values()) > threshold
-    return "mostly proxied, indicative only" if mostly else ""
+    return "mostly proxied, indicative only" if row["indicative"] else ""
 
 
 def _window_section(report: dict) -> list[str]:
@@ -97,7 +99,7 @@ def _window_section(report: dict) -> list[str]:
     for r in report["windows"]:
         lines.append(
             f"| {r['portfolio']} | {r['window']} | {r['mode']} | {_pct(r['loss'])} | "
-            f"{_proxied(r['proxied_share'])} | {_window_flag(r, threshold)} |"
+            f"{_proxied(r['proxied_share'])} | {_window_flag(r)} |"
         )
     return [
         *lines,
@@ -189,12 +191,13 @@ def _withdrawal_section(report: dict) -> list[str]:
 
 def _year_one_cell(v: dict) -> str:
     cell = f"{_pct(v['nominal'])} / {_pct(v['real'])}"
-    return f"{cell} (depleted within year one)" if v["nominal"] < 0 else cell
+    return f"{cell} (depleted within year one)" if v["nominal"] <= 0 else cell
 
 
 def _year_one_section(report: dict) -> list[str]:
     rates = report["rates"]
     values = {(r["portfolio"], r["scenario"], r["rate"]): r for r in report["year_one"]}
+    switching = {p["id"] for p in report["portfolios"] if len(p["states"]) > 1}
     lines = [
         "## Year-one scenario hit",
         "",
@@ -212,8 +215,9 @@ def _year_one_section(report: dict) -> list[str]:
             "|---|" + "---|" * len(rates),
         ]
         for p in report["portfolios"]:
-            cells = [_year_one_cell(values[(p["id"], s["name"], rate)]) for rate in rates]
-            lines.append(f"| {p['id']} | " + " | ".join(cells) + " |")
+            rows = [values[(p["id"], s["name"], rate)] for rate in rates]
+            name = f"{p['id']} ({rows[0]['state']})" if p["id"] in switching else p["id"]
+            lines.append(f"| {name} | " + " | ".join(_year_one_cell(v) for v in rows) + " |")
         lines.append("")
     return lines
 
