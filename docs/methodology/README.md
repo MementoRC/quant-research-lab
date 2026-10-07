@@ -15,6 +15,9 @@ document itself.
   breaches the max-drawdown cap.
 - [fragility-screen.md](fragility-screen.md) — balance-sheet screen that flags
   listed US companies that look fragile if borrowing stays expensive.
+- [decision-helper.md](decision-helper.md) — decision aid comparing a fixed
+  set of portfolios under historical crashes, judgement-based shocks and
+  inflation-indexed withdrawals.
 
 ## Former paths
 

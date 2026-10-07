@@ -1,0 +1,55 @@
+# PRE-REGISTERED decision-helper configuration (spec:
+# docs/methodology/decision-helper.md; owner-approved design 2026-10-06).
+# Pre-registered on 2026-10-06, fixed before any result was seen. Every report
+# records this file's sha256. After the first `pixi run decision` report,
+# change only via a dated amendment comment here.
+#
+# A-G are read from config/core_candidates.yaml, unchanged; its sha256 is
+# pinned below (the value config/core_shortlist.yaml records) and checked on
+# load. Every portfolio is 100% of capital. Only data up to 2018-12-31 (the
+# research end) are used; the loader refuses any window or start year past it.
+version: 1
+candidates_sha256: "1a84847ed4ae59e81627c420b88f7736357f0bdc0bcb654a945c5d2ad88107e3"
+
+# Static mixes: weights are fractions of capital and must sum to 1.
+static:
+  - {id: CASH, label: "100% SHY", mix: {SHY: 1.0}}
+  - {id: G-EW, label: "25% each RSP / TLT / GLD / SHY", mix: {RSP: 0.25, TLT: 0.25, GLD: 0.25, SHY: 0.25}}
+
+# Blends of A-G and static mixes: daily weights are the share-weighted sum of
+# the parts' weights, so a switching part (A) keeps switching inside a blend.
+blends:
+  - {id: AG, label: "1/2 A + 1/2 G", parts: {A: 0.5, G: 0.5}}
+  - {id: G-CASH, label: "1/2 G + 1/2 CASH", parts: {G: 0.5, CASH: 0.5}}
+  - {id: A-CASH, label: "1/2 A + 1/2 CASH", parts: {A: 0.5, CASH: 0.5}}
+
+# Historical windows, by name, from config/stress.yaml (read, never edited).
+windows: [dotcom_2000, gfc_2008]
+
+# A frozen cell whose total proxied share exceeds this is marked
+# "mostly proxied, indicative only".
+proxied_indicative_above: 0.25
+
+# Judgement-based one-year shocks, v1: a total return for EVERY held fund plus
+# one-year inflation. Judgements, not data. The four class-based stress.yaml
+# hypotheticals are added only after the owner sets their inflation and
+# approves the translated rows (spec, "Judgement-based shocks").
+scenarios:
+  - name: treasury_dollar_crisis
+    label: "judgement-based, v1"
+    returns: {SPY: -0.25, QQQ: -0.30, RSP: -0.22, SHY: 0.01, IEF: -0.12, TLT: -0.30, GLD: 0.25}
+    inflation: 0.08
+  - name: trade_oil_shock
+    label: "judgement-based, v1"
+    returns: {SPY: -0.20, QQQ: -0.25, RSP: -0.18, SHY: 0.02, IEF: -0.06, TLT: -0.15, GLD: 0.10}
+    inflation: 0.07
+  - name: ai_megacap_crash
+    label: "judgement-based, v1"
+    returns: {SPY: -0.30, QQQ: -0.45, RSP: -0.15, SHY: 0.03, IEF: 0.06, TLT: 0.12, GLD: 0.05}
+    inflation: 0.02
+
+# Annual withdrawal rates (fraction of the starting value; raised by CPI).
+withdrawal_rates: [0.02, 0.033, 0.04, 0.05]
+
+# Each path starts on the first trading day of January and ends 2018-12-31.
+start_years: [2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014]
