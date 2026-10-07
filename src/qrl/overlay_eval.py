@@ -136,3 +136,83 @@ def holdout_returns(
     """Full-history returns of both portfolios. The CALLER slices the holdout,
     and only through `qrl.holdout.unseal`."""
     return step_returns(open_, close, cpi, cfg)[0]
+
+
+_TITLES = {
+    "research": "Research 2005-2018 (decides the track)",
+    "validate": "Validation 2019-2022 (VALIDATION-SEEN, not decisive)",
+    "holdout": "Holdout 2023+ (one-time unseal, decisive)",
+}
+_SEEN = (
+    "> VALIDATION-SEEN: the 2020 and 2022 windows were already seen once "
+    "(research/core_reveal.md, ledger event 1), including G's 2022 loss. "
+    "Weak evidence, reported only."
+)
+_ROWS = (
+    ("sharpe", "Sharpe", "{:.3f}"),
+    ("cagr", "CAGR", "{:.2%}"),
+    ("max_drawdown", "Max drawdown", "{:.2%}"),
+    ("volatility", "Volatility", "{:.2%}"),
+)
+
+
+def _body(result: dict) -> list[str]:
+    verdict = "PASS" if result["passed"] else "FAIL"
+    lines = [
+        f"Window {result['window'][0]} to {result['window'][1]}. Verdict: **{verdict}**.",
+        "",
+        "| metric | overlay-G | static G |",
+        "|---|---|---|",
+        *(
+            f"| {label} | {fmt.format(result['overlay'][k])} | {fmt.format(result['G'][k])} |"
+            for k, label, fmt in _ROWS
+        ),
+        "",
+        "| rule | value | threshold | passed |",
+        "|---|---|---|---|",
+        *(
+            f"| {c['rule']} | {c['value']} | {c['threshold']} | {'yes' if c['passed'] else 'no'} |"
+            for c in result["checks"]
+        ),
+    ]
+    if "null" in result:
+        n = result["null"]
+        lines += [
+            "",
+            f"Null: {n['draws']} spell-shuffle draws (seed {n['seed']}); "
+            f"{n['percentile']:g}th percentile (linear interpolation) Sharpe gain "
+            f"{n['threshold']:.3f}, mean {n['mean']:.3f}.",
+        ]
+    if "signal_first_on" in result:
+        first = ", ".join(f"{k} {v}" for k, v in result["signal_first_on"].items())
+        lines += ["", f"First month end each signal is on (off before): {first}."]
+    return lines
+
+
+def _section(step: str, event: dict) -> list[str]:
+    result = event["result"] or {}
+    lines = [f"## {_TITLES[step]}", "", f"Ledger overlay event {event['event_id']} ({event['created_at']})."]
+    if step == "validate":
+        lines += ["", _SEEN]
+    if "error" in result:
+        return [*lines, "", f"ERROR, recorded as a failure: {result['error']}", ""]
+    return [*lines, "", *_body(result), ""]
+
+
+def render_markdown(steps: dict[str, dict], header: dict) -> str:
+    """Report of every finished step (`steps[step]` = its ledger overlay event)."""
+    lines = [
+        "# Macro overlay on core G",
+        "",
+        "Spec: docs/methodology/macro-overlay.md (pre-registered 2026-10-07). "
+        "One fixed spec, one trial, no tuning.",
+        "",
+        f"- overlay.yaml sha256: `{header['overlay_sha256']}`",
+        f"- core_candidates.yaml sha256: `{header['candidates_sha256']}`",
+        f"- criteria.yaml hash: `{header['criteria_hash']}`",
+        "",
+    ]
+    for step in _TITLES:
+        if step in steps:
+            lines += _section(step, steps[step])
+    return "\n".join(lines)

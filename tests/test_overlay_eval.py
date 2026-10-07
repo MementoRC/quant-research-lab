@@ -17,7 +17,13 @@ from qrl.criteria import load_criteria
 from qrl.data import synthetic_prices
 from qrl.macro import lag_to_availability, load_macro_config
 from qrl.overlay import load_overlay_config
-from qrl.overlay_eval import evaluate_pass, research_result, validation_result, window_result
+from qrl.overlay_eval import (
+    evaluate_pass,
+    render_markdown,
+    research_result,
+    validation_result,
+    window_result,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 CANDS, _ = load_core_candidates(ROOT / "config" / "core_candidates.yaml")
@@ -103,3 +109,43 @@ def test_validation_is_cut_at_the_validation_end():
     assert out["window"][0] >= "2019-01-01"
     assert out["window"][1] <= "2022-12-31"
     assert len(out["checks"]) == 3
+
+
+HEADER = {"overlay_sha256": "o" * 64, "candidates_sha256": "c" * 64, "criteria_hash": "abc"}
+METRICS = {"sharpe": 0.7, "cagr": 0.06, "max_drawdown": 0.2, "volatility": 0.08}
+RESULT = {
+    "window": ["2019-01-02", "2022-12-30"],
+    "overlay": METRICS,
+    "G": METRICS,
+    "sharpe_gain": 0.0,
+    "checks": [{"rule": "Sharpe vs G", "value": 0.7, "threshold": ">= 0.750", "passed": False}],
+    "passed": False,
+}
+
+
+def _event(eid: int, result: dict) -> dict:
+    return {"event_id": eid, "created_at": "2026-10-08T00:00:00+00:00", "result": result}
+
+
+def test_report_has_hashes_and_research_null():
+    research = {
+        **RESULT,
+        "null": {"draws": 1000, "seed": 20261007, "percentile": 95.0, "threshold": 0.1, "mean": 0.0},
+        "signal_first_on": {"vol": "2004-04-30"},
+    }
+    md = render_markdown({"research": _event(1, research)}, HEADER)
+    assert "o" * 64 in md
+    assert "event 1" in md
+    assert "1000 spell-shuffle draws" in md
+    assert "vol 2004-04-30" in md
+    assert "VALIDATION-SEEN" not in md
+
+
+def test_report_stamps_validation_seen():
+    md = render_markdown({"research": _event(1, RESULT), "validate": _event(2, RESULT)}, HEADER)
+    assert "VALIDATION-SEEN" in md
+
+
+def test_report_shows_a_recorded_error():
+    md = render_markdown({"research": _event(1, {"error": "boom"})}, HEADER)
+    assert "ERROR, recorded as a failure: boom" in md
