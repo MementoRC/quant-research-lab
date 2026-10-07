@@ -7,14 +7,36 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from qrl.core_compare import Candidate, load_core_candidates
-from qrl.overlay import load_overlay_config
+from qrl.macro import lag_to_availability, load_macro_config
+from qrl.overlay import inflation_state, load_overlay_config, trend_states, vol_state
 
 ROOT = Path(__file__).resolve().parents[1]
 SHIPPED = (ROOT / "config" / "overlay.yaml").read_text()
 CANDS, _ = load_core_candidates(ROOT / "config" / "core_candidates.yaml")
+CPI_LAG = load_macro_config(ROOT / "config" / "macro.yaml")["series"]["CPIAUCNS"]["lag"]
+
+
+def _cpi(
+    start: str = "1990-01-01",
+    end: str = "2024-04-01",
+    jump_at: str | None = None,
+    jump: float = 0.0,
+    missing: str | None = None,
+) -> pd.Series:
+    """Synthetic CPIAUCNS: 2%/yr, optional level jump, optional missing print;
+    observation-dated like FRED (1st of month), then lagged per macro.yaml."""
+    obs = pd.date_range(start, end, freq="MS")
+    s = pd.Series(100 * 1.02 ** (np.arange(len(obs)) / 12), index=obs, name="CPIAUCNS")
+    if jump_at is not None:
+        s[s.index >= pd.Timestamp(jump_at)] *= 1 + jump
+    if missing is not None:
+        s[pd.Timestamp(missing)] = np.nan
+    return lag_to_availability(s, CPI_LAG)
 
 
 def _load(tmp_path: Path, text: str, cands=None):
@@ -78,3 +100,50 @@ def test_config_rejects_switching_base(tmp_path):
 def test_config_rejects_asset_outside_the_base(tmp_path):
     with pytest.raises(ValueError, match="not in the base mix"):
         _load(tmp_path, SHIPPED.replace("safe_asset: SHY", "safe_asset: IEF"))
+
+
+def test_trend_is_on_below_the_sma_and_undefined_in_warm_up():
+    idx = pd.bdate_range("2010-01-01", periods=260)
+    price = np.concatenate([np.linspace(100, 150, 240), np.linspace(149, 90, 20)])
+    s = trend_states(pd.DataFrame({"SPY": price}, index=idx), ("SPY",), 210)["SPY"]
+    assert s.iloc[:209].isna().all()
+    assert s.iloc[209:240].eq(0.0).all()
+    assert s.iloc[-1] == 1.0
+
+
+def test_vol_is_on_above_ratio_times_trailing_median_and_undefined_in_warm_up():
+    rng = np.random.default_rng(3)
+    r = np.concatenate([rng.normal(0, 0.005, 1400), rng.normal(0, 0.03, 100)])
+    idx = pd.bdate_range("2000-01-03", periods=len(r))
+    close = pd.DataFrame({"SPY": 100 * np.exp(np.cumsum(r))}, index=idx)
+    s = vol_state(close, "SPY", 63, 1260, 1.5)
+    assert s.iloc[:1322].isna().all()  # 63-day vol from row 63, its 1260-day median from 1322
+    assert s.iloc[1322:1400].eq(0.0).all()
+    assert s.iloc[-1] == 1.0
+
+
+def test_cpi_lag_is_applied():
+    # YoY jumps from 2% to ~5.06% with the March 2005 print (observation
+    # 2005-03-01). macro.yaml's 2-month-end lag makes it usable from
+    # 2005-04-30 (a Saturday), so the first "on" trading day is 2005-05-02.
+    idx = pd.bdate_range("2004-01-01", "2006-12-29")
+    s = inflation_state(_cpi(jump_at="2005-03-01", jump=0.03), idx, 0.04, 3)
+    assert s.loc[:"2005-04-29"].eq(0.0).all()
+    assert s.loc["2005-05-02"] == 1.0
+
+
+def test_inflation_missing_print_counts_as_off():
+    idx = pd.bdate_range("2004-01-01", "2006-12-29")
+    full = inflation_state(_cpi(jump_at="2005-03-01", jump=0.03), idx, 0.04, 3)
+    gap = inflation_state(
+        _cpi(jump_at="2005-03-01", jump=0.03, missing="2005-04-01"), idx, 0.04, 3
+    )
+    assert full.loc["2005-06-15"] == 1.0
+    assert gap.loc["2005-06-15"] == 0.0
+
+
+def test_inflation_is_undefined_before_the_first_print():
+    idx = pd.bdate_range("1989-01-02", "1992-12-31")
+    s = inflation_state(_cpi(), idx, 0.04, 3)
+    assert s.loc[:"1990-12-31"].isna().all()
+    assert s.loc["1992-06-15"] == 0.0
