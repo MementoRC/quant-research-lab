@@ -44,12 +44,18 @@ from qrl.overlay_eval import (  # noqa: E402
     validation_result,
     window_result,
 )
+from qrl.periods import period_bounds  # noqa: E402
 
 CACHE_DIR = ROOT / "data" / "cache"
 
 
 def _refusal(ledger: Ledger, step: str, overlay_sha: str) -> str | None:
-    prior = ledger.list_overlay_events(step)
+    # A step that produced a result (or is still running) blocks a rerun. A crash
+    # with no result ('error') does not, so the single trial is never lost to a
+    # crash; every attempt stays in the ledger. The holdout is always strict.
+    prior = [
+        e for e in ledger.list_overlay_events(step) if step == "holdout" or e["status"] != "error"
+    ]
     if prior:
         last = prior[-1]
         return (
@@ -58,8 +64,8 @@ def _refusal(ledger: Ledger, step: str, overlay_sha: str) -> str | None:
         )
     if step == "research":
         return None
-    research = ledger.list_overlay_events("research")
-    if not research or research[0]["status"] != "done":
+    research = [e for e in ledger.list_overlay_events("research") if e["status"] == "done"]
+    if not research:
         return "research has not completed"
     if research[0]["overlay_sha256"] != overlay_sha:
         return "config/overlay.yaml changed since research; the pre-registered spec is void"
@@ -87,6 +93,24 @@ def _load(cfg: OverlayConfig, refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame
         config_path=ROOT / "config" / "macro.yaml",
     )[cfg.cpi_series]
     return open_[tickers], close[tickers], cpi
+
+
+def _coverage_problem(step: str, close: pd.DataFrame, criteria: dict) -> str | None:
+    """The evaluated window must start within 7 calendar days of the period
+    start and end within 7 days of its end (stale cached data would silently
+    shorten it). The holdout runs to the latest data and is not checked."""
+    if step == "holdout":
+        return None
+    start, end = period_bounds(criteria, "research" if step == "research" else "validation")
+    if start is None or end is None:
+        return f"{step} period bounds are not set in criteria.yaml"
+    slack = pd.Timedelta(days=7)
+    data = close.dropna()
+    if data.empty or data.index[0] > start + slack:
+        return f"price data starts too late for {step}: need all assets by {start.date()}"
+    if data.index[-1] < end - slack:
+        return f"price data ends too early for {step}: need data to {end.date()}"
+    return None
 
 
 def _compute(
@@ -158,6 +182,10 @@ def main(argv: list[str] | None = None) -> int:
         except (ValueError, RuntimeError) as exc:
             print(f"refused: {exc}")
             return 1
+        problem = _coverage_problem(args.step, frames[1], criteria)
+        if problem:  # nothing is spent: refused before the event is recorded
+            print(f"refused: {problem}")
+            return 1
         event_id = ledger.record_overlay_event(args.step, overlay_sha, reason=reason or None)
         try:
             result = _compute(args.step, ledger, frames, cfg, criteria, reason)
@@ -165,6 +193,10 @@ def main(argv: list[str] | None = None) -> int:
             ledger.finish_overlay_event(event_id, passed=False, result={"error": str(exc)})
             print(f"{args.step} errored; recorded as a failure (event {event_id}): {exc}")
             return 1
+        except Exception as exc:  # a crash with no result: recorded, does not block a rerun
+            ledger.fail_overlay_event(event_id, f"{type(exc).__name__}: {exc}")
+            print(f"{args.step} crashed; recorded as error (event {event_id}): {exc}")
+            raise
         ledger.finish_overlay_event(event_id, passed=result["passed"], result=result)
         header = {
             "overlay_sha256": overlay_sha,

@@ -65,7 +65,8 @@ Macro overlay addition (docs/methodology/macro-overlay.md): `overlay_events`,
 a brand-new table (`CREATE TABLE IF NOT EXISTS`, like `meta_tests`, so an
 existing ledger just gains it). One row per overlay step (research, validate,
 holdout): recorded `started` before anything is computed, `done` with its
-verdict and result, passes and failures alike, bound to the sha256 of
+verdict and result, passes and failures alike (a crash with no result is
+`error` and does not block a rerun, except for the holdout), bound to the sha256 of
 config/overlay.yaml. Only one holdout row can ever exist: `record_overlay_event`
 refuses a second, and a partial UNIQUE index backs that up.
 """
@@ -169,12 +170,13 @@ CREATE TABLE IF NOT EXISTS overlay_events (
     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL CHECK (kind IN ('research', 'validate', 'holdout')),
     overlay_sha256 TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('started', 'done')),
+    status TEXT NOT NULL CHECK (status IN ('started', 'done', 'error')),
     passed INTEGER CHECK (passed IN (0, 1)),
     result_json TEXT,
     reason TEXT,
     git_commit TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    error TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_overlay_events_one_holdout
     ON overlay_events(kind) WHERE kind = 'holdout';
@@ -227,11 +229,11 @@ _SELECT_META_TESTS_BY_RUN = (
 )
 _SELECT_OVERLAY_EVENTS_ALL = (
     "SELECT event_id, kind, overlay_sha256, status, passed, result_json, reason, "
-    "git_commit, created_at FROM overlay_events ORDER BY event_id"
+    "git_commit, created_at, error FROM overlay_events ORDER BY event_id"
 )
 _SELECT_OVERLAY_EVENTS_BY_KIND = (
     "SELECT event_id, kind, overlay_sha256, status, passed, result_json, reason, "
-    "git_commit, created_at FROM overlay_events WHERE kind = ? ORDER BY event_id"
+    "git_commit, created_at, error FROM overlay_events WHERE kind = ? ORDER BY event_id"
 )
 
 
@@ -614,6 +616,16 @@ class Ledger:
             "UPDATE overlay_events SET status = 'done', passed = ?, result_json = ? "
             "WHERE event_id = ?",
             (int(bool(passed)), _dumps(result), event_id),
+        )
+        self._conn.commit()
+
+    def fail_overlay_event(self, event_id: int, message: str) -> None:
+        """Mark an overlay step `error`: it crashed before producing any result
+        (no verdict, no result_json). The row stays as the record of the
+        attempt; unlike a `done` step it does not block a rerun."""
+        self._conn.execute(
+            "UPDATE overlay_events SET status = 'error', error = ? WHERE event_id = ?",
+            (message, event_id),
         )
         self._conn.commit()
 

@@ -213,6 +213,8 @@ def render_markdown(steps: dict[str, dict], header: dict) -> str:
         "Spec: docs/methodology/macro-overlay.md (pre-registered 2026-10-07). "
         "One fixed spec, one trial, no tuning.",
         "",
+        "Trials: 1",
+        "",
         f"- overlay.yaml sha256: `{header['overlay_sha256']}`",
         f"- core_candidates.yaml sha256: `{header['candidates_sha256']}`",
         f"- criteria.yaml hash: `{header['criteria_hash']}`",

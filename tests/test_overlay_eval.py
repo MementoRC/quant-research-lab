@@ -151,6 +151,7 @@ def test_report_has_hashes_and_research_null():
     }
     md = render_markdown({"research": _event(1, research)}, HEADER)
     assert "o" * 64 in md
+    assert "Trials: 1" in md
     assert "event 1" in md
     assert "1000 spell-shuffle draws" in md
     assert "vol 2004-04-30" in md
