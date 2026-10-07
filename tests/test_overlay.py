@@ -184,7 +184,7 @@ def test_no_signal_leaves_nan_in_warm_up_or_with_missing_cpi():
     infl = inflation_state(_cpi(missing="2000-06-01"), idx, 0.04, 3)
     for out in (trend, vol, infl):
         assert not out.isna().to_numpy().any()
-        assert (out.dtypes == bool).all() if isinstance(out, pd.DataFrame) else out.dtype == bool
+        assert out.to_numpy().dtype.kind == "b"
     assert not vol.iloc[:1322].any()
     assert not infl.loc[:"2001-01-31"].any()
 
