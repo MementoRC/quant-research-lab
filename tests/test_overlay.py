@@ -102,24 +102,27 @@ def test_config_rejects_asset_outside_the_base(tmp_path):
         _load(tmp_path, SHIPPED.replace("safe_asset: SHY", "safe_asset: IEF"))
 
 
-def test_trend_is_on_below_the_sma_and_undefined_in_warm_up():
+def _vol_close(n_calm: int = 1400, n_wild: int = 100) -> pd.DataFrame:
+    rng = np.random.default_rng(3)
+    r = np.concatenate([rng.normal(0, 0.005, n_calm), rng.normal(0, 0.03, n_wild)])
+    idx = pd.bdate_range("2000-01-03", periods=len(r))
+    return pd.DataFrame({"SPY": 100 * np.exp(np.cumsum(r))}, index=idx)
+
+
+def test_trend_is_on_below_the_sma_and_off_in_warm_up():
     idx = pd.bdate_range("2010-01-01", periods=260)
     price = np.concatenate([np.linspace(100, 150, 240), np.linspace(149, 90, 20)])
     s = trend_states(pd.DataFrame({"SPY": price}, index=idx), ("SPY",), 210)["SPY"]
-    assert s.iloc[:209].isna().all()
-    assert s.iloc[209:240].eq(0.0).all()
-    assert s.iloc[-1] == 1.0
+    assert s.dtype == bool
+    assert not s.iloc[:240].any()  # warm-up (first 209 rows) is off, then above the SMA
+    assert s.iloc[-1]
 
 
-def test_vol_is_on_above_ratio_times_trailing_median_and_undefined_in_warm_up():
-    rng = np.random.default_rng(3)
-    r = np.concatenate([rng.normal(0, 0.005, 1400), rng.normal(0, 0.03, 100)])
-    idx = pd.bdate_range("2000-01-03", periods=len(r))
-    close = pd.DataFrame({"SPY": 100 * np.exp(np.cumsum(r))}, index=idx)
-    s = vol_state(close, "SPY", 63, 1260, 1.5)
-    assert s.iloc[:1322].isna().all()  # 63-day vol from row 63, its 1260-day median from 1322
-    assert s.iloc[1322:1400].eq(0.0).all()
-    assert s.iloc[-1] == 1.0
+def test_vol_is_on_above_ratio_times_trailing_median_and_off_in_warm_up():
+    s = vol_state(_vol_close(), "SPY", 63, 1260, 1.5)
+    assert s.dtype == bool
+    assert not s.iloc[:1400].any()  # 63-day vol from row 63, its 1260-day median from 1322
+    assert s.iloc[-1]
 
 
 def test_cpi_lag_is_applied():
@@ -128,8 +131,8 @@ def test_cpi_lag_is_applied():
     # 2005-04-30 (a Saturday), so the first "on" trading day is 2005-05-02.
     idx = pd.bdate_range("2004-01-01", "2006-12-29")
     s = inflation_state(_cpi(jump_at="2005-03-01", jump=0.03), idx, 0.04, 3)
-    assert s.loc[:"2005-04-29"].eq(0.0).all()
-    assert s.loc["2005-05-02"] == 1.0
+    assert not s.loc[:"2005-04-29"].any()
+    assert s.loc["2005-05-02"]
 
 
 def test_inflation_missing_print_counts_as_off():
@@ -138,12 +141,48 @@ def test_inflation_missing_print_counts_as_off():
     gap = inflation_state(
         _cpi(jump_at="2005-03-01", jump=0.03, missing="2005-04-01"), idx, 0.04, 3
     )
-    assert full.loc["2005-06-15"] == 1.0
-    assert gap.loc["2005-06-15"] == 0.0
+    assert gap.dtype == bool
+    assert full.loc["2005-06-15"]
+    assert not gap.loc["2005-06-15"]
 
 
-def test_inflation_is_undefined_before_the_first_print():
+def test_inflation_is_off_before_the_first_print():
     idx = pd.bdate_range("1989-01-02", "1992-12-31")
     s = inflation_state(_cpi(), idx, 0.04, 3)
-    assert s.loc[:"1990-12-31"].isna().all()
-    assert s.loc["1992-06-15"] == 0.0
+    assert s.dtype == bool
+    assert not s.loc[:"1990-12-31"].any()
+    assert not s.loc["1992-06-15"]
+
+
+def test_no_signal_leaves_nan_in_warm_up_or_with_missing_cpi():
+    close = _vol_close()
+    idx = pd.DatetimeIndex(close.index)
+    trend = trend_states(close, ("SPY",), 210)
+    vol = vol_state(close, "SPY", 63, 1260, 1.5)
+    infl = inflation_state(_cpi(missing="2000-06-01"), idx, 0.04, 3)
+    for out in (trend, vol, infl):
+        assert not out.isna().to_numpy().any()
+        assert (out.dtypes == bool).all() if isinstance(out, pd.DataFrame) else out.dtype == bool
+    assert not vol.iloc[:1322].any()
+    assert not infl.loc[:"2001-01-31"].any()
+
+
+def test_signals_are_prefix_invariant():
+    # Computing on data truncated at a cut gives exactly the same values on the
+    # overlapping rows as computing on the full data.
+    close = _vol_close(n_calm=1500, n_wild=200)
+    idx = pd.DatetimeIndex(close.index)
+    cut = idx[1580]  # not a month edge or holiday-sensitive
+    cpi = _cpi(start="1995-01-01", end="2007-12-01", jump_at="2005-01-01", jump=0.03)
+    cut_cpi = cpi.loc[:cut]
+    part = close.loc[:cut]
+
+    pd.testing.assert_frame_equal(
+        trend_states(close, ("SPY",), 210).loc[:cut], trend_states(part, ("SPY",), 210)
+    )
+    pd.testing.assert_series_equal(
+        vol_state(close, "SPY", 63, 1260, 1.5).loc[:cut], vol_state(part, "SPY", 63, 1260, 1.5)
+    )
+    full_infl = inflation_state(cpi, idx, 0.04, 3).loc[:cut]
+    part_infl = inflation_state(cut_cpi, pd.DatetimeIndex(part.index), 0.04, 3)
+    pd.testing.assert_series_equal(full_infl, part_infl, check_freq=False)

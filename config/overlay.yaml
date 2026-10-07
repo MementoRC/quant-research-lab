@@ -51,5 +51,5 @@ random_null:
 holdout:
   window: "2023-01-01 to latest data"
   requires: [research_pass, "--unseal-holdout-once", owner_go_ahead]
-  null: false               # the three thresholds vs static G only
+  with_random_null: false             # the three thresholds vs static G only
   runs: 1                   # a second holdout run is refused

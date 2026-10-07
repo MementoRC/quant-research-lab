@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import yaml
 
@@ -155,46 +154,43 @@ def load_overlay_config(
 
 
 def trend_states(close: pd.DataFrame, assets: tuple[str, ...], sma_days: int) -> pd.DataFrame:
-    """1.0 while an asset closes below its `sma_days` simple moving average,
-    0.0 at or above it, NaN in warm-up or while unpriced."""
+    """True while an asset closes below its `sma_days` simple moving average;
+    False at or above it, in warm-up or while unpriced (undefined means off)."""
     px = close[list(assets)]
     sma = px.rolling(sma_days, min_periods=sma_days).mean()
-    return (px < sma).astype(float).where(sma.notna() & px.notna())
+    return px < sma
 
 
 def vol_state(
     close: pd.DataFrame, asset: str, vol_days: int, median_days: int, ratio: float
 ) -> pd.Series:
-    """1.0 while the asset's `vol_days` realized vol (annualized std of daily
+    """True while the asset's `vol_days` realized vol (annualized std of daily
     returns) is above `ratio` x its trailing `median_days` median of that same
-    vol series, else 0.0; NaN until both are defined."""
+    vol series; False otherwise, including until both are defined."""
     returns = close[asset].pct_change(fill_method=None)
     vol = returns.rolling(vol_days, min_periods=vol_days).std() * math.sqrt(TRADING_DAYS)
     median = vol.rolling(median_days, min_periods=median_days).median()
-    return (vol > ratio * median).astype(float).where(vol.notna() & median.notna())
+    return vol > ratio * median
 
 
 def inflation_state(
     cpi: pd.Series, index: pd.DatetimeIndex, yoy_above: float, lookback_months: int
 ) -> pd.Series:
-    """1.0 while CPI YoY is above `yoy_above` AND above its value
-    `lookback_months` prints earlier, else 0.0, on `index`. NaN before the
-    first defined print; a missing print after that counts as off.
+    """True while CPI YoY is above `yoy_above` AND above its value
+    `lookback_months` prints earlier, on `index`. False before the first
+    defined print and for a missing print (undefined means off).
 
     `cpi` must be availability-dated on month ends (`qrl.macro.lag_to_availability`
-    with macro.yaml's `month_ends` lag), so day t only sees prints published by t."""
+    with macro.yaml's `month_ends` lag), so day t only sees prints published by t.
+    `align_to_trading_days` forward-fills the last print, so a stale feed holds
+    its last state."""
     cpi = cpi.sort_index()
     if cpi.dropna().empty:
-        return pd.Series(np.nan, index=index)
+        return pd.Series(False, index=index)
     if not pd.DatetimeIndex(cpi.index).is_month_end.all():
         raise ValueError("CPI must be availability-dated on month ends (macro.yaml month_ends lag)")
     grid = pd.date_range(cpi.index[0], cpi.index[-1], freq=pd.offsets.MonthEnd())
     level = cpi.reindex(grid)
     yoy = level / level.shift(12) - 1
-    prior = yoy.shift(lookback_months)
-    state = ((yoy > yoy_above) & (yoy > prior)).astype(float).where(yoy.notna() & prior.notna())
-    first = state.first_valid_index()
-    if first is None:
-        return pd.Series(np.nan, index=index)
-    state.loc[first:] = state.loc[first:].fillna(0.0)
-    return align_to_trading_days(state, index)
+    state = (yoy > yoy_above) & (yoy > yoy.shift(lookback_months))
+    return align_to_trading_days(state.astype(float), index).fillna(0.0).astype(bool)
