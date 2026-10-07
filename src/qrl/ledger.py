@@ -61,6 +61,13 @@ the run's (NULL for standalone runs), mirroring the criteria-hash guard.
 Amendment 2026-10-02 (run 5) adds pass_rule 'combined_null' ("beat the
 null", `config/combined_null.yaml`), stored and guarded the same way in the
 same `combined_config_hash` column.
+Macro overlay addition (docs/methodology/macro-overlay.md): `overlay_events`,
+a brand-new table (`CREATE TABLE IF NOT EXISTS`, like `meta_tests`, so an
+existing ledger just gains it). One row per overlay step (research, validate,
+holdout): recorded `started` before anything is computed, `done` with its
+verdict and result, passes and failures alike, bound to the sha256 of
+config/overlay.yaml. Only one holdout row can ever exist: `record_overlay_event`
+refuses a second, and a partial UNIQUE index backs that up.
 """
 
 from __future__ import annotations
@@ -78,6 +85,8 @@ SCHEMA_VERSION = 1
 SEED_LANES = ("A", "B", "C")
 # Pass rules whose config hash is bound to the run (`combined_config_hash`).
 COMBINED_PASS_RULES = ("combined", "combined_null")
+# Steps of the macro overlay (docs/methodology/macro-overlay.md).
+OVERLAY_KINDS = ("research", "validate", "holdout")
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -155,6 +164,20 @@ CREATE TABLE IF NOT EXISTS meta_tests (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_meta_tests_run_id ON meta_tests(run_id);
+
+CREATE TABLE IF NOT EXISTS overlay_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('research', 'validate', 'holdout')),
+    overlay_sha256 TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('started', 'done')),
+    passed INTEGER CHECK (passed IN (0, 1)),
+    result_json TEXT,
+    reason TEXT,
+    git_commit TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_overlay_events_one_holdout
+    ON overlay_events(kind) WHERE kind = 'holdout';
 """
 
 # Read queries exist in two complete, literal forms (all rows / filtered by a
@@ -201,6 +224,14 @@ _SELECT_META_TESTS_ALL = (
 _SELECT_META_TESTS_BY_RUN = (
     "SELECT meta_test_id, run_id, meta_json, window, metrics_json, created_at "
     "FROM meta_tests WHERE run_id = ? ORDER BY meta_test_id"
+)
+_SELECT_OVERLAY_EVENTS_ALL = (
+    "SELECT event_id, kind, overlay_sha256, status, passed, result_json, reason, "
+    "git_commit, created_at FROM overlay_events ORDER BY event_id"
+)
+_SELECT_OVERLAY_EVENTS_BY_KIND = (
+    "SELECT event_id, kind, overlay_sha256, status, passed, result_json, reason, "
+    "git_commit, created_at FROM overlay_events WHERE kind = ? ORDER BY event_id"
 )
 
 
@@ -547,6 +578,56 @@ class Ledger:
                 "ids": json.loads(row["ids"]),
                 "windows": json.loads(row["windows"]),
                 "forced": bool(row["forced"]),
+            }
+            for row in rows
+        ]
+
+    def record_overlay_event(
+        self,
+        kind: str,
+        overlay_sha256: str,
+        reason: str | None = None,
+        git_commit: str | None = None,
+    ) -> int:
+        """Record a macro overlay step as `started`; returns its event_id.
+        Raises LedgerError for an unknown kind or a second holdout."""
+        if kind not in OVERLAY_KINDS:
+            raise LedgerError(f"unknown overlay event kind {kind!r}")
+        if kind == "holdout" and self.list_overlay_events("holdout"):
+            raise LedgerError("the overlay holdout already has an event; it runs once, ever")
+        commit = git_commit if git_commit is not None else current_git_commit()
+        try:
+            cur = self._conn.execute(
+                "INSERT INTO overlay_events (kind, overlay_sha256, status, reason, git_commit, "
+                "created_at) VALUES (?, ?, 'started', ?, ?, ?)",
+                (kind, overlay_sha256, reason, commit, _utcnow()),
+            )
+        except sqlite3.IntegrityError as err:
+            raise LedgerError(str(err)) from err
+        self._conn.commit()
+        return _require_rowid(cur)
+
+    def finish_overlay_event(self, event_id: int, passed: bool, result: dict) -> None:
+        """Mark an overlay step `done` with its verdict and result (an error
+        is recorded as passed=False with {"error": ...})."""
+        self._conn.execute(
+            "UPDATE overlay_events SET status = 'done', passed = ?, result_json = ? "
+            "WHERE event_id = ?",
+            (int(bool(passed)), _dumps(result), event_id),
+        )
+        self._conn.commit()
+
+    def list_overlay_events(self, kind: str | None = None) -> list[dict]:
+        """Every overlay step event (optionally of one kind), oldest first."""
+        if kind is None:
+            rows = self._conn.execute(_SELECT_OVERLAY_EVENTS_ALL).fetchall()
+        else:
+            rows = self._conn.execute(_SELECT_OVERLAY_EVENTS_BY_KIND, (kind,)).fetchall()
+        return [
+            {
+                **{k: row[k] for k in row.keys() if k != "result_json"},
+                "passed": None if row["passed"] is None else bool(row["passed"]),
+                "result": json.loads(row["result_json"]) if row["result_json"] else None,
             }
             for row in rows
         ]
