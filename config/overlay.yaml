@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# MACRO OVERLAY ON CORE G -- pre-registered 2026-10-07, BEFORE any result.
+# Spec: docs/methodology/macro-overlay.md. One fixed spec, one trial, no tuning.
+#
+# Its sha256 is recorded in the ledger by `overlay research`; `validate` and
+# `holdout` refuse if this file changed since. Never edit it after research.
+# ---------------------------------------------------------------------------
+version: 1
+date: "2026-10-07"
+decided_by: owner
+
+# The base mix is read from config/core_candidates.yaml (static 25% each
+# SPY/TLT/GLD/SHY), never copied here.
+base_id: G
+safe_asset: SHY        # every move goes here: never adds risk, never leverage
+cap: 0.20              # total moved weight; above it every move scales by cap/sum
+cost_bps: 5            # per unit of turnover (the engine default)
+rebalance: month_end   # read at the last trading day's close, held to the next
+
+signals:
+  trend:               # Faber 2007
+    assets: [SPY, TLT, GLD]
+    sma_days: 210      # on while close < its 210-trading-day SMA
+    # each trend move is exactly cap * 1/3 = 20/3 points (about 6.67) of that
+    # asset to SHY, so the three trends together fill the cap with no scaling
+    move_share_of_cap: "1/3"
+  volatility:          # volatility clustering; Moreira and Muir 2017
+    asset: SPY
+    vol_days: 63       # annualized std of daily returns
+    median_days: 1260  # trailing median of that same vol series
+    ratio: 1.5         # on while vol > 1.5x that median
+    move: 0.05
+  inflation:           # long-bond losses in the 1970s
+    series: CPIAUCNS   # lagged per config/macro.yaml (2 month ends)
+    asset: TLT
+    yoy_above: 0.04
+    rising_vs_months_ago: 3
+    move: 0.05
+
+pass_rule:             # research 2005-01-01..2018-12-31 (criteria.yaml), vs static G
+  min_sharpe_gain: 0.05     # Sharpe >= G Sharpe + 0.05
+  max_drawdown: no_worse    # max drawdown <= G's (enforced in qrl.overlay_eval)
+  max_cagr_shortfall: 0.01  # CAGR >= G CAGR - 0.01
+  null_percentile: 95       # Sharpe gain > this percentile of the null
+
+random_null:
+  method: spell_shuffle     # per signal; keeps on-fraction and spell lengths
+  seed: 20261007
+  n_draws: 1000
+
+holdout:
+  window: "2023-01-01 to latest data"
+  requires: [research_pass, "--unseal-holdout-once", owner_go_ahead]
+  null: false               # the three thresholds vs static G only
+  runs: 1                   # a second holdout run is refused
