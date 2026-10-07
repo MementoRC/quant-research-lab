@@ -7,11 +7,13 @@
               --unseal-holdout-once and a --reason recording the owner's fresh
               go-ahead. Spends the holdout for every future idea.
 
-Each step runs once, ever: it is a row of the ledger's overlay_events, recorded
+Each step produces a result once, ever: it is a row of the ledger's overlay_events, recorded
 `started` before anything is computed and `done` with its verdict (passes and
-failures alike; an error is recorded as a failure). validate and holdout
-refuse if config/overlay.yaml changed since research. IO and wiring only; the
-logic lives in qrl.overlay, qrl.overlay_null and qrl.overlay_eval.
+failures alike). An unexpected crash is recorded with status `error` (message in
+the error column, no result) and does not block a rerun; only a step that
+produced a pass/fail result blocks a rerun. validate and holdout refuse if
+config/overlay.yaml changed since research. IO and wiring only; the logic lives
+in qrl.overlay, qrl.overlay_null and qrl.overlay_eval.
 
 Usage:
     python scripts/overlay.py research
