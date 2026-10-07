@@ -75,7 +75,27 @@ def test_research_never_builds_on_data_after_the_research_end(monkeypatch):
     assert out["window"][1] <= "2018-12-31"
     assert out["null"]["draws"] == 3
     assert len(out["checks"]) == 4
-    assert set(out["signal_live_from"]) == {"trend_SPY", "trend_TLT", "trend_GLD", "vol", "inflation"}
+    assert set(out["signal_first_on"]) == {"trend_SPY", "trend_TLT", "trend_GLD", "vol", "inflation"}
+
+
+def test_null_sharpe_uses_the_same_days_as_the_overlay_vs_g_comparison(monkeypatch):
+    seen: dict[str, list[pd.DatetimeIndex]] = {"eval": [], "null": []}
+    real = overlay_eval.compute_metrics
+
+    def spy(tag):
+        def inner(returns):
+            seen[tag].append(pd.DatetimeIndex(returns.index))
+            return real(returns)
+
+        return inner
+
+    monkeypatch.setattr(overlay_eval, "compute_metrics", spy("eval"))
+    monkeypatch.setattr(overlay_null, "compute_metrics", spy("null"))
+    research_result(*_data(), dataclasses.replace(CFG, null_draws=3), CRITERIA)
+    overlay_days, g_days = seen["eval"]
+    assert overlay_days.equals(g_days)
+    assert len(seen["null"]) == 3
+    assert all(days.equals(overlay_days) for days in seen["null"])
 
 
 def test_validation_is_cut_at_the_validation_end():

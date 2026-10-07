@@ -50,7 +50,8 @@ Overlay-G passes only if all of these hold versus static G:
 Null: for each signal, shuffle its on/off spells into random order. Keep the
 fraction of time on and the spell lengths, so turnover is roughly matched.
 1000 draws, fixed seed (recorded in `config/overlay.yaml`). Same cap and
-month-end logic.
+month-end logic. The 95th percentile is taken by linear interpolation (numpy
+default).
 
 `combined_null.yaml` is not used. It grades sleeves added to a fixed core, not
 changes to the core.

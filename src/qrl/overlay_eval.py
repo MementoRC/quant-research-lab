@@ -47,7 +47,10 @@ def evaluate_pass(
         p = float(np.percentile(null, cfg.null_percentile))
         checks.append(
             {
-                "rule": f"Sharpe gain vs null p{cfg.null_percentile:g}",
+                "rule": (
+                    f"Sharpe gain vs null {cfg.null_percentile:g}th percentile "
+                    "(linear interpolation)"
+                ),
                 "value": round(gain, 3),
                 "threshold": f"> {p:.3f}",
                 "passed": gain > p,
@@ -91,7 +94,7 @@ def _first_on(states: pd.Series) -> str:
     """The first month end at which the signal is on (states are bool: an
     undefined signal is off, so "defined from" is not observable here)."""
     on = states[states]
-    return "never" if on.empty else str(pd.Timestamp(on.index[0]).date())
+    return "never on in the period" if on.empty else str(pd.Timestamp(on.index[0]).date())
 
 
 def research_result(
@@ -114,7 +117,7 @@ def research_result(
         "threshold": float(np.percentile(null, cfg.null_percentile)),
         "mean": float(null.mean()),
     }
-    out["signal_live_from"] = {c: _first_on(monthly[c]) for c in monthly.columns}
+    out["signal_first_on"] = {c: _first_on(monthly[c]) for c in monthly.columns}
     return out
 
 

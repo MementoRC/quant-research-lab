@@ -43,6 +43,7 @@ def test_shuffle_preserves_on_fraction_spell_lengths_and_undefined_positions():
     for _ in range(50):
         out = shuffle_spells(SERIES, rng)
         assert out.isna().equals(SERIES.isna())
+        assert out.dropna().iloc[0] == SERIES.dropna().iloc[0]  # first state kept
         assert out.dropna().mean() == SERIES.dropna().mean()
         assert _runs(out.dropna().to_numpy()) == _runs(SERIES.dropna().to_numpy())
 
