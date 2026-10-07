@@ -204,7 +204,10 @@ def signal_columns(cfg: OverlayConfig) -> list[str]:
 def month_end_mask(index: pd.DatetimeIndex) -> np.ndarray:
     """True on the last trading day of each month. The frame's last row is a
     month end only if the next business day falls in a new month, so a day's
-    mask never depends on whether later rows exist."""
+    mask never depends on whether later rows exist. That last-row test uses
+    BDay(1), which ignores exchange holidays: a frame truncated on the last
+    trading day before a month-end holiday (e.g. 2021-05-28) does not mark that
+    row. The real period cuts (2018-12-31, 2022-12-30) are unaffected."""
     if len(index) == 0:
         return np.zeros(0, dtype=bool)
     following = np.append(index[1:].month, (index[-1] + pd.offsets.BDay(1)).month)
@@ -234,8 +237,9 @@ def overlay_weights(
     """Daily target weights from month-end states. An undefined state counts
     as off. Moves go to the safe asset only; if they sum above `cfg.cap`,
     every move is scaled by cap/sum. Each month end's weights are held until
-    the next one. Rows before the first month end, and rows where a base
-    asset is unpriced, are NaN."""
+    the next one. Rows before the first month end hold the base mix (all
+    signals off), like static G; rows where a base asset is unpriced are NaN,
+    exactly where `core_mix` is NaN."""
     on = monthly.fillna(0.0).astype(float)
     moves = pd.DataFrame(0.0, index=on.index, columns=list(cfg.base))
     for a in cfg.trend_assets:
@@ -247,7 +251,7 @@ def overlay_weights(
     moves = moves.mul((cfg.cap / total.where(total > cfg.cap + _EPS)).fillna(1.0), axis=0)
     w = pd.DataFrame({t: x - moves[t] for t, x in cfg.base.items()}, index=on.index)
     w[cfg.safe] += moves.sum(axis=1)
-    daily = w.reindex(close.index).ffill()
+    daily = w.reindex(close.index).ffill().fillna(pd.Series(cfg.base))
     daily[close[list(cfg.base)].isna().any(axis=1)] = np.nan
     return daily
 

@@ -24,6 +24,7 @@ from qrl.overlay import (
     trend_states,
     vol_state,
 )
+from qrl.strategies.core_mix import core_mix
 
 ROOT = Path(__file__).resolve().parents[1]
 SHIPPED = (ROOT / "config" / "overlay.yaml").read_text()
@@ -193,7 +194,8 @@ def test_signals_are_prefix_invariant():
     # overlapping rows as computing on the full data.
     close = _vol_close(n_calm=1500, n_wild=200)
     idx = pd.DatetimeIndex(close.index)
-    cut = idx[1580]  # not a month edge or holiday-sensitive
+    cut = idx[1580]
+    assert idx[1581].month == cut.month  # mid-month: not a month-end edge
     cpi = _cpi(start="1995-01-01", end="2007-12-01", jump_at="2005-01-01", jump=0.03)
     cut_cpi = cpi.loc[:cut]
     part = close.loc[:cut]
@@ -263,14 +265,23 @@ def test_undefined_state_is_off():
     assert np.allclose(w.to_numpy(), 0.25)
 
 
-def test_rows_before_first_month_end_or_unpriced_are_nan():
+def test_rows_before_first_month_end_hold_the_base_mix_and_unpriced_are_nan():
     close = _flat_close("2010-01-01", "2010-03-31")
     close.loc["2010-02-10", "GLD"] = np.nan
     me = close.index[month_end_mask(close.index)]
     w = overlay_weights(pd.DataFrame(0.0, index=me, columns=signal_columns(CFG)), close, CFG)
-    assert w.loc[: me[0]].iloc[:-1].isna().all().all()
+    assert np.allclose(w.loc[: me[0]].to_numpy(), 0.25)
     assert w.loc["2010-02-10"].isna().all()
     assert w.loc["2010-02-11"].notna().all()
+
+
+def test_overlay_is_invested_on_exactly_the_days_static_g_is():
+    _, close = _prices()
+    close.loc[:"1999-01-12", "GLD"] = np.nan  # starts before the first month end
+    w = build_overlay(close, _cpi(), CFG)
+    g = core_mix(close, risk_on=CFG.base)
+    assert w.notna().all(axis=1).equals(g.notna().all(axis=1))
+    assert w.notna().any(axis=1).any()
 
 
 def test_held_weights_are_constant_within_each_month():
