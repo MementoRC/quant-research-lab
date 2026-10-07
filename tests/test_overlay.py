@@ -280,3 +280,12 @@ def test_held_weights_are_constant_within_each_month():
     for _, month in held.groupby(held.index.to_period("M")):
         assert (month.nunique() == 1).all()
     assert len(held.drop_duplicates()) > 1  # the signals did move the weights
+
+
+@pytest.mark.parametrize("cut", ["2004-06-15", "2006-03-31", "2007-11-20"])
+def test_truncating_future_data_leaves_earlier_weights_unchanged(cut):
+    _, close = _prices(end="2008-12-31")
+    cpi = _cpi(jump_at="2006-01-01", jump=0.03)
+    full = build_overlay(close, cpi, CFG)
+    part = build_overlay(close.loc[:cut], cpi.loc[:cut], CFG)
+    pd.testing.assert_frame_equal(full.loc[:cut], part, check_freq=False)
