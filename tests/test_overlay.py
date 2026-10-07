@@ -12,13 +12,34 @@ import pandas as pd
 import pytest
 
 from qrl.core_compare import Candidate, load_core_candidates
+from qrl.data import synthetic_prices
 from qrl.macro import lag_to_availability, load_macro_config
-from qrl.overlay import inflation_state, load_overlay_config, trend_states, vol_state
+from qrl.overlay import (
+    build_overlay,
+    inflation_state,
+    load_overlay_config,
+    month_end_mask,
+    overlay_weights,
+    signal_columns,
+    trend_states,
+    vol_state,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SHIPPED = (ROOT / "config" / "overlay.yaml").read_text()
 CANDS, _ = load_core_candidates(ROOT / "config" / "core_candidates.yaml")
 CPI_LAG = load_macro_config(ROOT / "config" / "macro.yaml")["series"]["CPIAUCNS"]["lag"]
+CFG, _ = load_overlay_config(ROOT / "config" / "overlay.yaml", CANDS)
+TICKERS = ["GLD", "SHY", "SPY", "TLT"]
+
+
+def _prices(end: str = "2008-12-31") -> tuple[pd.DataFrame, pd.DataFrame]:
+    return synthetic_prices(TICKERS, start="1999-01-01", end=end)
+
+
+def _flat_close(start: str, end: str) -> pd.DataFrame:
+    idx = pd.bdate_range(start, end)
+    return pd.DataFrame(100.0, index=idx, columns=TICKERS)
 
 
 def _cpi(
@@ -186,3 +207,76 @@ def test_signals_are_prefix_invariant():
     full_infl = inflation_state(cpi, idx, 0.04, 3).loc[:cut]
     part_infl = inflation_state(cut_cpi, pd.DatetimeIndex(part.index), 0.04, 3)
     pd.testing.assert_series_equal(full_infl, part_infl, check_freq=False)
+
+
+def test_month_end_mask_marks_last_trading_day_and_needs_no_later_rows():
+    idx = pd.bdate_range("2021-01-01", "2021-03-31")
+    assert list(idx[month_end_mask(idx)]) == [
+        pd.Timestamp("2021-01-29"),
+        pd.Timestamp("2021-02-26"),
+        pd.Timestamp("2021-03-31"),
+    ]
+    assert not month_end_mask(idx[idx <= "2021-02-24"])[-1]
+
+
+def test_cap_scales_every_move_proportionally():
+    close = _flat_close("2010-01-01", "2010-03-31")
+    me = close.index[month_end_mask(close.index)]
+    monthly = pd.DataFrame(1.0, index=me, columns=signal_columns(CFG))
+    w = overlay_weights(monthly, close, CFG).dropna().iloc[-1]
+    third = 0.20 / 3
+    raw = {"SPY": third + 0.05, "TLT": third + 0.05, "GLD": third}  # sums to 0.30
+    scale = 0.20 / sum(raw.values())
+    for ticker, move in raw.items():
+        assert w[ticker] == pytest.approx(0.25 - move * scale)
+    assert w["SHY"] == pytest.approx(0.45)
+
+
+def test_three_trends_alone_fill_the_cap_without_scaling():
+    close = _flat_close("2010-01-01", "2010-03-31")
+    me = close.index[month_end_mask(close.index)]
+    monthly = pd.DataFrame(0.0, index=me, columns=signal_columns(CFG))
+    monthly[["trend_SPY", "trend_TLT", "trend_GLD"]] = 1.0
+    w = overlay_weights(monthly, close, CFG).dropna().iloc[-1]
+    for ticker in ("SPY", "TLT", "GLD"):
+        assert w[ticker] == pytest.approx(0.25 - 0.20 / 3, abs=1e-15)
+    assert w["SHY"] == pytest.approx(0.45, abs=1e-15)
+
+
+def test_weights_capped_nonnegative_and_sum_to_one_for_any_states():
+    rng = np.random.default_rng(0)
+    close = _flat_close("2000-01-03", "2009-12-31")
+    me = close.index[month_end_mask(close.index)]
+    cols = signal_columns(CFG)
+    states = rng.choice([0.0, 1.0, np.nan], size=(len(me), len(cols)))
+    w = overlay_weights(pd.DataFrame(states, index=me, columns=cols), close, CFG).dropna()
+    assert (w >= 0).all().all()
+    assert np.allclose(w.sum(axis=1), 1.0)
+    assert (w["SHY"] - 0.25 <= 0.20 + 1e-12).all()
+
+
+def test_undefined_state_is_off():
+    close = _flat_close("2010-01-01", "2010-03-31")
+    me = close.index[month_end_mask(close.index)]
+    monthly = pd.DataFrame(np.nan, index=me, columns=signal_columns(CFG))
+    w = overlay_weights(monthly, close, CFG).dropna()
+    assert np.allclose(w.to_numpy(), 0.25)
+
+
+def test_rows_before_first_month_end_or_unpriced_are_nan():
+    close = _flat_close("2010-01-01", "2010-03-31")
+    close.loc["2010-02-10", "GLD"] = np.nan
+    me = close.index[month_end_mask(close.index)]
+    w = overlay_weights(pd.DataFrame(0.0, index=me, columns=signal_columns(CFG)), close, CFG)
+    assert w.loc[: me[0]].iloc[:-1].isna().all().all()
+    assert w.loc["2010-02-10"].isna().all()
+    assert w.loc["2010-02-11"].notna().all()
+
+
+def test_held_weights_are_constant_within_each_month():
+    _, close = _prices()
+    w = build_overlay(close, _cpi(), CFG)
+    held = w.shift(1).dropna()  # the engine executes row t on day t+1
+    for _, month in held.groupby(held.index.to_period("M")):
+        assert (month.nunique() == 1).all()
+    assert len(held.drop_duplicates()) > 1  # the signals did move the weights

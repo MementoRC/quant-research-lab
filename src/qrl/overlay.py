@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -194,3 +195,62 @@ def inflation_state(
     yoy = level / level.shift(12) - 1
     state = (yoy > yoy_above) & (yoy > yoy.shift(lookback_months))
     return align_to_trading_days(state.astype(float), index).fillna(0.0).astype(bool)
+
+
+def signal_columns(cfg: OverlayConfig) -> list[str]:
+    return [*(f"trend_{a}" for a in cfg.trend_assets), "vol", "inflation"]
+
+
+def month_end_mask(index: pd.DatetimeIndex) -> np.ndarray:
+    """True on the last trading day of each month. The frame's last row is a
+    month end only if the next business day falls in a new month, so a day's
+    mask never depends on whether later rows exist."""
+    if len(index) == 0:
+        return np.zeros(0, dtype=bool)
+    following = np.append(index[1:].month, (index[-1] + pd.offsets.BDay(1)).month)
+    return np.asarray(index.month != following)
+
+
+def daily_states(close: pd.DataFrame, cpi: pd.Series, cfg: OverlayConfig) -> pd.DataFrame:
+    """Every signal on every trading day: True on, False off (undefined is off)."""
+    trend = trend_states(close, cfg.trend_assets, cfg.trend_sma_days)
+    out = pd.DataFrame({f"trend_{a}": trend[a] for a in cfg.trend_assets}, index=close.index)
+    out["vol"] = vol_state(close, cfg.vol_asset, cfg.vol_days, cfg.vol_median_days, cfg.vol_ratio)
+    out["inflation"] = inflation_state(
+        cpi, pd.DatetimeIndex(close.index), cfg.inflation_yoy, cfg.inflation_lookback_months
+    )
+    return out
+
+
+def monthly_states(close: pd.DataFrame, cpi: pd.Series, cfg: OverlayConfig) -> pd.DataFrame:
+    """Signal states read at each month's last trading day close."""
+    states = daily_states(close, cpi, cfg)
+    return states.loc[month_end_mask(pd.DatetimeIndex(states.index))]
+
+
+def overlay_weights(
+    monthly: pd.DataFrame, close: pd.DataFrame, cfg: OverlayConfig
+) -> pd.DataFrame:
+    """Daily target weights from month-end states. An undefined state counts
+    as off. Moves go to the safe asset only; if they sum above `cfg.cap`,
+    every move is scaled by cap/sum. Each month end's weights are held until
+    the next one. Rows before the first month end, and rows where a base
+    asset is unpriced, are NaN."""
+    on = monthly.fillna(0.0).astype(float)
+    moves = pd.DataFrame(0.0, index=on.index, columns=list(cfg.base))
+    for a in cfg.trend_assets:
+        moves[a] += on[f"trend_{a}"] * cfg.trend_move
+    moves[cfg.vol_asset] += on["vol"] * cfg.vol_move
+    moves[cfg.inflation_asset] += on["inflation"] * cfg.inflation_move
+    total = moves.sum(axis=1)
+    # _EPS: three trend moves of cap/3 sum to the cap up to float rounding; never scale those
+    moves = moves.mul((cfg.cap / total.where(total > cfg.cap + _EPS)).fillna(1.0), axis=0)
+    w = pd.DataFrame({t: x - moves[t] for t, x in cfg.base.items()}, index=on.index)
+    w[cfg.safe] += moves.sum(axis=1)
+    daily = w.reindex(close.index).ffill()
+    daily[close[list(cfg.base)].isna().any(axis=1)] = np.nan
+    return daily
+
+
+def build_overlay(close: pd.DataFrame, cpi: pd.Series, cfg: OverlayConfig) -> pd.DataFrame:
+    return overlay_weights(monthly_states(close, cpi, cfg), close, cfg)
