@@ -13,6 +13,7 @@ from pathlib import Path
 COMPARE_PATH = "research/core_compare.md"
 REVEAL_PATH = "research/core_reveal.md"
 FRAGILITY_PATH = "research/fragility.md"
+DECISION_PATH = "research/decision.md"
 
 _BULLET = re.compile(r"^- ([^:]+): (.*)$")
 _EVENT_ID = re.compile(r"event id (\d+)")
@@ -121,4 +122,60 @@ def build_fragility(root: Path) -> dict | None:
         "header": _bullets(sections[""]),
         "summary": _table(sections.get("Summary", [])),
         "flagged": _table(sections.get("Fragile and watch", [])),
+    }
+
+
+def _cells(row: str) -> list[str]:
+    return [c.strip() for c in row.strip().strip("|").split("|")]
+
+
+def _parse_section(title: str, lines: list[str]) -> dict:
+    """One `## ` section: its bullets, paragraphs and every pipe table in order.
+
+    A `### ` heading titles the tables that follow it until the next heading.
+    """
+    bullets: list[str] = []
+    paragraphs: list[str] = []
+    tables: list[dict] = []
+    sub: str | None = None
+    pending: list[str] = []
+
+    def flush() -> None:
+        if len(pending) >= 2:
+            tables.append(
+                {
+                    "title": sub,
+                    "columns": _cells(pending[0]),
+                    "rows": [_cells(r) for r in pending[2:]],
+                }
+            )
+        pending.clear()
+
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith("|"):
+            pending.append(line)
+            continue
+        flush()
+        if line.startswith("### "):
+            sub = line[4:].strip()
+        elif line.startswith("- "):
+            bullets.append(line[2:].strip())
+        elif line:
+            paragraphs.append(line)
+    flush()
+    return {"title": title, "bullets": bullets, "paragraphs": paragraphs, "tables": tables}
+
+
+def build_decision(root: Path) -> dict | None:
+    """The `decision` block for results.json from the committed `research/decision.md`,
+    rendered generically (header bullets, then every `## ` section), or None if absent."""
+    path = root / DECISION_PATH
+    if not path.exists():
+        return None
+    sections = _sections(path.read_text())
+    return {
+        "source": DECISION_PATH,
+        "header": _bullets(sections[""]),
+        "sections": [_parse_section(t, ls) for t, ls in sections.items() if t],
     }

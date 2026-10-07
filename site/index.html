@@ -268,6 +268,14 @@
         <p class="section-note" id="fragility-links"></p>
       </section>
 
+      <section aria-labelledby="decision-title" id="decision-section" hidden>
+        <h2 id="decision-title">Decision helper: portfolios, scenarios and withdrawals</h2>
+        <p class="section-note">A decision aid; it compares a fixed set of portfolios and selects or recommends nothing. Data up to 2018-12-31 only.</p>
+        <ul id="decision-header"></ul>
+        <div id="decision-body"></div>
+        <p class="section-note" id="decision-links"></p>
+      </section>
+
       <footer>
         <p>Data through ${fmtDate(data.data_through)} from ${data.data_source === "synthetic" ? "synthetic demo prices" : "Yahoo Finance"}. Built ${new Date(data.generated_at).toLocaleString()}.</p>
         <p>Criteria file version <code>${esc(data.criteria_hash)}</code>. If this code changes unexpectedly, the pass rules were edited.</p>
@@ -292,6 +300,7 @@
     renderFunnel(data);
     renderCore(data);
     renderFragility(data);
+    renderDecision(data);
 
     document.getElementById("theme-toggle").addEventListener("click", () => {
       const root = document.documentElement;
@@ -548,6 +557,39 @@
     ], fr.flagged || [], null, [0, 1, 2, 3]);
     document.getElementById("fragility-links").innerHTML =
       `Source file: <a href="${REPO_BLOB}${esc(fr.source)}">full list with every measure</a>.`;
+  }
+
+  function renderDecision(data) {
+    const dec = data.decision;
+    const section = document.getElementById("decision-section");
+    if (!dec) { section.hidden = true; return; }
+    section.hidden = false;
+    document.getElementById("decision-header").innerHTML = Object.entries(dec.header || {})
+      .map(([k, v]) => `<li>${esc(k)}: ${esc(v)}</li>`).join("");
+    const body = document.getElementById("decision-body");
+    body.innerHTML = "";
+    const add = (parent, tag, html) => {
+      const el = document.createElement(tag);
+      el.innerHTML = html;
+      parent.appendChild(el);
+      return el;
+    };
+    (dec.sections || []).forEach((sec) => {
+      add(body, "h3", esc(sec.title));
+      if ((sec.bullets || []).length) {
+        add(body, "ul", sec.bullets.map((b) => `<li>${esc(b)}</li>`).join(""));
+      }
+      (sec.paragraphs || []).forEach((p) => add(body, "p", esc(p)));
+      (sec.tables || []).forEach((t) => {
+        if (t.title) add(body, "h4", esc(t.title));
+        const wrap = add(body, "div", "");
+        wrap.className = "table-scroll";
+        const table = add(wrap, "table", "");
+        simpleTable(table, t.columns.map((c, i) => [i, c]), t.rows, null, [0]);
+      });
+    });
+    document.getElementById("decision-links").innerHTML =
+      `Source file: <a href="${REPO_BLOB}${esc(dec.source)}">full decision report</a>.`;
   }
 
   try {
