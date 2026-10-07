@@ -21,7 +21,7 @@ Fixed before any result is seen.
 
 | Signal | Trigger | Move | Basis |
 |---|---|---|---|
-| Trend | For each of SPY, TLT, GLD: close < its 210-trading-day SMA | 6.67 percentage points of that asset to SHY | Faber 2007 |
+| Trend | For each of SPY, TLT, GLD: close < its 210-trading-day SMA | 20/3 percentage points (about 6.67; one third of the 20-point cap) of that asset to SHY | Faber 2007 |
 | Volatility | SPY 63-day realized vol (annualized std of daily returns) > 1.5x its trailing 1260-day median of that same vol series | 5 points SPY to SHY | Volatility clustering; Moreira and Muir 2017 |
 | Inflation | CPI-U YoY (FRED `CPIAUCNS`, using the 2-month-end availability lag in `config/macro.yaml`) > 4% and above its value 3 months earlier | 5 points TLT to SHY | Long-bond losses in the 1970s |
 
