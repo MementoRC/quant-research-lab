@@ -625,7 +625,7 @@ class Ledger:
             rows = self._conn.execute(_SELECT_OVERLAY_EVENTS_BY_KIND, (kind,)).fetchall()
         return [
             {
-                **{k: row[k] for k in row.keys() if k != "result_json"},
+                **{k: v for k, v in dict(row).items() if k != "result_json"},
                 "passed": None if row["passed"] is None else bool(row["passed"]),
                 "result": json.loads(row["result_json"]) if row["result_json"] else None,
             }

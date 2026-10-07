@@ -72,7 +72,9 @@ def test_shuffle_states_accepts_the_bool_states_of_the_signal_layer():
 def test_null_improvements_are_seeded_and_sized():
     open_, close = synthetic_prices(["GLD", "SHY", "SPY", "TLT"], "1999-01-01", "2018-12-31")
     obs = pd.date_range("1990-01-01", "2018-10-01", freq="MS")
-    cpi = lag_to_availability(pd.Series(100 * 1.02 ** (np.arange(len(obs)) / 12), index=obs), CPI_LAG)
+    cpi = lag_to_availability(
+        pd.Series(100 * 1.02 ** (np.arange(len(obs)) / 12), index=obs), CPI_LAG
+    )
     cfg = dataclasses.replace(CFG, null_draws=4)
     monthly = monthly_states(close, cpi, cfg)
     a = null_improvements(monthly, open_, close, cfg, CRITERIA, "research", 0.5)

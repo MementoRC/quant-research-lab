@@ -160,9 +160,7 @@ def test_cpi_lag_is_applied():
 def test_inflation_missing_print_counts_as_off():
     idx = pd.bdate_range("2004-01-01", "2006-12-29")
     full = inflation_state(_cpi(jump_at="2005-03-01", jump=0.03), idx, 0.04, 3)
-    gap = inflation_state(
-        _cpi(jump_at="2005-03-01", jump=0.03, missing="2005-04-01"), idx, 0.04, 3
-    )
+    gap = inflation_state(_cpi(jump_at="2005-03-01", jump=0.03, missing="2005-04-01"), idx, 0.04, 3)
     assert gap.dtype == bool
     assert full.loc["2005-06-15"]
     assert not gap.loc["2005-06-15"]

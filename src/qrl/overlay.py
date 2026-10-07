@@ -75,7 +75,9 @@ def _share(value: object) -> Fraction:
     try:
         share = Fraction(str(value))
     except (ValueError, ZeroDivisionError) as exc:
-        raise ValueError(f"trend move_share_of_cap must be a fraction like '1/3', got {value!r}") from exc
+        raise ValueError(
+            f"trend move_share_of_cap must be a fraction like '1/3', got {value!r}"
+        ) from exc
     if not 0 < share <= 1:
         raise ValueError(f"trend move_share_of_cap must be in (0, 1], got {value!r}")
     return share
@@ -132,9 +134,7 @@ def _check_assets(cfg: OverlayConfig) -> None:
         raise ValueError(f"overlay moves exceed the base weight of: {over}")
 
 
-def load_overlay_config(
-    path: str | Path, candidates: list[Candidate]
-) -> tuple[OverlayConfig, str]:
+def load_overlay_config(path: str | Path, candidates: list[Candidate]) -> tuple[OverlayConfig, str]:
     """Return (config, full sha256 of the raw file bytes). The base mix is read
     from the candidates file (id `base_id`), never duplicated. Raises
     ValueError on malformed YAML, a wrong version, a missing field, a base that
@@ -231,9 +231,7 @@ def monthly_states(close: pd.DataFrame, cpi: pd.Series, cfg: OverlayConfig) -> p
     return states.loc[month_end_mask(pd.DatetimeIndex(states.index))]
 
 
-def overlay_weights(
-    monthly: pd.DataFrame, close: pd.DataFrame, cfg: OverlayConfig
-) -> pd.DataFrame:
+def overlay_weights(monthly: pd.DataFrame, close: pd.DataFrame, cfg: OverlayConfig) -> pd.DataFrame:
     """Daily target weights from month-end states. An undefined state counts
     as off. Moves go to the safe asset only; if they sum above `cfg.cap`,
     every move is scaled by cap/sum. Each month end's weights are held until

@@ -136,7 +136,9 @@ def main(argv: list[str] | None = None) -> int:
     reason = args.reason.strip()
 
     if args.step == "holdout" and not (args.unseal_holdout_once and reason):
-        print("refused: holdout needs --unseal-holdout-once and a non-empty --reason (owner go-ahead)")
+        print(
+            "refused: holdout needs --unseal-holdout-once and a non-empty --reason (owner go-ahead)"
+        )
         return 2
     try:
         criteria, criteria_hash = load_criteria(ROOT / "config" / "criteria.yaml")

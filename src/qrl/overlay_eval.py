@@ -65,7 +65,9 @@ def step_returns(
     """(daily net returns of overlay-G and static G on their common days,
     month-end states). Same engine, same cost."""
     monthly = monthly_states(close, cpi, cfg)
-    overlay = run_backtest(open_, close, overlay_weights(monthly, close, cfg), cost_bps=cfg.cost_bps)
+    overlay = run_backtest(
+        open_, close, overlay_weights(monthly, close, cfg), cost_bps=cfg.cost_bps
+    )
     base = run_backtest(open_, close, core_mix(close, risk_on=cfg.base), cost_bps=cfg.cost_bps)
     returns = pd.DataFrame({"overlay": overlay.returns, "G": base.returns}).dropna()
     return returns, monthly
@@ -191,7 +193,11 @@ def _body(result: dict) -> list[str]:
 
 def _section(step: str, event: dict) -> list[str]:
     result = event["result"] or {}
-    lines = [f"## {_TITLES[step]}", "", f"Ledger overlay event {event['event_id']} ({event['created_at']})."]
+    lines = [
+        f"## {_TITLES[step]}",
+        "",
+        f"Ledger overlay event {event['event_id']} ({event['created_at']}).",
+    ]
     if step == "validate":
         lines += ["", _SEEN]
     if "error" in result:

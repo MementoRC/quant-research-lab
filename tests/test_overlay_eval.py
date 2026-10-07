@@ -36,7 +36,9 @@ BASE = {"sharpe": 0.60, "max_drawdown": 0.20, "cagr": 0.06}
 def _data(end: str = "2024-06-28"):
     open_, close = synthetic_prices(["GLD", "SHY", "SPY", "TLT"], "1999-01-01", end)
     obs = pd.date_range("1990-01-01", "2024-04-01", freq="MS")
-    cpi = lag_to_availability(pd.Series(100 * 1.02 ** (np.arange(len(obs)) / 12), index=obs), CPI_LAG)
+    cpi = lag_to_availability(
+        pd.Series(100 * 1.02 ** (np.arange(len(obs)) / 12), index=obs), CPI_LAG
+    )
     return open_, close, cpi
 
 
@@ -58,7 +60,9 @@ def test_pass_rule_boundaries_are_inclusive_except_the_null():
 def test_window_result_has_no_null_check():
     idx = pd.bdate_range("2023-01-02", periods=300)
     rng = np.random.default_rng(0)
-    window = pd.DataFrame({"overlay": rng.normal(0, 0.01, 300), "G": rng.normal(0, 0.01, 300)}, index=idx)
+    window = pd.DataFrame(
+        {"overlay": rng.normal(0, 0.01, 300), "G": rng.normal(0, 0.01, 300)}, index=idx
+    )
     out = window_result(window, CFG)
     assert len(out["checks"]) == 3
     assert out["passed"] == all(c["passed"] for c in out["checks"])
@@ -81,7 +85,13 @@ def test_research_never_builds_on_data_after_the_research_end(monkeypatch):
     assert out["window"][1] <= "2018-12-31"
     assert out["null"]["draws"] == 3
     assert len(out["checks"]) == 4
-    assert set(out["signal_first_on"]) == {"trend_SPY", "trend_TLT", "trend_GLD", "vol", "inflation"}
+    assert set(out["signal_first_on"]) == {
+        "trend_SPY",
+        "trend_TLT",
+        "trend_GLD",
+        "vol",
+        "inflation",
+    }
 
 
 def test_null_sharpe_uses_the_same_days_as_the_overlay_vs_g_comparison(monkeypatch):
@@ -130,7 +140,13 @@ def _event(eid: int, result: dict) -> dict:
 def test_report_has_hashes_and_research_null():
     research = {
         **RESULT,
-        "null": {"draws": 1000, "seed": 20261007, "percentile": 95.0, "threshold": 0.1, "mean": 0.0},
+        "null": {
+            "draws": 1000,
+            "seed": 20261007,
+            "percentile": 95.0,
+            "threshold": 0.1,
+            "mean": 0.0,
+        },
         "signal_first_on": {"vol": "2004-04-30"},
     }
     md = render_markdown({"research": _event(1, research)}, HEADER)
