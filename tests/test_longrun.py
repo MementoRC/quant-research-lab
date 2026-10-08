@@ -114,3 +114,37 @@ def test_monthly_inflation_refuses_a_month_without_the_prior_month_end():
     months = pd.period_range("2005-01", "2005-03", freq="M")
     with pytest.raises(ValueError, match="2004-12"):
         monthly_inflation(_cpi_by_availability(), days, months)
+
+
+def test_load_longrun_config_refuses_an_unsupported_version(tmp_path):
+    with pytest.raises(ValueError, match="version"):
+        load_longrun_config(_write(tmp_path, GOOD.replace("version: 1", "version: 2")), DEC_SHA)
+
+
+def test_block_starts_same_seed_same_draw_and_in_range():
+    from qrl.longrun import block_starts
+
+    a = block_starts(seed=3, n_paths=100, n_blocks=30, n_months=168)
+    b = block_starts(seed=3, n_paths=100, n_blocks=30, n_months=168)
+    assert a.shape == (100, 30)
+    assert np.array_equal(a, b)
+    assert a.min() >= 0
+    assert a.max() <= 167
+
+
+def test_block_starts_different_seed_different_draw():
+    from qrl.longrun import block_starts
+
+    a = block_starts(seed=3, n_paths=100, n_blocks=30, n_months=168)
+    b = block_starts(seed=4, n_paths=100, n_blocks=30, n_months=168)
+    assert not np.array_equal(a, b)
+
+
+def test_month_indices_wraps_december_2018_to_january_2005():
+    from qrl.longrun import month_indices
+
+    starts = np.array([[167, 0]])  # block 1 starts at the last month (Dec 2018)
+    idx = month_indices(starts, block_months=12, n_months=168)
+    assert idx.shape == (1, 24)
+    assert list(idx[0, :12]) == [167] + list(range(0, 11))
+    assert list(idx[0, 12:]) == list(range(0, 12))

@@ -12,6 +12,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -107,3 +108,17 @@ def monthly_inflation(
                 raise ValueError(f"no trading day in {need} for month {m}'s inflation")
         out.append(usable_cpi(cpi, last[m]) / usable_cpi(cpi, last[m - 1]) - 1.0)
     return pd.Series(out, index=months, dtype=float)
+
+
+def block_starts(seed: int, n_paths: int, n_blocks: int, n_months: int) -> np.ndarray:
+    """Start month of every block, uniform over all months: shape
+    (n_paths, n_blocks). One draw shared by every portfolio (paired)."""
+    return np.random.default_rng(seed).integers(0, n_months, size=(n_paths, n_blocks))
+
+
+def month_indices(starts: np.ndarray, block_months: int, n_months: int) -> np.ndarray:
+    """Month positions of every path: each block is `block_months`
+    consecutive months, wrapping past the last month to the first (circular).
+    Shape (n_paths, n_blocks * block_months)."""
+    idx = (starts[:, :, None] + np.arange(block_months)) % n_months
+    return idx.reshape(starts.shape[0], -1)
