@@ -87,19 +87,66 @@ def test_monthly_returns_refuses_nan():
         monthly_returns(pd.Series([0.1, np.nan], index=idx))
 
 
-def _cpi_by_availability(start="2004-06", end="2006-12", growth=0.01):
+def _cpi_levels(n):
+    # deterministic, distinct month-over-month growth (0.1% .. 0.7%)
+    return 100 * np.cumprod(1 + 0.001 * (1 + np.arange(n) % 7))
+
+
+def _cpi_by_availability(start="2004-06", end="2006-12", levels=None):
     # value for month M, usable from the last day of month M+1 (qrl.macro lag)
     months = pd.period_range(start, end, freq="M")
     avail = [(m + 1).to_timestamp(how="end").normalize() for m in months]
-    return pd.Series(100 * (1 + growth) ** np.arange(len(months)), index=pd.DatetimeIndex(avail))
+    values = _cpi_levels(len(months)) if levels is None else np.asarray(levels, dtype=float)
+    return pd.Series(values, index=pd.DatetimeIndex(avail))
 
 
 def test_monthly_inflation_uses_usable_cpi_at_consecutive_month_ends():
+    start = pd.Period("2004-06", freq="M")
+    levels = _cpi_levels(len(pd.period_range("2004-06", "2006-12", freq="M")))
+
+    def level(month):
+        return levels[(pd.Period(month, freq="M") - start).n]
+
+    # Dec 2004 .. Apr 2005; Apr 30 2005 is a Saturday, so April's last trading
+    # day is Fri Apr 29, before March's CPI becomes usable (Apr 30).
+    days = pd.bdate_range("2004-11-01", "2005-04-29")
+    months = pd.period_range("2005-01", "2005-04", freq="M")
+    out = monthly_inflation(_cpi_by_availability(levels=levels), days, months)
+    assert list(out.index) == list(months)
+
+    # On month m's last trading day the usable value is month m-1's (published
+    # end of m), so inflation(m) = level[m-1] / level[m-2] - 1.
+    expected = [
+        level("2004-12") / level("2004-11") - 1,  # Jan 31 (Mon)
+        level("2005-01") / level("2004-12") - 1,  # Feb 28 (Mon)
+        level("2005-02") / level("2005-01") - 1,  # Mar 31 (Thu)
+        # Apr 29 (Fri): March CPI not yet usable, February's is; Mar 31 also
+        # sees February's.
+        level("2005-02") / level("2005-02") - 1,
+    ]
+    assert out.to_numpy() == pytest.approx(expected, abs=1e-12)
+    assert expected[3] == 0.0
+
+    # Using each month's FIRST trading day instead would give different numbers.
+    wrong_first_day = [
+        level("2004-11") / level("2004-10") - 1,  # Jan 3 vs Dec 1
+        level("2004-12") / level("2004-11") - 1,  # Feb 1 vs Jan 3
+        level("2005-01") / level("2004-12") - 1,  # Mar 1 vs Feb 1
+        level("2005-02") / level("2005-01") - 1,  # Apr 1 vs Mar 1
+    ]
+    assert not np.allclose(out.to_numpy(), wrong_first_day, atol=1e-9)
+    assert all(abs(o - w) > 1e-9 for o, w in zip(out.to_numpy(), wrong_first_day, strict=True))
+
+
+def test_monthly_inflation_refuses_stale_cpi_mid_series():
+    # Jan and Feb 2005 values (usable Feb 28 / Mar 31) are missing mid-series;
+    # later months are present.
+    cpi = _cpi_by_availability().drop(pd.to_datetime(["2005-02-28", "2005-03-31"]))
     days = pd.bdate_range("2004-12-01", "2005-03-31")
     months = pd.period_range("2005-01", "2005-03", freq="M")
-    out = monthly_inflation(_cpi_by_availability(), days, months)
-    assert list(out.index) == list(months)
-    assert out.to_numpy() == pytest.approx([0.01, 0.01, 0.01])
+    # Mar 31: latest usable value is Dec's (dated Jan 31), 59 days old.
+    with pytest.raises(ValueError, match="missing CPI"):
+        monthly_inflation(cpi, days, months)
 
 
 def test_monthly_inflation_refuses_a_missing_cpi():
