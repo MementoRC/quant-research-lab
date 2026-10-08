@@ -116,3 +116,50 @@ def month_indices(starts: np.ndarray, block_months: int, n_months: int) -> np.nd
     Shape (n_paths, n_blocks * block_months)."""
     idx = (starts[:, :, None] + np.arange(block_months)) % n_months
     return idx.reshape(starts.shape[0], -1)
+
+
+@dataclass(frozen=True)
+class Paths:
+    nominal: np.ndarray  # (n_paths, months): value after each month, start = 1.0
+    real: np.ndarray  # nominal deflated by the path's cumulative inflation
+    depleted: np.ndarray  # (n_paths,): month 1..T the path emptied, 0 if never
+
+
+def run_paths(
+    returns: np.ndarray, inflation: np.ndarray, idx: np.ndarray, rate: float
+) -> Paths:
+    """Withdrawal paths over the month positions `idx` (from `month_indices`).
+    Each month: V = (V - w) x (1 + r). w = rate / 12 in months 1-12, then
+    raised every 12 months by the path's own inflation over the previous 12
+    months. At or below DEPLETED the path is empty from that month on."""
+    r = np.asarray(returns, dtype=float)[idx]
+    pi = np.asarray(inflation, dtype=float)[idx]
+    n_paths, n_months = idx.shape
+    value = np.ones(n_paths)
+    w = np.full(n_paths, rate / 12)
+    level = np.ones(n_paths)
+    year = np.ones(n_paths)
+    nominal = np.empty((n_paths, n_months))
+    real = np.empty((n_paths, n_months))
+    depleted = np.zeros(n_paths, dtype=int)
+    for t in range(n_months):
+        if t and t % 12 == 0:
+            w = w * year
+            year = np.ones(n_paths)
+        alive = depleted == 0
+        value = np.where(alive, (value - w) * (1.0 + r[:, t]), 0.0)
+        emptied = alive & (value <= DEPLETED)
+        value[emptied] = 0.0
+        depleted[emptied] = t + 1
+        level = level * (1.0 + pi[:, t])
+        year = year * (1.0 + pi[:, t])
+        nominal[:, t] = value
+        real[:, t] = value / level
+    return Paths(nominal, real, depleted)
+
+
+def cash_assumption_returns(inflation: np.ndarray, real_yield: float) -> np.ndarray:
+    """The labelled assumption row: each month earns that month's inflation
+    plus `real_yield` a year, so its real return is exactly `real_yield`."""
+    monthly_real = (1.0 + real_yield) ** (1 / 12)
+    return np.asarray((1.0 + np.asarray(inflation, dtype=float)) * monthly_real - 1.0)
