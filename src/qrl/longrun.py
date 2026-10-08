@@ -16,7 +16,10 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from .decision import data_end, portfolio_returns
+from .decision_config import DecisionConfig
 from .decision_withdraw import usable_cpi
+from .periods import period_bounds
 
 DEPLETED = 1e-9  # of the starting value: at or below, the path is empty (spec "Withdrawals")
 CHECKPOINT_YEARS = (20, 25, 30)
@@ -182,4 +185,77 @@ def summarize(paths: Paths, floor: float) -> dict:
         "below_floor": float(np.mean((paths.real < floor).any(axis=1))),
         "end_real_median": float(np.median(end)),
         "end_real_p5": float(np.quantile(end, 0.05)),
+    }
+
+
+CASH_ID = "CASH"
+CASH_ASSUMPTION = "CASH +1% real (assumption)"
+
+
+def run_longrun(
+    lcfg: LongrunConfig,
+    dcfg: DecisionConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+) -> dict:
+    """The whole report as plain data (rendered by `qrl.longrun_report`).
+    Price and CPI frames are cut at the research end first. Raises
+    ValueError on any refusal (spec "Refusals")."""
+    end = data_end(criteria)
+    begin, _ = period_bounds(criteria, "research")
+    if begin is None:
+        raise ValueError("criteria: the research period has no start")
+    cut = {k: v.loc[:end] for k, v in data.items()}
+    known_cpi = cpi.loc[:end]
+    cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
+    days = pd.DatetimeIndex(cut["close"].index)
+    after = days[days >= begin]
+    if after.empty:
+        raise ValueError(f"no trading day on or after the research start {begin.date()}")
+    first = pd.Timestamp(after[0])
+    monthly = {
+        p.id: monthly_returns(portfolio_returns(p, cut, first, cost_bps)) for p in dcfg.portfolios
+    }
+    months = pd.PeriodIndex(next(iter(monthly.values())).index)
+    for pid, series in monthly.items():
+        if not series.index.equals(months):
+            raise ValueError(f"portfolio {pid}: months differ from the others")
+    inflation = monthly_inflation(known_cpi, months).to_numpy()
+    n_months = len(months)
+    n_blocks = lcfg.horizon_years * 12 // lcfg.block_months
+    idx = month_indices(
+        block_starts(lcfg.seed, lcfg.n_paths, n_blocks, n_months), lcfg.block_months, n_months
+    )
+    if idx.shape[1] != lcfg.horizon_years * 12:
+        raise ValueError(
+            f"paths are {idx.shape[1]} months long, expected {lcfg.horizon_years * 12}"
+        )
+    named: list[tuple[str, np.ndarray]] = []
+    for pid, s in monthly.items():
+        named.append((pid, s.to_numpy()))
+        if pid == CASH_ID:
+            cash = cash_assumption_returns(inflation, lcfg.cash_real_yield)
+            named.append((CASH_ASSUMPTION, cash))
+    rows = []
+    for rate in lcfg.rates:
+        for name, r in named:
+            paths = run_paths(r, inflation, idx, rate)
+            rows.append({"rate": rate, "portfolio": name, **summarize(paths, lcfg.real_floor)})
+    return {
+        "data_end": str(end.date()),
+        "first_month": str(months[0]),
+        "last_month": str(months[-1]),
+        "n_months": n_months,
+        "seed": lcfg.seed,
+        "n_paths": lcfg.n_paths,
+        "block_months": lcfg.block_months,
+        "horizon_years": lcfg.horizon_years,
+        "real_floor": lcfg.real_floor,
+        "cash_real_yield": lcfg.cash_real_yield,
+        "rates": lcfg.rates,
+        "longrun_sha256": lcfg.sha256,
+        "decision_sha256": dcfg.sha256,
+        "cost_bps": cost_bps,
+        "rows": rows,
     }
