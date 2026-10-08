@@ -4,13 +4,14 @@ is read)."""
 
 from __future__ import annotations
 
+import importlib.util
 from dataclasses import replace
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
-from decision_helpers import END, cpi, criteria, load, prices
+from decision_helpers import END, GOOD, ROOT, cpi, criteria, load, prices, write
 
 from qrl.longrun import CASH_ASSUMPTION, LongrunConfig, block_starts, run_longrun
 
@@ -147,3 +148,45 @@ def test_run_longrun_refuses_a_missing_cpi(tmp_path):
     dcfg = load(tmp_path)
     with pytest.raises(ValueError, match="CPI"):
         _run(dcfg, index=cpi(start="2010-01-01"))
+
+
+def _load_cli():
+    spec = importlib.util.spec_from_file_location("longrun_cli", ROOT / "scripts" / "longrun.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+cli = _load_cli()
+
+LONGRUN_YAML = """\
+version: 1
+decision_sha256: "{sha}"
+seed: 7
+n_paths: 50
+block_months: 12
+horizon_years: 30
+real_floor: 0.5
+withdrawal_rates: [0.04]
+cash_real_yield: 0.01
+"""
+
+
+def test_longrun_main_refuses_a_mismatched_decision_sha_and_writes_nothing(
+    tmp_path, monkeypatch, capsys
+):
+    def no_access(*args, **kwargs):
+        raise AssertionError("data must not be loaded before the config pin is checked")
+
+    monkeypatch.setattr(cli, "load_ohlcv", no_access)
+    monkeypatch.setattr(cli, "load_macro", no_access)
+    decision = write(tmp_path, GOOD)
+    pinned = tmp_path / "longrun.yaml"
+    pinned.write_text(LONGRUN_YAML.format(sha="00" * 32))
+    out = tmp_path / "longrun.md"
+    argv = ["--config", str(decision), "--longrun-config", str(pinned), "--out-md", str(out)]
+    assert cli.main(argv) == 1
+    printed = capsys.readouterr().out
+    assert printed.startswith("refused: ")
+    assert "sha256" in printed
+    assert not out.exists()
