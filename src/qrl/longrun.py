@@ -221,6 +221,12 @@ def run_longrun(
     for pid, series in monthly.items():
         if not series.index.equals(months):
             raise ValueError(f"portfolio {pid}: months differ from the others")
+    expected = pd.period_range(begin, end, freq="M")
+    if not months.equals(expected):
+        raise ValueError(
+            f"months must run {expected[0]}..{expected[-1]} ({len(expected)} months), "
+            f"got {months[0]}..{months[-1]} ({len(months)} months)"
+        )
     inflation = monthly_inflation(known_cpi, months).to_numpy()
     n_months = len(months)
     n_blocks = lcfg.horizon_years * 12 // lcfg.block_months

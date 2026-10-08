@@ -5,13 +5,14 @@ is read)."""
 from __future__ import annotations
 
 from dataclasses import replace
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
 from decision_helpers import END, cpi, criteria, load, prices
 
-from qrl.longrun import CASH_ASSUMPTION, LongrunConfig, run_longrun
+from qrl.longrun import CASH_ASSUMPTION, LongrunConfig, block_starts, run_longrun
 
 RATES = [0.04, 0.05]
 
@@ -89,6 +90,22 @@ def test_run_longrun_is_paired_identical_holdings_give_identical_rows(tmp_path):
         c = {k: v for k, v in rows["CASH"].items() if k != "portfolio"}
         assert a == b
         assert a != c  # different holdings give different rows: the check is not vacuous
+
+
+def test_run_longrun_draws_block_starts_once_for_all_portfolios(tmp_path):
+    dcfg = load(tmp_path)
+    assert len(dcfg.portfolios) > 1
+    with patch("qrl.longrun.block_starts", wraps=block_starts) as spy:
+        _run(dcfg)
+    assert spy.call_count == 1
+
+
+def test_run_longrun_refuses_partial_months(tmp_path):
+    dcfg = load(tmp_path)
+    data = prices()
+    short = {k: v.loc[: END - pd.offsets.MonthEnd(1)] for k, v in data.items()}
+    with pytest.raises(ValueError, match="months must run"):
+        _run(dcfg, short)
 
 
 def test_run_longrun_refuses_paths_not_horizon_years_times_twelve_months_long(tmp_path):
