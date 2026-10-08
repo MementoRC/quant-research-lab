@@ -163,3 +163,23 @@ def cash_assumption_returns(inflation: np.ndarray, real_yield: float) -> np.ndar
     plus `real_yield` a year, so its real return is exactly `real_yield`."""
     monthly_real = (1.0 + real_yield) ** (1 / 12)
     return np.asarray((1.0 + np.asarray(inflation, dtype=float)) * monthly_real - 1.0)
+
+
+def summarize(paths: Paths, floor: float) -> dict:
+    """Spec "Outputs": chance of depletion by each checkpoint year (month
+    12 x N or earlier), median depletion year among depleted paths (year =
+    ceil(month / 12), lower median; None if none), chance the real value is
+    ever below `floor`, and the final real value's median and 5th percentile
+    (depleted paths count as 0)."""
+    dep = paths.depleted
+    by = {y: float(np.mean((dep > 0) & (dep <= 12 * y))) for y in CHECKPOINT_YEARS}
+    years = np.ceil(dep[dep > 0] / 12)
+    median_year = int(np.quantile(years, 0.5, method="lower")) if years.size else None
+    end = paths.real[:, -1]
+    return {
+        "depleted_by": by,
+        "median_depletion_year": median_year,
+        "below_floor": float(np.mean((paths.real < floor).any(axis=1))),
+        "end_real_median": float(np.median(end)),
+        "end_real_p5": float(np.quantile(end, 0.05)),
+    }

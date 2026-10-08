@@ -6,6 +6,7 @@ import pytest
 
 from qrl.longrun import (
     LongrunConfig,
+    Paths,
     block_starts,
     cash_assumption_returns,
     load_longrun_config,
@@ -13,6 +14,7 @@ from qrl.longrun import (
     monthly_inflation,
     monthly_returns,
     run_paths,
+    summarize,
 )
 
 DEC_SHA = "d" * 64
@@ -232,3 +234,35 @@ def test_cash_assumption_row_earns_exactly_one_percent_real_a_year():
     r = cash_assumption_returns(infl, real_yield=0.01)
     real_year = np.prod((1 + r[:12]) / (1 + infl[:12]))
     assert real_year == pytest.approx(1.01)
+
+
+def _paths(depleted, real_end, ever_low):
+    n = len(depleted)
+    real = np.ones((n, 360))
+    real[:, -1] = real_end
+    for i, low in enumerate(ever_low):
+        if low:
+            real[i, 100] = 0.3
+    return Paths(real.copy(), real, np.array(depleted))
+
+
+def test_summarize_depletion_by_year_counts_month_12n_or_earlier():
+    s = summarize(_paths([240, 241, 0, 300], [0, 0, 1, 0], [1, 1, 0, 1]), floor=0.5)
+    assert s["depleted_by"] == {20: 0.25, 25: 0.75, 30: 0.75}
+
+
+def test_summarize_median_depletion_year_and_none_when_nothing_depletes():
+    s = summarize(_paths([12, 13, 25, 0], [0, 0, 0, 1], [1, 1, 1, 0]), floor=0.5)
+    assert s["median_depletion_year"] == 2  # years 1, 2, 3 -> 2
+    s2 = summarize(_paths([0, 0], [1, 1], [0, 0]), floor=0.5)
+    assert s2["median_depletion_year"] is None
+
+
+def test_summarize_below_floor_and_ending_percentiles():
+    real_end = np.linspace(0, 2, 101)
+    s = summarize(_paths([0] * 101, real_end, [0] * 50 + [1] * 51), floor=0.5)
+    assert s["below_floor"] == pytest.approx(
+        np.mean(np.array([0] * 50 + [1] * 51, bool) | (real_end < 0.5))
+    )
+    assert s["end_real_median"] == pytest.approx(1.0)
+    assert s["end_real_p5"] == pytest.approx(0.1)
