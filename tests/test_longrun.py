@@ -220,13 +220,29 @@ def test_real_value_is_deflated_by_the_paths_cumulative_inflation():
     assert p.real[0, 11] == pytest.approx(1 / 1.002**12)
 
 
-def test_paths_are_paired_every_portfolio_sees_the_same_months():
-    starts = block_starts(seed=1, n_paths=20, n_blocks=30, n_months=168)
-    idx = month_indices(starts, 12, 168)
-    r = np.linspace(-0.05, 0.05, 168)
-    a = run_paths(r, np.zeros(168), idx, rate=0.04)
-    b = run_paths(r, np.zeros(168), idx, rate=0.04)
-    assert np.array_equal(a.nominal, b.nominal)
+def test_run_paths_paths_are_independent_in_one_call():
+    returns = np.concatenate([np.full(360, 0.01), np.zeros(360)])
+    idx = np.vstack([np.arange(360), np.arange(360, 720)])
+    p = run_paths(returns, np.zeros(720), idx, rate=0.05)
+    assert p.depleted[1] == 240
+    assert (p.nominal[1, 239:] == 0.0).all()
+    assert p.depleted[0] == 0
+    alone = run_paths(returns[:360], np.zeros(360), np.arange(360)[None, :], 0.05)
+    assert np.array_equal(p.nominal[0], alone.nominal[0])
+
+
+def test_run_paths_raises_follow_each_paths_own_inflation_and_compound():
+    infl = np.zeros(720)
+    infl[:12] = 0.01
+    infl[12:24] = 0.02
+    infl[372:384] = 0.03
+    idx = np.vstack([np.arange(360), np.arange(360, 720)])
+    p = run_paths(np.zeros(720), infl, idx, rate=0.12)
+    v0, v1 = p.nominal[0], p.nominal[1]
+    assert v0[11] - v0[12] == pytest.approx(0.01 * 1.01**12)
+    assert v0[23] - v0[24] == pytest.approx(0.01 * 1.01**12 * 1.02**12)
+    assert v1[11] - v1[12] == pytest.approx(0.01)
+    assert v1[23] - v1[24] == pytest.approx(0.01 * 1.03**12)
 
 
 def test_cash_assumption_row_earns_exactly_one_percent_real_a_year():
@@ -256,6 +272,11 @@ def test_summarize_median_depletion_year_and_none_when_nothing_depletes():
     assert s["median_depletion_year"] == 2  # years 1, 2, 3 -> 2
     s2 = summarize(_paths([0, 0], [1, 1], [0, 0]), floor=0.5)
     assert s2["median_depletion_year"] is None
+
+
+def test_summarize_median_depletion_year_even_count_uses_lower_median():
+    s = summarize(_paths([12, 25], [0, 0], [1, 1]), floor=0.5)
+    assert s["median_depletion_year"] == 1  # years 1, 3 -> lower median
 
 
 def test_summarize_below_floor_and_ending_percentiles():
