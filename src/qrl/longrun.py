@@ -91,22 +91,16 @@ def monthly_returns(daily: pd.Series) -> pd.Series:
     return (1.0 + daily).groupby(months).prod() - 1.0
 
 
-def monthly_inflation(
-    cpi: pd.Series, trading_days: pd.DatetimeIndex, months: pd.PeriodIndex
-) -> pd.Series:
-    """Inflation of each month m: usable CPI on m's last trading day over
-    usable CPI on (m-1)'s last trading day, minus 1 (`usable_cpi`'s
-    availability rule; raises "missing CPI" if none is usable)."""
-    days = pd.DatetimeIndex(trading_days)
-    last: dict[pd.Period, pd.Timestamp] = {}
-    for day in days.sort_values():
-        last[day.to_period("M")] = day  # ascending, so the month's last day wins
-    out = []
-    for m in months:
-        for need in (m - 1, m):
-            if need not in last:
-                raise ValueError(f"no trading day in {need} for month {m}'s inflation")
-        out.append(usable_cpi(cpi, last[m]) / usable_cpi(cpi, last[m - 1]) - 1.0)
+def monthly_inflation(cpi: pd.Series, months: pd.PeriodIndex) -> pd.Series:
+    """Inflation of each month m: usable CPI on m's last calendar day over
+    usable CPI on (m-1)'s last calendar day, minus 1 (`usable_cpi`'s
+    availability rule; raises "missing CPI" if none is usable). Calendar month
+    ends, not trading days: spec amendment 2026-10-08."""
+
+    def end(p: pd.Period) -> pd.Timestamp:
+        return p.to_timestamp(how="end").normalize()
+
+    out = [usable_cpi(cpi, end(m)) / usable_cpi(cpi, end(m - 1)) - 1.0 for m in months]
     return pd.Series(out, index=months, dtype=float)
 
 

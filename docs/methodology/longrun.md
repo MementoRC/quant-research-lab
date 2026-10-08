@@ -1,6 +1,6 @@
 # Long-run withdrawals: 30-year resampled paths
 
-Status: spec written 2026-10-07 (`pixi run longrun`, writes
+Status: spec written 2026-10-07, amended 2026-10-08 (`pixi run longrun`, writes
 `research/longrun.md`). Owner-approved design 2026-10-07. Extends
 [decision-helper.md](decision-helper.md).
 
@@ -21,10 +21,11 @@ nothing and recommends nothing.
   after 2018-12-31.
 - Daily returns are compounded to calendar-month returns: 168 months,
   January 2005 to December 2018.
-- Monthly inflation for month m = usable CPIAUCNS on the last trading day of
-  m / usable CPIAUCNS on the last trading day of m-1, minus 1. "Usable" is
+- Monthly inflation for month m = usable CPIAUCNS on the last calendar day of
+  m / usable CPIAUCNS on the last calendar day of m-1, minus 1. "Usable" is
   the decision helper's availability-lagged rule (`decision_withdraw.usable_cpi`).
   A month's portfolio returns and its inflation are always kept together.
+  - Amendment 2026-10-08 (owner-approved, before any result was seen): the CPI is read on the last calendar day of each month, not the last trading day. CPI for month M is usable from the last calendar day of M+1, so reading on the last trading day gave 0% inflation in months ending on a weekend and a double month after; block resampling can split that pair. Reading on the calendar month end gives each month one clean monthly figure and uses nothing not yet published.
 - Extra row "CASH +1% real (assumption)": monthly return =
   (1 + inflation_m) x 1.01^(1/12) - 1, so its real return is exactly 1% a
   year on every path. It is printed directly under CASH and labelled an

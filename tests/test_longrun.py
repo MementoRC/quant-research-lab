@@ -6,7 +6,9 @@ import pytest
 
 from qrl.longrun import (
     LongrunConfig,
+    block_starts,
     load_longrun_config,
+    month_indices,
     monthly_inflation,
     monthly_returns,
 )
@@ -107,60 +109,41 @@ def test_monthly_inflation_uses_usable_cpi_at_consecutive_month_ends():
     def level(month):
         return levels[(pd.Period(month, freq="M") - start).n]
 
-    # Dec 2004 .. Apr 2005; Apr 30 2005 is a Saturday, so April's last trading
-    # day is Fri Apr 29, before March's CPI becomes usable (Apr 30).
-    days = pd.bdate_range("2004-11-01", "2005-04-29")
+    # Apr 30 2005 is a Saturday: March's CPI is usable on that calendar day.
     months = pd.period_range("2005-01", "2005-04", freq="M")
-    out = monthly_inflation(_cpi_by_availability(levels=levels), days, months)
+    out = monthly_inflation(_cpi_by_availability(levels=levels), months)
     assert list(out.index) == list(months)
 
-    # On month m's last trading day the usable value is month m-1's (published
-    # end of m), so inflation(m) = level[m-1] / level[m-2] - 1.
+    # On month m's calendar end the usable value is month m-1's (published at
+    # the end of m), so inflation(m) = level[m-1] / level[m-2] - 1 for every m.
     expected = [
-        level("2004-12") / level("2004-11") - 1,  # Jan 31 (Mon)
-        level("2005-01") / level("2004-12") - 1,  # Feb 28 (Mon)
-        level("2005-02") / level("2005-01") - 1,  # Mar 31 (Thu)
-        # Apr 29 (Fri): March CPI not yet usable, February's is; Mar 31 also
-        # sees February's.
-        level("2005-02") / level("2005-02") - 1,
+        level("2004-12") / level("2004-11") - 1,  # Jan
+        level("2005-01") / level("2004-12") - 1,  # Feb
+        level("2005-02") / level("2005-01") - 1,  # Mar
+        level("2005-03") / level("2005-02") - 1,  # Apr (ends on a Saturday)
     ]
     assert out.to_numpy() == pytest.approx(expected, abs=1e-12)
-    assert expected[3] == 0.0
 
-    # Using each month's FIRST trading day instead would give different numbers.
-    wrong_first_day = [
-        level("2004-11") / level("2004-10") - 1,  # Jan 3 vs Dec 1
-        level("2004-12") / level("2004-11") - 1,  # Feb 1 vs Jan 3
-        level("2005-01") / level("2004-12") - 1,  # Mar 1 vs Feb 1
-        level("2005-02") / level("2005-01") - 1,  # Apr 1 vs Mar 1
-    ]
-    assert not np.allclose(out.to_numpy(), wrong_first_day, atol=1e-9)
-    assert all(abs(o - w) > 1e-9 for o, w in zip(out.to_numpy(), wrong_first_day, strict=True))
+    # Regression: reading the last trading day (Fri Apr 29) would see only
+    # February's value on both sides and give exactly 0.0 for April.
+    assert out.iloc[3] != 0.0
+    assert abs(out.iloc[3]) > 1e-9
 
 
 def test_monthly_inflation_refuses_stale_cpi_mid_series():
     # Jan and Feb 2005 values (usable Feb 28 / Mar 31) are missing mid-series;
     # later months are present.
     cpi = _cpi_by_availability().drop(pd.to_datetime(["2005-02-28", "2005-03-31"]))
-    days = pd.bdate_range("2004-12-01", "2005-03-31")
     months = pd.period_range("2005-01", "2005-03", freq="M")
     # Mar 31: latest usable value is Dec's (dated Jan 31), 59 days old.
     with pytest.raises(ValueError, match="missing CPI"):
-        monthly_inflation(cpi, days, months)
+        monthly_inflation(cpi, months)
 
 
 def test_monthly_inflation_refuses_a_missing_cpi():
-    days = pd.bdate_range("2004-12-01", "2005-03-31")
     months = pd.period_range("2005-01", "2005-03", freq="M")
     with pytest.raises(ValueError, match="missing CPI"):
-        monthly_inflation(_cpi_by_availability(end="2004-12"), days, months)
-
-
-def test_monthly_inflation_refuses_a_month_without_the_prior_month_end():
-    days = pd.bdate_range("2005-01-01", "2005-03-31")  # no December 2004 trading day
-    months = pd.period_range("2005-01", "2005-03", freq="M")
-    with pytest.raises(ValueError, match="2004-12"):
-        monthly_inflation(_cpi_by_availability(), days, months)
+        monthly_inflation(_cpi_by_availability(end="2004-12"), months)
 
 
 def test_load_longrun_config_refuses_an_unsupported_version(tmp_path):
@@ -169,29 +152,23 @@ def test_load_longrun_config_refuses_an_unsupported_version(tmp_path):
 
 
 def test_block_starts_same_seed_same_draw_and_in_range():
-    from qrl.longrun import block_starts
-
     a = block_starts(seed=3, n_paths=100, n_blocks=30, n_months=168)
     b = block_starts(seed=3, n_paths=100, n_blocks=30, n_months=168)
     assert a.shape == (100, 30)
     assert np.array_equal(a, b)
-    assert a.min() >= 0
-    assert a.max() <= 167
+    assert a.min() == 0
+    assert a.max() == 167
 
 
 def test_block_starts_different_seed_different_draw():
-    from qrl.longrun import block_starts
-
     a = block_starts(seed=3, n_paths=100, n_blocks=30, n_months=168)
     b = block_starts(seed=4, n_paths=100, n_blocks=30, n_months=168)
     assert not np.array_equal(a, b)
 
 
 def test_month_indices_wraps_december_2018_to_january_2005():
-    from qrl.longrun import month_indices
-
     starts = np.array([[167, 0]])  # block 1 starts at the last month (Dec 2018)
     idx = month_indices(starts, block_months=12, n_months=168)
     assert idx.shape == (1, 24)
-    assert list(idx[0, :12]) == [167] + list(range(0, 11))
+    assert list(idx[0, :12]) == [167, *range(11)]
     assert list(idx[0, 12:]) == list(range(0, 12))
