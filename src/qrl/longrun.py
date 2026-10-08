@@ -12,9 +12,10 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import yaml
+
+from .decision_withdraw import usable_cpi
 
 DEPLETED = 1e-9  # of the starting value: at or below, the path is empty (spec "Withdrawals")
 CHECKPOINT_YEARS = (20, 25, 30)
@@ -77,3 +78,32 @@ def load_longrun_config(path: str | Path, decision_sha256: str) -> LongrunConfig
         cash_real_yield=float(doc["cash_real_yield"]),
         sha256=hashlib.sha256(raw).hexdigest(),
     )
+
+
+def monthly_returns(daily: pd.Series) -> pd.Series:
+    """Daily net returns compounded to calendar-month returns, indexed by
+    monthly Period. Refuses any NaN (a NaN is never turned into cash)."""
+    if daily.isna().any():
+        bad = pd.DatetimeIndex(daily.index)[daily.isna().to_numpy()][0]
+        raise ValueError(f"NaN return on {bad.date()}")
+    months = pd.DatetimeIndex(daily.index).to_period("M")
+    return (1.0 + daily).groupby(months).prod() - 1.0
+
+
+def monthly_inflation(
+    cpi: pd.Series, trading_days: pd.DatetimeIndex, months: pd.PeriodIndex
+) -> pd.Series:
+    """Inflation of each month m: usable CPI on m's last trading day over
+    usable CPI on (m-1)'s last trading day, minus 1 (`usable_cpi`'s
+    availability rule; raises "missing CPI" if none is usable)."""
+    days = pd.DatetimeIndex(trading_days)
+    last: dict[pd.Period, pd.Timestamp] = {}
+    for day in days.sort_values():
+        last[day.to_period("M")] = day  # ascending, so the month's last day wins
+    out = []
+    for m in months:
+        for need in (m - 1, m):
+            if need not in last:
+                raise ValueError(f"no trading day in {need} for month {m}'s inflation")
+        out.append(usable_cpi(cpi, last[m]) / usable_cpi(cpi, last[m - 1]) - 1.0)
+    return pd.Series(out, index=months, dtype=float)

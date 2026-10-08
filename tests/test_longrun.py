@@ -4,7 +4,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from qrl.longrun import LongrunConfig, load_longrun_config
+from qrl.longrun import (
+    LongrunConfig,
+    load_longrun_config,
+    monthly_inflation,
+    monthly_returns,
+)
 
 DEC_SHA = "d" * 64
 
@@ -66,3 +71,46 @@ def test_load_longrun_config_refuses_a_missing_file(tmp_path):
 def test_load_longrun_config_refuses_malformed_yaml(tmp_path):
     with pytest.raises(ValueError, match="cannot be loaded"):
         load_longrun_config(_write(tmp_path, "version: [1\n"), DEC_SHA)
+
+
+def test_monthly_returns_compounds_each_calendar_month():
+    idx = pd.to_datetime(["2005-01-03", "2005-01-04", "2005-02-01"])
+    out = monthly_returns(pd.Series([0.10, 0.10, -0.5], index=idx))
+    assert list(out.index) == [pd.Period("2005-01", "M"), pd.Period("2005-02", "M")]
+    assert out.iloc[0] == pytest.approx(0.21)
+    assert out.iloc[1] == pytest.approx(-0.5)
+
+
+def test_monthly_returns_refuses_nan():
+    idx = pd.to_datetime(["2005-01-03", "2005-01-04"])
+    with pytest.raises(ValueError, match="NaN"):
+        monthly_returns(pd.Series([0.1, np.nan], index=idx))
+
+
+def _cpi_by_availability(start="2004-06", end="2006-12", growth=0.01):
+    # value for month M, usable from the last day of month M+1 (qrl.macro lag)
+    months = pd.period_range(start, end, freq="M")
+    avail = [(m + 1).to_timestamp(how="end").normalize() for m in months]
+    return pd.Series(100 * (1 + growth) ** np.arange(len(months)), index=pd.DatetimeIndex(avail))
+
+
+def test_monthly_inflation_uses_usable_cpi_at_consecutive_month_ends():
+    days = pd.bdate_range("2004-12-01", "2005-03-31")
+    months = pd.period_range("2005-01", "2005-03", freq="M")
+    out = monthly_inflation(_cpi_by_availability(), days, months)
+    assert list(out.index) == list(months)
+    assert out.to_numpy() == pytest.approx([0.01, 0.01, 0.01])
+
+
+def test_monthly_inflation_refuses_a_missing_cpi():
+    days = pd.bdate_range("2004-12-01", "2005-03-31")
+    months = pd.period_range("2005-01", "2005-03", freq="M")
+    with pytest.raises(ValueError, match="missing CPI"):
+        monthly_inflation(_cpi_by_availability(end="2004-12"), days, months)
+
+
+def test_monthly_inflation_refuses_a_month_without_the_prior_month_end():
+    days = pd.bdate_range("2005-01-01", "2005-03-31")  # no December 2004 trading day
+    months = pd.period_range("2005-01", "2005-03", freq="M")
+    with pytest.raises(ValueError, match="2004-12"):
+        monthly_inflation(_cpi_by_availability(), days, months)
