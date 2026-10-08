@@ -18,6 +18,9 @@ document itself.
 - [decision-helper.md](decision-helper.md) — decision aid comparing a fixed
   set of portfolios under historical crashes, judgement-based shocks and
   inflation-indexed withdrawals.
+- [longrun.md](longrun.md) — 30-year withdrawal paths built by resampling
+  2005-2018 months, comparing the decision-helper portfolios on depletion
+  chance and real value.
 
 ## Former paths
 
