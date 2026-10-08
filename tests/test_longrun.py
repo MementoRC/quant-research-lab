@@ -3,8 +3,13 @@ import hashlib
 import numpy as np
 import pandas as pd
 import pytest
+from decision_helpers import cpi as helper_cpi
+from decision_helpers import criteria as helper_criteria
+from decision_helpers import load as helper_load
+from decision_helpers import prices as helper_prices
 
 from qrl.longrun import (
+    CASH_ASSUMPTION,
     LongrunConfig,
     Paths,
     block_starts,
@@ -13,9 +18,11 @@ from qrl.longrun import (
     month_indices,
     monthly_inflation,
     monthly_returns,
+    run_longrun,
     run_paths,
     summarize,
 )
+from qrl.longrun_report import render_markdown
 
 DEC_SHA = "d" * 64
 
@@ -287,3 +294,95 @@ def test_summarize_below_floor_and_ending_percentiles():
     )
     assert s["end_real_median"] == pytest.approx(1.0)
     assert s["end_real_p5"] == pytest.approx(0.1)
+
+
+def _row(rate, name, year):
+    return {
+        "rate": rate,
+        "portfolio": name,
+        "depleted_by": {20: 0.0, 25: 0.1, 30: 0.25},
+        "median_depletion_year": year,
+        "below_floor": 0.4,
+        "end_real_median": 1.2,
+        "end_real_p5": 0.05,
+    }
+
+
+def _report():
+    rows = []
+    for rate in (0.02, 0.033):
+        rows += [_row(rate, "CASH", 27), _row(rate, CASH_ASSUMPTION, None), _row(rate, "G", 21)]
+    return {
+        "data_end": "2018-12-31",
+        "first_month": "2005-01",
+        "last_month": "2018-12",
+        "n_months": 168,
+        "seed": 4242,
+        "n_paths": 777,
+        "block_months": 12,
+        "horizon_years": 30,
+        "real_floor": 0.5,
+        "cash_real_yield": 0.01,
+        "rates": [0.02, 0.033],
+        "longrun_sha256": "ab" * 32,
+        "decision_sha256": "cd" * 32,
+        "cost_bps": 5.0,
+        "rows": rows,
+    }
+
+
+def test_render_header_settings_hashes_and_limits():
+    text = render_markdown(_report())
+    assert "# Long-run withdrawals: 30-year resampled paths" in text
+    assert "seed 4242" in text
+    assert "777 paths" in text
+    assert "ab" * 32 in text
+    assert "cd" * 32 in text
+    for limit in (
+        "one market era",
+        "one large crash (2008)",
+        "falling interest rates",
+        "low inflation",
+        "near-zero cash yields in 2009-2015",
+        "cannot create a 1970s-style inflation decade",
+    ):
+        assert limit in text
+
+
+def test_render_one_section_per_rate_with_assumption_row_after_cash():
+    lines = render_markdown(_report()).splitlines()
+    assert sum(x.startswith("### Withdrawal rate") for x in lines) == 2
+    assert "### Withdrawal rate 2.0% per year" in lines
+    assert "### Withdrawal rate 3.3% per year" in lines
+    for i, line in enumerate(lines):
+        if line.startswith("| CASH |"):
+            assert lines[i + 1].startswith(f"| {CASH_ASSUMPTION} |")
+
+
+def test_render_missing_depletion_year_is_a_dash_and_no_dollar_sign():
+    text = render_markdown(_report())
+    row = next(x for x in text.splitlines() if x.startswith(f"| {CASH_ASSUMPTION} |"))
+    assert row.split(" | ")[4] == "-"
+    assert "$" not in text
+
+
+def test_render_real_run_has_one_row_per_portfolio_per_rate(tmp_path):
+    dcfg = helper_load(tmp_path)
+    lcfg = LongrunConfig(
+        seed=7,
+        n_paths=20,
+        block_months=12,
+        horizon_years=30,
+        real_floor=0.5,
+        rates=[0.04, 0.05],
+        cash_real_yield=0.01,
+        sha256="ab" * 32,
+    )
+    report = run_longrun(lcfg, dcfg, helper_prices(), helper_cpi(), helper_criteria())
+    text = render_markdown(report)
+    names = [p.id for p in dcfg.portfolios] + [CASH_ASSUMPTION]
+    for rate in lcfg.rates:
+        section = text.split(f"### Withdrawal rate {rate:.1%} per year")[1].split("###")[0]
+        rows = [x for x in section.splitlines() if x.startswith("| ") and "portfolio" not in x]
+        assert len(rows) == len(names)
+    assert "$" not in text
