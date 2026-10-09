@@ -276,6 +276,14 @@
         <p class="section-note" id="decision-links"></p>
       </section>
 
+      <section aria-labelledby="longrun-title" id="longrun-section" hidden>
+        <h2 id="longrun-title">Long-run withdrawals: 30-year resampled paths</h2>
+        <p class="section-note">Compares portfolios over made-up 30-year withdrawal paths built from 2005-2018 months; it selects and recommends nothing. Data up to 2018-12-31 only.</p>
+        <ul id="longrun-header"></ul>
+        <div id="longrun-body"></div>
+        <p class="section-note" id="longrun-links"></p>
+      </section>
+
       <footer>
         <p>Data through ${fmtDate(data.data_through)} from ${data.data_source === "synthetic" ? "synthetic demo prices" : "Yahoo Finance"}. Built ${new Date(data.generated_at).toLocaleString()}.</p>
         <p>Criteria file version <code>${esc(data.criteria_hash)}</code>. If this code changes unexpectedly, the pass rules were edited.</p>
@@ -301,6 +309,7 @@
     renderCore(data);
     renderFragility(data);
     renderDecision(data);
+    renderReport(data.longrun, "longrun", "full long-run report");
 
     document.getElementById("theme-toggle").addEventListener("click", () => {
       const root = document.documentElement;
@@ -560,13 +569,16 @@
   }
 
   function renderDecision(data) {
-    const dec = data.decision;
-    const section = document.getElementById("decision-section");
+    renderReport(data.decision, "decision", "full decision report");
+  }
+
+  function renderReport(dec, prefix, linkText) {
+    const section = document.getElementById(`${prefix}-section`);
     if (!dec) { section.hidden = true; return; }
     section.hidden = false;
-    document.getElementById("decision-header").innerHTML = Object.entries(dec.header || {})
+    document.getElementById(`${prefix}-header`).innerHTML = Object.entries(dec.header || {})
       .map(([k, v]) => `<li>${esc(k)}: ${esc(v)}</li>`).join("");
-    const body = document.getElementById("decision-body");
+    const body = document.getElementById(`${prefix}-body`);
     body.innerHTML = "";
     const add = (parent, tag, html) => {
       const el = document.createElement(tag);
@@ -588,8 +600,8 @@
         simpleTable(table, t.columns.map((c, i) => [i, c]), t.rows, null, [0]);
       });
     });
-    document.getElementById("decision-links").innerHTML =
-      `Source file: <a href="${REPO_BLOB}${esc(dec.source)}">full decision report</a>.`;
+    document.getElementById(`${prefix}-links`).innerHTML =
+      `Source file: <a href="${REPO_BLOB}${esc(dec.source)}">${esc(linkText)}</a>.`;
   }
 
   try {

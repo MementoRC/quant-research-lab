@@ -27,7 +27,12 @@ from qrl.engine import run_backtest  # noqa: E402
 from qrl.metrics import compute_metrics, drawdown  # noqa: E402
 from qrl.periods import PERIOD_NAMES, slice_period  # noqa: E402
 from qrl.portfolio import combine_portfolio, load_portfolio_config  # noqa: E402
-from qrl.site_core import build_core_comparison, build_decision, build_fragility  # noqa: E402
+from qrl.site_core import (  # noqa: E402
+    build_core_comparison,
+    build_decision,
+    build_fragility,
+    build_longrun,
+)
 from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 
 _ALL_SPECS = {**REGISTRY, **SLEEVE_REGISTRY}
@@ -402,6 +407,11 @@ def main() -> None:
     if decision is not None:
         payload["decision"] = decision
         print(f"Decision helper: {len(decision['sections'])} sections")
+
+    longrun = build_longrun(ROOT)
+    if longrun is not None:
+        payload["longrun"] = longrun
+        print(f"Long-run withdrawals: {len(longrun['sections'])} sections")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

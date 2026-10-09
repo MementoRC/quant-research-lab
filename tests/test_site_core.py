@@ -3,9 +3,11 @@ from pathlib import Path
 from qrl.site_core import (
     DECISION_PATH,
     FRAGILITY_PATH,
+    LONGRUN_PATH,
     build_core_comparison,
     build_decision,
     build_fragility,
+    build_longrun,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -216,3 +218,27 @@ def test_decision_parses_committed_report():
     assert all(t["title"].startswith("Withdrawal rate ") for t in withdrawals)
     assert len(sections["Year-one scenario hit"]["tables"]) == 3
     assert len(sections["Judgement-based scenarios"]["tables"]) == 2
+
+
+def test_longrun_absent_returns_none(tmp_path):
+    assert build_longrun(tmp_path) is None
+
+
+def test_longrun_parses_sample(tmp_path):
+    (tmp_path / "research").mkdir()
+    (tmp_path / LONGRUN_PATH).write_text(SAMPLE_DECISION)
+    block = build_longrun(tmp_path)
+    assert block is not None
+    assert block["source"] == "research/longrun.md"
+    assert block["header"] == {"data": "up to 2018-12-31", "hash": "abc"}
+    assert [s["title"] for s in block["sections"]][0] == "Notes"
+
+
+def test_longrun_parses_committed_report():
+    block = build_longrun(ROOT)
+    assert block is not None
+    titles = [s["title"] for s in block["sections"]]
+    assert titles == ["How to read this", "Limits", "Notes", "Withdrawals"]
+    withdrawals = block["sections"][-1]["tables"]
+    assert len(withdrawals) == 4
+    assert all(t["title"].startswith("Withdrawal rate ") for t in withdrawals)
