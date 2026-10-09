@@ -1,7 +1,8 @@
 # Long-run withdrawals: 30-year resampled paths
 
-Status: spec written 2026-10-07, amended 2026-10-08 (`pixi run longrun`, writes
-`research/longrun.md`). Owner-approved design 2026-10-07. Extends
+Status: implemented, report fd87fd8f (`pixi run longrun`, writes
+`research/longrun.md`). Spec written 2026-10-07, amended 2026-10-08.
+Owner-approved design 2026-10-07. Extends
 [decision-helper.md](decision-helper.md).
 
 ## Purpose
