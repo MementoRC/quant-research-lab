@@ -14,6 +14,7 @@ COMPARE_PATH = "research/core_compare.md"
 REVEAL_PATH = "research/core_reveal.md"
 FRAGILITY_PATH = "research/fragility.md"
 DECISION_PATH = "research/decision.md"
+LONGRUN_PATH = "research/longrun.md"
 
 _BULLET = re.compile(r"^- ([^:]+): (.*)$")
 _EVENT_ID = re.compile(r"event id (\d+)")
@@ -167,15 +168,25 @@ def _parse_section(title: str, lines: list[str]) -> dict:
     return {"title": title, "bullets": bullets, "paragraphs": paragraphs, "tables": tables}
 
 
-def build_decision(root: Path) -> dict | None:
-    """The `decision` block for results.json from the committed `research/decision.md`,
-    rendered generically (header bullets, then every `## ` section), or None if absent."""
-    path = root / DECISION_PATH
+def _build_report(root: Path, rel_path: str) -> dict | None:
+    path = root / rel_path
     if not path.exists():
         return None
     sections = _sections(path.read_text())
     return {
-        "source": DECISION_PATH,
+        "source": rel_path,
         "header": _bullets(sections[""]),
         "sections": [_parse_section(t, ls) for t, ls in sections.items() if t],
     }
+
+
+def build_decision(root: Path) -> dict | None:
+    """The `decision` block for results.json from the committed `research/decision.md`,
+    rendered generically (header bullets, then every `## ` section), or None if absent."""
+    return _build_report(root, DECISION_PATH)
+
+
+def build_longrun(root: Path) -> dict | None:
+    """The `longrun` block for results.json from the committed `research/longrun.md`,
+    rendered the same way as `build_decision`, or None if absent."""
+    return _build_report(root, LONGRUN_PATH)

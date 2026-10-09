@@ -1,0 +1,19 @@
+# PRE-REGISTERED long-run withdrawal configuration (spec:
+# docs/methodology/longrun.md; owner-approved design 2026-10-07, spec
+# approved 2026-10-08). Fixed before any result was seen. Every report
+# records this file's sha256. After the first `pixi run longrun` report,
+# change only via a dated amendment comment here.
+#
+# Portfolios, withdrawal rates' source and the 2018-12-31 data end come from
+# config/decision.yaml, read unchanged; its sha256 is pinned below and
+# checked on load.
+version: 1
+decision_sha256: "b6ae095904f8f5eee9f75ef48e617d954953150b889d6bcfef42f6179105db23"
+
+seed: 20261008
+n_paths: 10000
+block_months: 12
+horizon_years: 30
+real_floor: 0.5
+withdrawal_rates: [0.02, 0.033, 0.04, 0.05]
+cash_real_yield: 0.01
