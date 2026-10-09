@@ -54,15 +54,47 @@ rank_by: improvement_sharpe
 ## Procedure
 
 1. Commit this spec and `config/combined_fixed.yaml` before any result.
-2. Record the single candidate in the ledger as a new run (the next run
-   number after the highest in the ledger). A small new path in
-   `scripts/search.py` takes a fixed candidate: no proposal, no search. It
-   refuses to test a second candidate, or the same one twice.
-3. Research period, 2005-01-01 to 2018-12-31, once.
-4. Only if it passes, `validate` once on 2019-2022.
-5. The holdout (2023 onward) stays sealed.
-6. Nothing is tuned or rerun. The result is written up, pass or fail, in
+2. Seed a new run (the next number after the highest in the ledger) with
+   `search seed --fixed --pass-rule combined --combined-config
+   config/combined_fixed.yaml --families buy_and_hold`. `--fixed` marks the
+   run as a fixed-candidate run and lets its one declared family through
+   `_validate_seed`, even though `buy_and_hold` is not in `SEARCHABLE_SPACES`.
+   It stays out of `SEARCHABLE_SPACES` (that dict feeds `propose_batch`). The
+   flag is stored so existing runs are unaffected: they read as not fixed.
+3. Run `search fixed --run ID --family buy_and_hold --params '{"ticker":"RSP"}'`.
+   It skips `propose_batch`, reuses `_batch_setup` (config-hash and
+   data-source guards) and `_test_one_candidate`, and adds the candidate's own
+   tickers (`spec.tickers(params)`, here RSP) to the `needed` price set.
+   Today `_run_batch` loads only the universe, defaults, benchmarks and core,
+   so RSP would be missing.
+4. Guards. `batch` refuses on a fixed run; `fixed` refuses on a non-fixed run.
+   `fixed` also refuses if `ledger.list_tests(run)` is non-empty: one attempt.
+5. Preflight, before anything is recorded: every needed ticker must have
+   prices covering the research period (2005-01-01 to 2018-12-31). If not,
+   nothing is recorded and no performance is computed; fix the data and rerun.
+6. If evaluation itself errors after preflight, it is recorded as a failed
+   test (AGENTS.md: every attempt logged) and the run is closed. A retry needs
+   a new dated amendment approved by the owner, never a silent rerun.
+7. Only if it passes, `validate` once on 2019-2022. `scripts/validate.py`
+   builds `needed` the same way as `_run_batch` (about :153-156), so it gets
+   the same generic fix: add each validated candidate's own tickers
+   (`spec.tickers(params)`) to `needed`. It is not a protected file, and
+   existing runs are unaffected since their tickers are already loaded.
+8. The holdout (2023 onward) stays sealed.
+9. Nothing is tuned or rerun. The result is written up, pass or fail, in
    `research/rsp_sleeve.md`, with one line on the dashboard.
+
+## Validation gates (unchanged, part of the bar)
+
+`validate` applies its existing gates to this candidate:
+
+- Neighbourhood check: trivially passed. `buy_and_hold` has no space, so
+  `spaces.get(family, {})` is empty and there are no neighbours.
+- Deflated Sharpe: the trial count is 1, so SR0 = 0 (fewer than 2 trials
+  gives no multiple-testing penalty). The candidate must still reach
+  DSR >= 0.95 (`config/validation.yaml`, `min_deflated_sharpe`) on the
+  improvement Sharpe. This is a real pass/fail gate, the same one every prior
+  run faces.
 
 ## Risk limit note
 
@@ -76,9 +108,15 @@ fund like RSP (about 500 stocks, about 0.2% each) is exempt. A dated
 
 - `combined_fixed.yaml` loads, and the run hash check works (a changed file
   makes `search batch` and `validate` refuse).
-- The minimum-trades check always passes under `combined_fixed.yaml` and still
-  fails a sleeve with too few trades under `combined.yaml`.
-- The fixed candidate is recorded exactly once; a second attempt is refused.
+- Minimum trades: `combined_checks` is called with both configs on the same
+  inputs (a sleeve with too few trades). It passes under `combined_fixed` and
+  fails under `combined`.
+- `seed --fixed` then `fixed` records exactly one test; a second `fixed` call
+  is refused.
+- `batch` refuses on a fixed run; `fixed` refuses on a non-fixed run.
+- A preflight failure (a needed ticker lacks research-period prices) records
+  nothing.
+- `validate` loads the candidate's own tickers (RSP) into `needed`.
 - Existing tests are unchanged.
 
 ## Untouched
