@@ -64,10 +64,8 @@ def _header(r: dict) -> list[str]:
         "by the path's own inflation.",
         f"- Portfolio returns pay trading costs of {r['cost_bps']:g} bps (0.01% each) "
         "per unit traded.",
-        f"- {CASH_ASSUMPTION}: an assumption, not history. It earns each month's inflation plus "
-        f"{_pct(r['cash_real_yield'])} a year.",
-        "- A path is empty once its value is effectively zero (below one billionth of the "
-        "start).",
+        f"- {CASH_ASSUMPTION}: an assumption, not history. It earns each month's inflation plus {_pct(r['cash_real_yield'])} a year.",
+        "- A path is empty once its value is effectively zero (below one billionth of the start)",
         "- All figures are percentages of the starting value or of paths.",
         "",
     ]

@@ -128,9 +128,7 @@ class Paths:
     depleted: np.ndarray  # (n_paths,): month 1..T the path emptied, 0 if never
 
 
-def run_paths(
-    returns: np.ndarray, inflation: np.ndarray, idx: np.ndarray, rate: float
-) -> Paths:
+def run_paths(returns: np.ndarray, inflation: np.ndarray, idx: np.ndarray, rate: float) -> Paths:
     """Withdrawal paths over the month positions `idx` (from `month_indices`).
     Each month: V = (V - w) x (1 + r). w = rate / 12 in months 1-12, then
     raised every 12 months by the path's own inflation over the previous 12
