@@ -336,6 +336,20 @@ def test_render_header_settings_hashes_and_limits():
     assert "# Long-run withdrawals: 30-year resampled paths" in text
     assert "seed 4242" in text
     assert "777 paths" in text
+    assert "block" in text
+    assert "## How to read this" in text
+    assert "There are 777 paths" in text
+    assert "real 12-month stretches of 2005-01 to 2018-12" in text
+    assert "Bad case (worst 5%)" in text
+    assert "1e-9" not in text
+    assert "effectively zero (below one billionth of the start)" in text
+    assert "trading costs of 5 bps (0.01% each) per unit traded" in text
+    assert text.index("## How to read this") < text.index("## Limits")
+    assert CASH_ASSUMPTION in text
+    header = next(x for x in text.splitlines() if x.startswith("| portfolio"))
+    assert header.split(" | ")[1] == "money ran out by year 20"
+    assert "real value at year 30: bad case (worst 5%)" in header
+    assert "real value ever below 50.0%" in header
     assert "ab" * 32 in text
     assert "cd" * 32 in text
     for limit in (
