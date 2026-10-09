@@ -59,8 +59,16 @@ rank_by: improvement_sharpe
    config/combined_fixed.yaml --families buy_and_hold`. `--fixed` marks the
    run as a fixed-candidate run and lets its one declared family through
    `_validate_seed`, even though `buy_and_hold` is not in `SEARCHABLE_SPACES`.
-   It stays out of `SEARCHABLE_SPACES` (that dict feeds `propose_batch`). The
-   flag is stored so existing runs are unaffected: they read as not fixed.
+   It stays out of `SEARCHABLE_SPACES` (that dict feeds `propose_batch`).
+   Storage: the flag lives in the run's `seed_description`, next to the
+   families. `_encode_seed_description` (`scripts/search.py` ~:97) today dumps
+   JSON `{"description", "families"}` and `_decode_seed_description` (~:101)
+   reads it back, falling back to `(raw, [])` for non-JSON text. A fixed run
+   adds a `"fixed"` key holding a marker plus the declared family and its
+   params (`buy_and_hold`, `{"ticker":"RSP"}`); the decoder returns that too,
+   and a missing key means not fixed. No ledger schema change. Runs seeded
+   before this change have no such key (or plain-text descriptions), so they
+   decode as not fixed and are unaffected.
 3. Run `search fixed --run ID --family buy_and_hold --params '{"ticker":"RSP"}'`.
    It skips `propose_batch`, reuses `_batch_setup` (config-hash and
    data-source guards) and `_test_one_candidate`, and adds the candidate's own
@@ -76,10 +84,13 @@ rank_by: improvement_sharpe
    test (AGENTS.md: every attempt logged) and the run is closed. A retry needs
    a new dated amendment approved by the owner, never a silent rerun.
 7. Only if it passes, `validate` once on 2019-2022. `scripts/validate.py`
-   builds `needed` the same way as `_run_batch` (about :153-156), so it gets
-   the same generic fix: add each validated candidate's own tickers
-   (`spec.tickers(params)`) to `needed`. It is not a protected file, and
-   existing runs are unaffected since their tickers are already loaded.
+   builds `needed` (~:153-158) before any candidate is selected, from the
+   universe, defaults, benchmarks and core. So the extra tickers come from the
+   run's recorded tests: for each test in `ledger.list_tests(run)`, add
+   `qrl.search._spec_for(family).tickers(params)` to `needed`, and skip a
+   family that `_spec_for` cannot resolve (it raises `KeyError`). It is not a
+   protected file, and existing runs are unaffected since their tickers are
+   already loaded.
 8. The holdout (2023 onward) stays sealed.
 9. Nothing is tuned or rerun. The result is written up, pass or fail, in
    `research/rsp_sleeve.md`, with one line on the dashboard.
@@ -116,7 +127,12 @@ fund like RSP (about 500 stocks, about 0.2% each) is exempt. A dated
 - `batch` refuses on a fixed run; `fixed` refuses on a non-fixed run.
 - A preflight failure (a needed ticker lacks research-period prices) records
   nothing.
-- `validate` loads the candidate's own tickers (RSP) into `needed`.
+- `validate` loads the recorded tests' own tickers (RSP) into `needed`, and
+  skips a family `_spec_for` cannot resolve.
+- A pre-change `seed_description` (JSON without the fixed key, and plain text)
+  decodes as not fixed.
+- A fixed run's description round-trips: encode then decode returns the fixed
+  marker, family and params.
 - Existing tests are unchanged.
 
 ## Untouched
