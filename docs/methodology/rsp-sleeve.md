@@ -1,7 +1,7 @@
 # RSP sleeve: a fixed equal-weight S&P 500 sleeve
 
-Status: spec written 2026-10-09, owner-approved design 2026-10-09. Not yet
-run. Related: PLAN.md section 2.5 (amendments 2026-10-01 and 2026-10-02).
+Status: spec written 2026-10-09, owner-approved design 2026-10-09. Tooling
+implemented (branch feature/rsp-sleeve). Not yet run. Related: PLAN.md section 2.5 (amendments 2026-10-01 and 2026-10-02).
 
 ## Question
 
