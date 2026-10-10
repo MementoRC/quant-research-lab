@@ -150,10 +150,11 @@ not used (the loader refuses them anyway).
   and hold 0.8 of A's branch plus 0.2 of the sleeve; BONDS holds 1/3 each.
 - New: `return_rows` on synthetic prices matches `compute_metrics`, and the
   rendered section shows CAGR, max drawdown and the gap to A.
-- Existing tests keep every assertion. Three break and need edits, proposed
-  for owner approval:
+- Existing tests keep every assertion. Four break and need edits, approved
+  by the owner on 2026-10-10:
   - `test_decision_shipped_config_loads` (exact id list), a tripwire on the
-    shipped `decision.yaml`: append the nine new ids.
+    shipped `decision.yaml`: add the nine new ids in loader order (statics
+    before blends).
   - `test_decision_shipped_config_matches_test_fixture` (shipped file equals
     `tests/decision_helpers.py`'s `GOOD`), also a tripwire: compare the
     shipped file to `GOOD` plus the new entries (a new helper constant),
@@ -163,8 +164,12 @@ not used (the loader refuses them anyway).
     withdrawals)" between "## Portfolios (100% of capital)" and "## Historical
     windows". It uses the `report` fixture (a real `run_decision` run, so
     `returns` is present), not `_hand_report`.
+  - `test_decision_parses_committed_report` (`tests/test_site_core.py`
+    :203-214), which asserts the exact section-title list of the committed
+    `research/decision.md`: insert "Research-period return" after
+    "Portfolios", in the same commit as the regenerated report.
 
-  All three keep exact equality (non-weakening). Alternative considered and
+  All four keep exact equality (non-weakening). Alternative considered and
   rejected: a separate `decision_sleeve.yaml`. It needs a new loader and CLI,
   a second longrun pin and run, and splits the comparison from the A, CASH
   and A-CASH rows.
