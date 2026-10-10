@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# FIXED-CANDIDATE PASS RULE for the RSP sleeve — written BEFORE any result
+# (pre-registered 2026-10-09; spec: docs/methodology/rsp-sleeve.md;
+# PLAN.md section 2.5, amendments 2026-10-01 and 2026-10-02).
+#
+# Question: does 80% core + 20% RSP beat 100% core? One fixed candidate
+# (buy_and_hold, ticker RSP), no search, attempt count 1.
+#
+# This file copies config/combined.yaml's thresholds exactly, except
+# sleeve_min_trades is 0: buy-and-hold trades about once by construction, so
+# that check could never be met. With 0 the check stays in the list and always
+# passes; combined.yaml still says 10 and every other combined run is
+# unaffected. No `baseline` key: the baseline is the core alone at 100%.
+# Costs, periods and benchmarks come from criteria.yaml.
+#
+# Select it with: search seed --pass-rule combined
+#   --combined-config config/combined_fixed.yaml
+# Later `fixed` and `validate` calls must pass the same --combined-config.
+#
+# Rules for this file:
+#   * Change it only in its own commit, with a reason in the commit message.
+#   * Never change it after looking at results in order to make something pass.
+#   * Its hash (qrl.combined.load_combined_config) also covers the capital
+#     split and the core spec actually used, and is bound to the run at seed
+#     time: any change here, to profile.yaml's capital_split, or to
+#     portfolio.yaml's core makes `search fixed` and `validate` refuse.
+# ---------------------------------------------------------------------------
+version: 1
+sleeve_min_trades: 0            # combined.yaml: 10. Off: buy-and-hold trades ~once.
+min_sharpe_improvement: 0.05
+max_drawdown: 0.35
+drawdown_no_worse_than_core: true
+max_cagr_shortfall: 0.01
+rank_by: improvement_sharpe
