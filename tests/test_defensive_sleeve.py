@@ -28,7 +28,8 @@ from qrl import decision
 from qrl.decision import portfolio_returns, return_rows, run_decision
 from qrl.decision_config import load_decision_config, portfolio_states
 from qrl.decision_report import _header, render_markdown
-from qrl.longrun import load_longrun_config
+from qrl.longrun import CASH_ASSUMPTION, load_longrun_config
+from qrl.longrun_report import render_markdown as render_longrun
 from qrl.metrics import compute_metrics
 
 SLEEVES = {
@@ -272,3 +273,46 @@ def test_header_sleeve_note_counts_by_products_and_a80_rows():
 
 def test_header_sleeve_note_is_absent_without_a80_rows():
     assert not any("defensive-sleeve" in ln for ln in _header(_hand_report()))
+
+
+def _longrun_report(names: list[str]) -> dict:
+    row = {
+        "depleted_by": {20: 0.0, 25: 0.0, 30: 0.0},
+        "median_depletion_year": None,
+        "below_floor": 0.0,
+        "end_real_median": 1.0,
+        "end_real_p5": 0.5,
+    }
+    return {
+        "data_end": "2018-12-31",
+        "first_month": "2005-01",
+        "last_month": "2018-12",
+        "n_months": 168,
+        "seed": 1,
+        "n_paths": 10,
+        "block_months": 12,
+        "horizon_years": 30,
+        "real_floor": 0.5,
+        "cash_real_yield": 0.01,
+        "rates": [0.04],
+        "longrun_sha256": "ab" * 32,
+        "decision_sha256": "cd" * 32,
+        "cost_bps": 5.0,
+        "rows": [{"rate": 0.04, "portfolio": n, **row} for n in names],
+    }
+
+
+def test_longrun_header_sleeve_note_counts_22_rows():
+    names = ALL_IDS[:8] + [CASH_ASSUMPTION] + ALL_IDS[8:]
+    text = render_longrun(_longrun_report(names))
+    assert (
+        f"- 22 rows per withdrawal rate, including the {CASH_ASSUMPTION} row and 4 by-product "
+        "rows (IEF, TLT, RSP, BONDS); only the 5 A80 rows answer the defensive-sleeve "
+        "question (docs/methodology/defensive-sleeve.md)"
+    ) in text.splitlines()
+    assert text.index("defensive-sleeve question") < text.index("## How to read this")
+
+
+def test_longrun_header_sleeve_note_is_absent_without_a80_rows():
+    text = render_longrun(_longrun_report(["CASH", CASH_ASSUMPTION, "G"]))
+    assert "defensive-sleeve" not in text
