@@ -15,8 +15,9 @@ return?
 - The combined rule (Sharpe gain >= 0.05, CAGR shortfall <= 1%) and
   validation (deflated Sharpe of combined minus core) reward added return,
   not lower drawdown. A defensive sleeve fails them by design.
-- It is not blind. `core_compare` (G: SPY/TLT/GLD/SHY, the lowest drawdown
-  2005-2018) and `research/decision.md` already show how these assets
+- It is not blind. `core_compare` (G: 25% each SPY/TLT/GLD/SHY, the
+  lowest research-period max drawdown of A-G, 11.4% against A's 25.6%;
+  `research/core_compare.md`) and `research/decision.md` already show how these assets
   behaved.
 - So the result is a decision aid, not evidence of an edge. It adds no
   trials to any search run. Run 7 (RSP) passed research but failed
@@ -71,7 +72,12 @@ blends:
 The BONDS weights sum to 1 within the loader's 1e-9 tolerance. Every held
 fund (SHY, IEF, TLT, RSP) is already in each judgement-based scenario, so
 no scenario changes. The report's multiple-comparison count rises from 12
-to 21 portfolios; the report computes it.
+to 21 portfolios; the report computes it. Its multiple-comparison note
+(`_header` in `decision_report.py`) also says the 21 rows include 4
+single-fund by-product rows (IEF, TLT, RSP, BONDS) and that only the 5 A80
+rows answer the question. `longrun_report.py`'s `_header` gets a similar
+one-line note: 22 rows, including the "CASH +1% real" assumption row, and
+only the 5 A80 rows answer the question.
 
 ## Measures
 
@@ -89,16 +95,29 @@ New: one research-period return line per portfolio, 2005-2018 with no
 withdrawals: CAGR, max drawdown, and CAGR minus A's CAGR ("lost return").
 
 - `src/qrl/decision.py`: new `return_rows(cfg, data, criteria)`. It calls
-  the existing `portfolio_returns` from the first 2005 start date to
-  2018-12-31 at `criteria.yaml`'s `cost_bps`, and reads `cagr` and
-  `max_drawdown` from `qrl.metrics.compute_metrics` (read, not edited).
-  `run_decision` adds its rows under a new `returns` key.
+  the existing `portfolio_returns` from the first trading day of
+  `period_bounds(criteria, "research")` (as `longrun.py:204-214` does) to
+  2018-12-31 at `criteria["costs"]["bps_per_unit_turnover"]` (5), and reads
+  `cagr` and `max_drawdown` from `qrl.metrics.compute_metrics` (read, not
+  edited; max drawdown is positive, as `metrics.py:35` returns it).
+  `run_decision` adds the rows under a new `returns` key: a list, in the
+  report's portfolio order, of dicts with keys `portfolio`, `cagr`,
+  `max_drawdown`, `lost_return` (A's CAGR minus the portfolio's CAGR, in
+  percentage points; None if A is missing).
 - `src/qrl/decision_report.py`: new `_return_section`, rendered after the
   portfolio section as "## Research-period return (2005-2018, no
-  withdrawals)". The dashboard picks it up unchanged (`site_core` renders
-  every `## ` section).
-- The dot-com proxy note in `_window_section` names its portfolios in a
-  fixed string; it gains the new blends and statics.
+  withdrawals)", columns Portfolio | CAGR | Max drawdown | CAGR given up vs
+  A. It renders nothing (section omitted) when `returns` is absent or empty,
+  and shows "n/a" for lost return when portfolio A is missing. So
+  `_hand_report` in `tests/test_decision_report.py` (no `returns` key, only
+  portfolio "X") needs no edit. The dashboard picks the section up unchanged
+  (`site_core` renders every `## ` section).
+- The dot-com note in `_window_section` (`decision_report.py:110-112`) gains
+  this sentence: "IEF, TLT and BONDS are, like CASH, entirely cash in
+  `dotcom_2000` (0% loss), so the A80-CASH20, A80-IEF20, A80-TLT20 and
+  A80-BONDS20 frozen cells are identical there and that window cannot tell
+  the bond sleeves apart; A80-RSP20 uses the SPY proxy." (`qrl.stress`:
+  unpriced bond and gold funds become cash, unpriced equity becomes SPY.)
 
 ## Periods
 
@@ -131,13 +150,24 @@ not used (the loader refuses them anyway).
   and hold 0.8 of A's branch plus 0.2 of the sleeve; BONDS holds 1/3 each.
 - New: `return_rows` on synthetic prices matches `compute_metrics`, and the
   rendered section shows CAGR, max drawdown and the gap to A.
-- Existing tests keep every assertion. Two are tripwires on the shipped
-  `decision.yaml`: `test_decision_shipped_config_loads` (exact id list) and
-  `test_decision_shipped_config_matches_test_fixture` (shipped file equals
-  `tests/decision_helpers.py`'s `GOOD`). Both fail on any edit by design.
-  Proposed, for owner approval: append the nine new ids to the expected list,
-  and compare the shipped file to `GOOD` plus the new entries (a new helper
-  constant), leaving `GOOD` and the fixture-driven tests unchanged.
+- Existing tests keep every assertion. Three break and need edits, proposed
+  for owner approval:
+  - `test_decision_shipped_config_loads` (exact id list), a tripwire on the
+    shipped `decision.yaml`: append the nine new ids.
+  - `test_decision_shipped_config_matches_test_fixture` (shipped file equals
+    `tests/decision_helpers.py`'s `GOOD`), also a tripwire: compare the
+    shipped file to `GOOD` plus the new entries (a new helper constant),
+    leaving `GOOD` and the fixture-driven tests unchanged.
+  - `test_decision_report_sections_in_order` (`tests/test_decision_report.py`
+    :122-131): insert "## Research-period return (2005-2018, no
+    withdrawals)" between "## Portfolios (100% of capital)" and "## Historical
+    windows". It uses the `report` fixture (a real `run_decision` run, so
+    `returns` is present), not `_hand_report`.
+
+  All three keep exact equality (non-weakening). Alternative considered and
+  rejected: a separate `decision_sleeve.yaml`. It needs a new loader and CLI,
+  a second longrun pin and run, and splits the comparison from the A, CASH
+  and A-CASH rows.
 - Full suite run in the background before the PR.
 
 ## Not changed
