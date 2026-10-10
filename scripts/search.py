@@ -88,14 +88,20 @@ SEARCHABLE_SPACES: dict[str, dict[str, list]] = {
     "core_trend": REGISTRY["core_trend"].space,
 }
 DEFAULT_UNIVERSE_TICKERS = ("QQQ", "GLD", "TLT")
+FIXED_MARKER = "fixed-candidate-v1"
 
 
 def _parse_families(raw: str) -> list[str]:
     return [f.strip() for f in raw.split(",") if f.strip()]
 
 
-def _encode_seed_description(description: str, families: list[str]) -> str:
-    return json.dumps({"description": description, "families": families})
+def _encode_seed_description(
+    description: str, families: list[str], fixed: dict | None = None
+) -> str:
+    payload: dict = {"description": description, "families": families}
+    if fixed is not None:
+        payload["fixed"] = fixed
+    return json.dumps(payload)
 
 
 def _decode_seed_description(raw: str) -> tuple[str, list[str]]:
@@ -104,6 +110,19 @@ def _decode_seed_description(raw: str) -> tuple[str, list[str]]:
         return payload.get("description", ""), list(payload.get("families", []))
     except (json.JSONDecodeError, TypeError, AttributeError):
         return raw, []
+
+
+def _decode_fixed(raw: str) -> dict | None:
+    """The fixed-candidate marker (`marker`, `family`, `params`) stored in a
+    run's seed_description, or None: runs seeded before this existed (JSON
+    without the key, or plain text) are not fixed."""
+    try:
+        fixed = json.loads(raw).get("fixed")
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return None
+    if isinstance(fixed, dict) and fixed.get("marker") == FIXED_MARKER:
+        return fixed
+    return None
 
 
 def _get_run(ledger: Ledger, run_id: int) -> dict | None:

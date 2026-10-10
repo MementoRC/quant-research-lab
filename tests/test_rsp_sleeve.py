@@ -4,6 +4,7 @@ validate loading the recorded tests' own tickers. Offline, synthetic data only."
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -14,6 +15,12 @@ CONFIG = ROOT / "config"
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+from search import (  # noqa: E402
+    FIXED_MARKER,
+    _decode_fixed,
+    _decode_seed_description,
+    _encode_seed_description,
+)
 from test_combined import _CORE_M, _GOOD_M  # noqa: E402
 
 FIXED = CONFIG / "combined_fixed.yaml"
@@ -40,3 +47,25 @@ def test_both_configs_differ_only_on_the_min_trades_check():
     assert {c["rule"] for c in under_base if not c["passed"]} == {"sleeve_min_trades"}
     other = [c for c in under_fixed if c["rule"] != "sleeve_min_trades"]
     assert other == [c for c in under_base if c["rule"] != "sleeve_min_trades"]
+
+
+RSP_FIXED = {"marker": FIXED_MARKER, "family": "buy_and_hold", "params": {"ticker": "RSP"}}
+
+
+def test_fixed_description_round_trips():
+    raw = _encode_seed_description("rsp", ["buy_and_hold"], RSP_FIXED)
+    assert _decode_fixed(raw) == RSP_FIXED
+    assert _decode_seed_description(raw) == ("rsp", ["buy_and_hold"])
+
+
+def test_encoding_without_a_fixed_marker_is_unchanged():
+    raw = _encode_seed_description("d", ["trend_pullback"])
+    assert json.loads(raw) == {"description": "d", "families": ["trend_pullback"]}
+
+
+def test_pre_change_descriptions_decode_as_not_fixed():
+    assert _decode_fixed(json.dumps({"description": "d", "families": ["a"]})) is None
+    assert _decode_fixed("lane A: plain text") is None
+    assert _decode_fixed("") is None
+    assert _decode_fixed("[1, 2]") is None
+    assert _decode_fixed(json.dumps({"fixed": {"family": "x"}})) is None  # no marker
