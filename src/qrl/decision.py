@@ -18,6 +18,7 @@ from .core_compare import Build, candidate_weights
 from .decision_config import DecisionConfig, Portfolio, Scenario, portfolio_states
 from .decision_withdraw import monthly_withdrawals, path_metrics, withdrawal_path
 from .engine import run_backtest
+from .metrics import compute_metrics
 from .periods import period_bounds
 from .portfolio import combine_portfolio
 from .strategies import REGISTRY
@@ -253,6 +254,44 @@ def withdrawal_rows(
     return rows
 
 
+def research_start(index: pd.DatetimeIndex, criteria: dict) -> pd.Timestamp:
+    """The first trading day on or after the research start (as `qrl.longrun`)."""
+    begin, _ = period_bounds(criteria, "research")
+    if begin is None:
+        raise ValueError("criteria: the research period has no start")
+    after = index[index >= begin]
+    if after.empty:
+        raise ValueError(f"no trading day on or after the research start {begin.date()}")
+    return pd.Timestamp(after[0])
+
+
+def return_rows(cfg: DecisionConfig, data: dict[str, pd.DataFrame], criteria: dict) -> list[dict]:
+    """Research-period return per portfolio, in config order (spec:
+    docs/methodology/defensive-sleeve.md): bought at the first research
+    trading day, held to the data end with no withdrawals, paying criteria
+    cost_bps. CAGR and max drawdown (positive) from `qrl.metrics.compute_metrics`.
+    `lost_return` is A's CAGR minus the portfolio's, in CAGR units (0.01 = one
+    percentage point); None without portfolio A. Frames are cut at the data
+    end first."""
+    end = data_end(criteria)
+    cut = {k: v.loc[:end] for k, v in data.items()}
+    first = research_start(pd.DatetimeIndex(cut["close"].index), criteria)
+    cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
+    metrics = {
+        p.id: compute_metrics(portfolio_returns(p, cut, first, cost_bps)) for p in cfg.portfolios
+    }
+    base = metrics["A"]["cagr"] if "A" in metrics else None
+    return [
+        {
+            "portfolio": pid,
+            "cagr": m["cagr"],
+            "max_drawdown": m["max_drawdown"],
+            "lost_return": None if base is None else base - m["cagr"],
+        }
+        for pid, m in metrics.items()
+    ]
+
+
 def year_one_value(ret: float, rate: float, inflation: float) -> tuple[float, float]:
     """Value after one year as a fraction of the start: (1 + scenario return)
     minus the year's withdrawals (12 x rate / 12; no raise in year one),
@@ -321,4 +360,5 @@ def run_decision(
         "scenario_rows": scenario_rows(cfg.portfolios, cfg.scenarios),
         "withdrawals": withdrawal_rows(cfg, data, cpi, criteria),
         "year_one": year_one_rows(cfg.portfolios, cfg.scenarios, cfg.rates),
+        "returns": return_rows(cfg, data, criteria),
     }
