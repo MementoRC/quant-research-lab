@@ -55,8 +55,10 @@ rank_by: improvement_sharpe
 
 1. Commit this spec and `config/combined_fixed.yaml` before any result.
 2. Seed a new run (the next number after the highest in the ledger) with
-   `search seed --fixed --pass-rule combined --combined-config
-   config/combined_fixed.yaml --families buy_and_hold`. `--fixed` marks the
+   `search seed --lane B --fixed --params '{"ticker":"RSP"}' --pass-rule
+   combined --combined-config config/combined_fixed.yaml --families
+   buy_and_hold` (`--lane` is required; `--params` is what the stored marker
+   holds). `--fixed` marks the
    run as a fixed-candidate run and lets its one declared family through
    `_validate_seed`, even though `buy_and_hold` is not in `SEARCHABLE_SPACES`.
    It stays out of `SEARCHABLE_SPACES` (that dict feeds `propose_batch`).
@@ -69,21 +71,26 @@ rank_by: improvement_sharpe
    and a missing key means not fixed. No ledger schema change. Runs seeded
    before this change have no such key (or plain-text descriptions), so they
    decode as not fixed and are unaffected.
-3. Run `search fixed --run ID --family buy_and_hold --params '{"ticker":"RSP"}'`.
-   It skips `propose_batch`, reuses `_batch_setup` (config-hash and
-   data-source guards) and `_test_one_candidate`, and adds the candidate's own
-   tickers (`spec.tickers(params)`, here RSP) to the `needed` price set.
-   Today `_run_batch` loads only the universe, defaults, benchmarks and core,
-   so RSP would be missing.
+3. Run `search fixed --run ID --family buy_and_hold --params '{"ticker":"RSP"}'
+   --combined-config config/combined_fixed.yaml`.
+   It skips `propose_batch` and reuses `_batch_setup` (config-hash and
+   data-source guards) and `_test_one_candidate`. `fixed` loads only the
+   core's, the benchmarks', the defaults' and the candidate's own tickers
+   (`spec.tickers(params)`, here RSP). The universe is excluded: it is only
+   used by the `null_equal_weight` baseline, which `combined_fixed.yaml` does
+   not have, and a preflight over the present-day universe would always fail
+   (its members often lack 2005 history).
 4. Guards. `batch` refuses on a fixed run; `fixed` refuses on a non-fixed run.
    `fixed` also refuses if `ledger.list_tests(run)` is non-empty: one attempt.
-5. Preflight, before anything is recorded: every needed ticker must have
+5. Preflight, before anything is recorded: every ticker in that same set
+   (core, benchmarks, defaults, candidate; not the universe) must have
    prices covering the research period (2005-01-01 to 2018-12-31). If not,
    nothing is recorded and no performance is computed; fix the data and rerun.
 6. If evaluation itself errors after preflight, it is recorded as a failed
    test (AGENTS.md: every attempt logged) and the run is closed. A retry needs
    a new dated amendment approved by the owner, never a silent rerun.
-7. Only if it passes, `validate` once on 2019-2022. `scripts/validate.py`
+7. Only if it passes, `validate` once on 2019-2022, with `--combined-config
+   config/combined_fixed.yaml`. `scripts/validate.py`
    builds `needed` (~:153-158) before any candidate is selected, from the
    universe, defaults, benchmarks and core. So the extra tickers come from the
    run's recorded tests: for each test in `ledger.list_tests(run)`, add
