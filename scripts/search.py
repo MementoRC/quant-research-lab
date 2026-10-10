@@ -310,6 +310,11 @@ def cmd_seed(args: argparse.Namespace) -> int:
     )
     if combined_hash is not None:
         print(f"Pass rule: {args.pass_rule} (config hash {combined_hash})")
+    _print_seed_extras(fixed, factor)
+    return 0
+
+
+def _print_seed_extras(fixed: dict | None, factor: FactorRun | None) -> None:
     if fixed is not None:
         print(f"Fixed candidate: {fixed['family']} {fixed['params']}")
     if factor is not None:
@@ -317,7 +322,6 @@ def cmd_seed(args: argparse.Namespace) -> int:
             f"Factor run: research start {factor.research_start}, factor.yaml sha256 "
             f"{factor.config_sha256}, membership sha256 {factor.membership_sha256}"
         )
-    return 0
 
 
 def _resolve_families(run: dict, args: argparse.Namespace) -> list[str]:
