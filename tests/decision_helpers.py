@@ -51,6 +51,26 @@ withdrawal_rates: [0.02, 0.033, 0.04, 0.05]
 start_years: [2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014]
 """
 
+# Amendment 2026-10-10 (docs/methodology/defensive-sleeve.md, owner-approved):
+# GOOD plus the defensive-sleeve statics and blends mirrors the shipped
+# config/decision.yaml. GOOD itself and every fixture-driven test stay unchanged.
+SLEEVE_STATIC = """\
+  - {id: IEF, label: "100% IEF", mix: {IEF: 1.0}}
+  - {id: TLT, label: "100% TLT", mix: {TLT: 1.0}}
+  - {id: RSP, label: "100% RSP", mix: {RSP: 1.0}}
+  - {id: BONDS, label: "1/3 each SHY / IEF / TLT", mix: {SHY: 0.3333333333333333, IEF: 0.3333333333333333, TLT: 0.3333333333333333}}
+"""
+SLEEVE_BLENDS = """\
+  - {id: A80-CASH20, label: "80% A + 20% CASH", parts: {A: 0.8, CASH: 0.2}}
+  - {id: A80-IEF20, label: "80% A + 20% IEF", parts: {A: 0.8, IEF: 0.2}}
+  - {id: A80-TLT20, label: "80% A + 20% TLT", parts: {A: 0.8, TLT: 0.2}}
+  - {id: A80-BONDS20, label: "80% A + 20% BONDS", parts: {A: 0.8, BONDS: 0.2}}
+  - {id: A80-RSP20, label: "80% A + 20% RSP", parts: {A: 0.8, RSP: 0.2}}
+"""
+GOOD_SLEEVE = GOOD.replace("blends:\n", SLEEVE_STATIC + "blends:\n", 1).replace(
+    "windows:", SLEEVE_BLENDS + "windows:", 1
+)
+
 
 def criteria() -> dict:
     return load_criteria(ROOT / "config" / "criteria.yaml")[0]

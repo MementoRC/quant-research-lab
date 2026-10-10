@@ -3,7 +3,7 @@ docs/methodology/longrun.md, "Outputs"). Percentages only."""
 
 from __future__ import annotations
 
-from .decision_report import _pct
+from .decision_report import BY_PRODUCT_IDS, SLEEVE_PREFIX, _pct
 from .longrun import CASH_ASSUMPTION
 
 _COLS = (
@@ -16,6 +16,20 @@ _COLS = (
     "real value at year {h}: typical",
     "real value at year {h}: bad case (worst 5%)",
 )
+
+
+def _sleeve_note(r: dict) -> list[str]:
+    """Which rows answer the defensive-sleeve question; nothing without A80 rows."""
+    names = list(dict.fromkeys(row["portfolio"] for row in r["rows"]))
+    sleeves = [n for n in names if n.startswith(SLEEVE_PREFIX)]
+    if not sleeves:
+        return []
+    extra = [n for n in names if n in BY_PRODUCT_IDS]
+    return [
+        f"- {len(names)} rows per withdrawal rate, including the {CASH_ASSUMPTION} row and "
+        f"{len(extra)} by-product rows ({', '.join(extra)}); only the {len(sleeves)} A80 "
+        "rows answer the defensive-sleeve question (docs/methodology/defensive-sleeve.md)"
+    ]
 
 
 def _header(r: dict) -> list[str]:
@@ -33,6 +47,7 @@ def _header(r: dict) -> list[str]:
         "portfolio sees the same draws",
         f"- longrun.yaml sha256: `{r['longrun_sha256']}`",
         f"- decision.yaml sha256: `{r['decision_sha256']}` (read unchanged)",
+        *_sleeve_note(r),
         "",
         "## How to read this",
         "",

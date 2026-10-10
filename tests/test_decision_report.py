@@ -124,6 +124,7 @@ def test_decision_report_sections_in_order(report):
     assert heads == [
         "## Notes",
         "## Portfolios (100% of capital)",
+        "## Research-period return (2005-2018, no withdrawals)",
         "## Historical windows",
         "## Judgement-based scenarios (one year)",
         "## Withdrawals",
