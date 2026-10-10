@@ -41,7 +41,7 @@ from qrl.ledger import (  # noqa: E402
     LedgerError,
     data_source_fingerprint,
 )
-from qrl.search import SearchData, compute_benchmark_metrics  # noqa: E402
+from qrl.search import SearchData, _spec_for, compute_benchmark_metrics  # noqa: E402
 from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
 from qrl.validation import load_validation_config, validate_survivors  # noqa: E402
@@ -104,6 +104,19 @@ def _print_candidates(candidates: list[dict]) -> None:
         print(f"  test {c['test_id']:<6} {c['family']:<16} {stage}{detail}")
 
 
+def _candidate_tickers(tests: list[dict]) -> set[str]:
+    """Tickers the run's recorded candidates trade (e.g. a fixed run's RSP), so
+    `validate` can load them. A family `_spec_for` cannot resolve is skipped."""
+    tickers: set[str] = set()
+    for test in tests:
+        try:
+            spec = _spec_for(test["family"])
+        except KeyError:
+            continue
+        tickers |= set(spec.tickers(test["params"]))
+    return tickers
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     criteria, criteria_hash = load_criteria(args.criteria)
     validation_config, validation_hash = load_validation_config(args.validation_config)
@@ -151,6 +164,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
         combined_cfg, combined_hash = combined if combined is not None else (None, None)
 
         needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
+        needed |= _candidate_tickers(ledger.list_tests(args.run))
         if combined_cfg is not None:
             print(f"Pass rule: {rule} (config hash {combined_hash})")
             needed |= set(core_tickers(combined_cfg["core"]))

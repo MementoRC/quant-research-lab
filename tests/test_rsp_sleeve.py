@@ -23,6 +23,7 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import search as search_mod  # noqa: E402
+import validate as validate_mod  # noqa: E402
 from search import (  # noqa: E402
     FIXED_MARKER,
     SEARCHABLE_SPACES,
@@ -39,6 +40,7 @@ from test_combined import (  # noqa: E402
     _edit_yaml,
     _write_tiny_universe,
 )
+from validate import _candidate_tickers  # noqa: E402
 
 FIXED = CONFIG / "combined_fixed.yaml"
 
@@ -290,3 +292,44 @@ def test_fixed_loads_the_candidates_own_ticker(tmp_path, monkeypatch):
     assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 0
     assert "RSP" in seen[0]
     assert not set(seen[0]) & {"AAA", "BBB", "CCC", "DDD"}  # universe not loaded
+
+
+def test_candidate_tickers_resolves_known_families_and_skips_unknown():
+    tests = [
+        {"family": "buy_and_hold", "params": {"ticker": "RSP"}},
+        {"family": "no_such_family", "params": {}},
+    ]
+    assert _candidate_tickers(tests) == {"RSP"}
+    assert _candidate_tickers([]) == set()
+
+
+def test_validate_loads_the_recorded_tests_own_tickers(tmp_path, monkeypatch):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 0
+    seen: list[list[str]] = []
+    real = SearchData.load
+
+    def _spy(cls, tickers, **kw):
+        seen.append(list(tickers))
+        return real(tickers, **kw)
+
+    monkeypatch.setattr(SearchData, "load", classmethod(_spy))
+    argv = [
+        "--run", str(run_id), "--ledger", str(ledger_path), "--synthetic",
+        "--universe", str(universe), *_combined_args(paths),
+    ]  # fmt: skip
+    assert validate_mod.main(argv) == 0
+    assert "RSP" in seen[0]
+
+
+def test_validate_refuses_when_the_fixed_config_changed_after_seeding(tmp_path):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 0
+    _edit_yaml(paths["combined"], lambda d: d.update(max_drawdown=0.5))
+    argv = [
+        "--run", str(run_id), "--ledger", str(ledger_path), "--synthetic",
+        "--universe", str(universe), *_combined_args(paths),
+    ]  # fmt: skip
+    assert validate_mod.main(argv) == 2
+    with Ledger(ledger_path) as ledger:
+        assert len(ledger.list_tests(run_id)) == 1  # the one attempt, nothing added
