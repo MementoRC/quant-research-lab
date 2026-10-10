@@ -207,6 +207,7 @@ def test_decision_parses_committed_report():
     assert list(sections) == [
         "Notes",
         "Portfolios",
+        "Research-period return",
         "Historical windows",
         "Judgement-based scenarios",
         "Withdrawals",
