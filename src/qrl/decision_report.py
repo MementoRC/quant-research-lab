@@ -7,6 +7,14 @@ value; no currency amount appears anywhere.
 
 from __future__ import annotations
 
+SLEEVE_PREFIX = "A80-"  # the defensive-sleeve rows (docs/methodology/defensive-sleeve.md)
+BY_PRODUCT_IDS = ("IEF", "TLT", "RSP", "BONDS")  # sleeves held alone; blend parts only
+DOTCOM_SLEEVE = (
+    "IEF, TLT and BONDS are, like CASH, entirely cash in `dotcom_2000` (0% loss), so the "
+    "A80-CASH20, A80-IEF20, A80-TLT20 and A80-BONDS20 frozen cells are identical there and "
+    "that window cannot tell the bond sleeves apart; A80-RSP20 uses the SPY proxy."
+)
+
 
 def _pct(x: float | None) -> str:
     if x is None:
@@ -14,8 +22,37 @@ def _pct(x: float | None) -> str:
     return f"{round(x, 3) + 0.0:.1%}"  # round first, then + 0.0 turns -0.0 into 0.0
 
 
+def _pp(x: float | None) -> str:
+    """A CAGR difference (0.01 = one percentage point) in percentage points."""
+    if x is None:
+        return "n/a"
+    return f"{round(x * 100, 1) + 0.0:.1f} pp"  # + 0.0 turns -0.0 into 0.0
+
+
 def _mix(mix: dict[str, float]) -> str:
     return ", ".join(f"{t} {_pct(w)}" for t, w in sorted(mix.items()))
+
+
+def _has_sleeves(report: dict) -> bool:
+    return any(p["id"].startswith(SLEEVE_PREFIX) for p in report["portfolios"])
+
+
+def _sleeve_note(report: dict) -> list[str]:
+    """Which rows answer the defensive-sleeve question, and the SHY-as-cash caveat;
+    nothing without A80 rows."""
+    if not _has_sleeves(report):
+        return []
+    ids = [p["id"] for p in report["portfolios"]]
+    sleeves = [i for i in ids if i.startswith(SLEEVE_PREFIX)]
+    extra = [i for i in ids if i in BY_PRODUCT_IDS]
+    return [
+        f"- of the {len(ids)} portfolios here, {len(extra)} are by-product rows, each a "
+        f"sleeve held alone ({', '.join(extra)}); only the {len(sleeves)} A80 rows "
+        f"({', '.join(sleeves)}) answer the defensive-sleeve question "
+        "(docs/methodology/defensive-sleeve.md)",
+        "- CASH here is SHY, not true cash: SHY's near-zero 2009-2015 yields make the "
+        "A80-CASH20 baseline look worse than cash at today's rates",
+    ]
 
 
 def _header(report: dict) -> list[str]:
@@ -34,6 +71,7 @@ def _header(report: dict) -> list[str]:
         f"- multiple comparisons: {prior} in the core comparison, {n} here (A-G again plus "
         f"{n - prior} new); the more portfolios compared, the likelier the best-looking one "
         "is luck",
+        *_sleeve_note(report),
         "- scenarios are judgement-based, v1: owner-set what-ifs, not forecasts",
         "",
     ]
@@ -78,6 +116,31 @@ def _portfolio_section(report: dict) -> list[str]:
     return [*lines, ""]
 
 
+def _return_section(report: dict) -> list[str]:
+    """Research-period return, no withdrawals; omitted when `returns` is absent or empty."""
+    rows = report.get("returns") or []
+    if not rows:
+        return []
+    lines = [
+        "## Research-period return (2005-2018, no withdrawals)",
+        "",
+        "Each portfolio bought on the first trading day of the research period and held to "
+        f"{report['data_end']} with no withdrawals, paying {report['cost_bps']:g} bps per unit "
+        "of turnover. Max drawdown is a positive loss. CAGR given up vs A is A's CAGR minus "
+        "the row's, in percentage points (pp); negative means the row earned more than A, "
+        "n/a means A is not in the report.",
+        "",
+        "| Portfolio | CAGR | Max drawdown | CAGR given up vs A |",
+        "|---|---|---|---|",
+    ]
+    for r in rows:
+        lines.append(
+            f"| {r['portfolio']} | {_pct(r['cagr'])} | {_pct(r['max_drawdown'])} | "
+            f"{_pp(r['lost_return'])} |"
+        )
+    return [*lines, ""]
+
+
 def _proxied(shares: dict[str, float]) -> str:
     return ", ".join(f"{cls} {s:.0%}" for cls, s in sorted(shares.items()) if s > 0)
 
@@ -101,15 +164,21 @@ def _window_section(report: dict) -> list[str]:
             f"| {r['portfolio']} | {r['window']} | {r['mode']} | {_pct(r['loss'])} | "
             f"{_proxied(r['proxied_share'])} | {_window_flag(r)} |"
         )
+    proxies = " ".join(
+        [
+            "Proxies (`qrl.stress`): in a frozen cell, a fund without a price at the window "
+            "start is replaced by SPY (equity) or by cash (bonds, gold). A cell more than "
+            f"{threshold:.0%} proxied is marked mostly proxied, indicative only. "
+            "`dotcom_2000` starts before SHY, IEF and TLT (2002), RSP (2003) and GLD (2004): "
+            "CASH is entirely cash there (0% loss by construction) and G, G-EW, G-CASH and "
+            "A-CASH are mostly proxied.",
+            *([DOTCOM_SLEEVE] if _has_sleeves(report) else []),
+        ]
+    )
     return [
         *lines,
         "",
-        "Proxies (`qrl.stress`): in a frozen cell, a fund without a price at the window start "
-        "is replaced by SPY (equity) or by cash (bonds, gold). A cell more than "
-        f"{threshold:.0%} proxied is marked mostly proxied, indicative only. "
-        "`dotcom_2000` starts before SHY, IEF and TLT (2002), RSP (2003) and GLD (2004): CASH "
-        "is entirely cash there (0% loss by construction) and G, G-EW, G-CASH and A-CASH are "
-        "mostly proxied.",
+        proxies,
         "",
         "Switching portfolios: the replay cell runs the rule; `[risk_on]` / `[risk_off]` "
         "frozen cells hold that state's fixed weights.",
@@ -229,6 +298,7 @@ def render_markdown(report: dict) -> str:
             *_header(report),
             *_notes(report),
             *_portfolio_section(report),
+            *_return_section(report),
             *_window_section(report),
             *_scenario_section(report),
             *_withdrawal_section(report),

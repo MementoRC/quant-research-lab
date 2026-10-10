@@ -22,10 +22,12 @@ from decision_helpers import (
     prices,
     stress_cfg,
 )
+from test_decision_report import _hand_report
 
 from qrl import decision
 from qrl.decision import portfolio_returns, return_rows, run_decision
 from qrl.decision_config import load_decision_config, portfolio_states
+from qrl.decision_report import _header, render_markdown
 from qrl.longrun import load_longrun_config
 from qrl.metrics import compute_metrics
 
@@ -162,3 +164,111 @@ def test_run_decision_carries_the_return_rows(small):
     data, crit = prices(), criteria()
     report = run_decision(small, data, cpi(), crit, "cd" * 32)
     assert report["returns"] == return_rows(small, data, crit)
+
+
+RETURN_HEAD = "## Research-period return (2005-2018, no withdrawals)"
+DOTCOM_SLEEVE = (
+    "IEF, TLT and BONDS are, like CASH, entirely cash in `dotcom_2000` (0% loss), so the "
+    "A80-CASH20, A80-IEF20, A80-TLT20 and A80-BONDS20 frozen cells are identical there and "
+    "that window cannot tell the bond sleeves apart; A80-RSP20 uses the SPY proxy."
+)
+ALL_IDS = [
+    *"ABCDEFG",
+    "CASH",
+    "G-EW",
+    "IEF",
+    "TLT",
+    "RSP",
+    "BONDS",
+    "AG",
+    "G-CASH",
+    "A-CASH",
+    *A80,
+]
+
+
+def _returns() -> list[dict]:
+    return [
+        {"portfolio": "A", "cagr": 0.12, "max_drawdown": 0.256, "lost_return": 0.0},
+        {"portfolio": "A80-CASH20", "cagr": 0.1, "max_drawdown": 0.2, "lost_return": 0.02},
+        {"portfolio": "RSP", "cagr": 0.125, "max_drawdown": 0.5, "lost_return": -0.005},
+    ]
+
+
+def test_return_section_renders_cagr_drawdown_and_gap_to_a():
+    lines = render_markdown(_hand_report(returns=_returns())).splitlines()
+    assert RETURN_HEAD in lines
+    assert "| Portfolio | CAGR | Max drawdown | CAGR given up vs A |" in lines
+    assert "| A | 12.0% | 25.6% | 0.0 pp |" in lines
+    assert "| A80-CASH20 | 10.0% | 20.0% | 2.0 pp |" in lines
+    assert "| RSP | 12.5% | 50.0% | -0.5 pp |" in lines
+    heads = [ln for ln in lines if ln.startswith("## ")]
+    assert heads.index(RETURN_HEAD) == heads.index("## Portfolios (100% of capital)") + 1
+    assert heads.index(RETURN_HEAD) == heads.index("## Historical windows") - 1
+
+
+def test_return_section_shows_n_a_without_a():
+    rows = [{"portfolio": "CASH", "cagr": 0.01, "max_drawdown": 0.02, "lost_return": None}]
+    assert (
+        "| CASH | 1.0% | 2.0% | n/a |" in render_markdown(_hand_report(returns=rows)).splitlines()
+    )
+
+
+def test_return_section_is_omitted_when_returns_absent_or_empty():
+    assert RETURN_HEAD not in render_markdown(_hand_report())
+    assert RETURN_HEAD not in render_markdown(_hand_report(returns=[]))
+
+
+def _with_a80():
+    year_one = [
+        {
+            "portfolio": i,
+            "scenario": "shock",
+            "state": "static",
+            "rate": 0.04,
+            "nominal": 0.9,
+            "real": 0.85,
+        }
+        for i in ALL_IDS
+    ]
+    return _hand_report(
+        portfolios=[{"id": i, "label": i, "states": {}} for i in ALL_IDS], year_one=year_one
+    )
+
+
+def test_dotcom_note_tells_that_the_bond_sleeves_are_identical_there():
+    md = render_markdown(_with_a80())
+    assert md.count(DOTCOM_SLEEVE) == 1
+    assert md.count("mostly proxied. IEF, TLT and BONDS are, like CASH,") == 1
+
+
+def test_dotcom_sleeve_sentence_is_absent_without_a80_rows():
+    md = render_markdown(_hand_report())
+    assert "A80-" not in md
+    assert "cannot tell the bond sleeves apart" not in md
+    assert md.count("G-CASH and A-CASH are mostly proxied.") == 1
+
+
+def test_shy_baseline_note_is_shown_only_with_a80_rows():
+    note = (
+        "- CASH here is SHY, not true cash: SHY's near-zero 2009-2015 yields make the "
+        "A80-CASH20 baseline look worse than cash at today's rates"
+    )
+    assert note in _header(_with_a80())
+    assert not any("near-zero" in ln for ln in _header(_hand_report()))
+
+
+def test_header_sleeve_note_counts_by_products_and_a80_rows():
+    rep = _hand_report(portfolios=[{"id": i, "label": i, "states": {}} for i in ALL_IDS])
+    lines = _header(rep)
+    assert any("7 in the core comparison, 21 here (A-G again plus 14 new)" in ln for ln in lines)
+    assert (
+        "- of the 21 portfolios here, 4 are by-product rows, each a sleeve held alone "
+        "(IEF, TLT, RSP, BONDS); only the 5 A80 rows (A80-CASH20, A80-IEF20, A80-TLT20, "
+        "A80-BONDS20, A80-RSP20) answer the defensive-sleeve question "
+        "(docs/methodology/defensive-sleeve.md)"
+    ) in lines
+
+
+def test_header_sleeve_note_is_absent_without_a80_rows():
+    assert not any("defensive-sleeve" in ln for ln in _header(_hand_report()))
