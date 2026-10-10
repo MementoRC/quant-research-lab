@@ -32,6 +32,7 @@ from test_combined import (  # noqa: E402
     _GOOD_M,
     _combined_args,
     _copy_configs,
+    _edit_yaml,
     _write_tiny_universe,
 )
 
@@ -158,3 +159,30 @@ def test_seed_fixed_needs_the_combined_pass_rule(tmp_path):
         "--synthetic", "--universe", str(universe),
     ]  # fmt: skip
     assert search_main(argv) == 2
+
+
+def _batch_argv(
+    ledger_path: Path, universe: Path, run_id: int, paths: dict, *extra: str
+) -> list[str]:
+    return [
+        "--ledger", str(ledger_path), "batch", "--run", str(run_id), "--n", "3",
+        "--synthetic", "--universe", str(universe), *_combined_args(paths), *extra,
+    ]  # fmt: skip
+
+
+def test_batch_refuses_on_a_fixed_run_even_with_families_override(tmp_path, capsys):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+    capsys.readouterr()
+    for extra in ([], ["--families", "trend_pullback"]):
+        assert search_main(_batch_argv(ledger_path, universe, run_id, paths, *extra)) == 2
+        assert "fixed-candidate run" in capsys.readouterr().err
+    with Ledger(ledger_path) as ledger:
+        assert ledger.list_tests(run_id) == []
+
+
+def test_batch_refuses_when_the_fixed_config_changed_after_seeding(tmp_path):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+    _edit_yaml(paths["combined"], lambda d: d.update(max_drawdown=0.5))
+    assert search_main(_batch_argv(ledger_path, universe, run_id, paths)) == 2
+    with Ledger(ledger_path) as ledger:
+        assert ledger.list_tests(run_id) == []

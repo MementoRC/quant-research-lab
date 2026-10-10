@@ -458,16 +458,27 @@ def _batch_setup(
     return universe, data_source, criteria, factor, combined
 
 
+def _checked_run(ledger: Ledger, run_id: int, criteria_hash: str) -> tuple[dict | None, str | None]:
+    """(run, None) if the run exists and its criteria hash is unchanged, else
+    (None, the reason to refuse)."""
+    run = _get_run(ledger, run_id)
+    if run is None:
+        return None, f"Unknown run {run_id}"
+    if run["criteria_hash"] != criteria_hash:
+        return None, "Criteria hash has changed since this run started; refusing to continue."
+    return run, None
+
+
 def cmd_batch(args: argparse.Namespace) -> int:
     criteria, criteria_hash = load_criteria(args.criteria)
     with Ledger(args.ledger) as ledger:
-        run = _get_run(ledger, args.run)
+        run, problem = _checked_run(ledger, args.run, criteria_hash)
         if run is None:
-            print(f"Unknown run {args.run}", file=sys.stderr)
+            print(problem, file=sys.stderr)
             return 2
-        if run["criteria_hash"] != criteria_hash:
+        if _decode_fixed(run["seed_description"] or "") is not None:
             print(
-                "Criteria hash has changed since this run started; refusing to continue.",
+                f"Run {args.run} is a fixed-candidate run; use `search fixed`, not `batch`.",
                 file=sys.stderr,
             )
             return 2
