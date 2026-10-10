@@ -10,6 +10,8 @@ Usage:
     python scripts/search.py seed --lane A --universe config/universe.yaml
     python scripts/search.py seed --lane A --pass-rule combined --description "..."
     python scripts/search.py seed --lane A --factor-config config/factor.yaml --pass-rule combined_null --description "..."
+    python scripts/search.py seed --lane B --fixed --families buy_and_hold --params '{"ticker":"RSP"}' --pass-rule combined --combined-config config/combined_fixed.yaml
+    python scripts/search.py fixed --run 1 --family buy_and_hold --params '{"ticker":"RSP"}' --combined-config config/combined_fixed.yaml
     python scripts/search.py batch --run 1 --n 200 --synthetic
     python scripts/search.py batch --run 1 --n 200 --max-seconds 1800
     python scripts/search.py summary --run 1
@@ -72,6 +74,7 @@ from qrl.ledger import (  # noqa: E402
 from qrl.profile import ProfileReport, analyze_profile, load_profile  # noqa: E402
 from qrl.search import (  # noqa: E402
     SearchData,
+    _spec_for,
     compute_benchmark_metrics,
     evaluate_candidate,
     propose_batch,
@@ -199,10 +202,40 @@ def _seed_families(
     return _parse_families(args.families) if args.families else list(factor.families)
 
 
+def _validate_fixed(
+    args: argparse.Namespace, families: list[str], factor: FactorRun | None
+) -> str | None:
+    """An error message if a `--fixed` seed request is invalid, else None. Only
+    the declared candidate is checked; buy_and_hold is not in SEARCHABLE_SPACES."""
+    if len(families) != 1:
+        return "--fixed declares exactly one family."
+    if factor is not None or args.pass_rule != "combined":
+        return "--fixed needs --pass-rule combined and no --factor-config."
+    try:
+        params = json.loads(args.params or "")
+        if not isinstance(params, dict):
+            raise ValueError("not an object")
+    except ValueError:
+        return "--fixed needs --params as a JSON object."
+    try:
+        _spec_for(families[0]).tickers(params)
+    except KeyError as err:
+        return f"--fixed candidate is not valid: {err}"
+    return None
+
+
+def _fixed_marker(args: argparse.Namespace, families: list[str]) -> dict | None:
+    if not args.fixed:
+        return None
+    return {"marker": FIXED_MARKER, "family": families[0], "params": json.loads(args.params)}
+
+
 def _validate_seed(
     args: argparse.Namespace, families: list[str], factor: FactorRun | None
 ) -> str | None:
     """An error message if the seed request is invalid, else None."""
+    if args.fixed:
+        return _validate_fixed(args, families, factor)
     unknown = sorted(set(families) - SEARCHABLE_SPACES.keys())
     if unknown:
         return f"Unknown families: {unknown}"
@@ -256,11 +289,12 @@ def cmd_seed(args: argparse.Namespace) -> int:
             return 2
 
     description = args.description or f"lane {args.lane}: {', '.join(families)}"
+    fixed = _fixed_marker(args, families)
     with Ledger(args.ledger) as ledger:
         run_id = ledger.start_run(
             criteria_hash,
             args.lane,
-            _encode_seed_description(description, families),
+            _encode_seed_description(description, families, fixed),
             data_source=data_source,
             pass_rule=args.pass_rule,
             combined_config_hash=combined_hash,
@@ -272,6 +306,8 @@ def cmd_seed(args: argparse.Namespace) -> int:
     )
     if combined_hash is not None:
         print(f"Pass rule: {args.pass_rule} (config hash {combined_hash})")
+    if fixed is not None:
+        print(f"Fixed candidate: {fixed['family']} {fixed['params']}")
     if factor is not None:
         print(
             f"Factor run: research start {factor.research_start}, factor.yaml sha256 "
@@ -551,6 +587,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # binds config/combined.yaml + the capital split + the core spec by hash;
     # 'combined_null' (amendment 2026-10-02, run 5) the same with combined_null.yaml.
     p_seed.add_argument("--pass-rule", choices=PASS_RULES, default="standalone")
+    p_seed.add_argument(
+        "--fixed", action="store_true", help="fixed-candidate run: one declared family, no search"
+    )
+    p_seed.add_argument("--params", default=None, help="JSON params of the --fixed candidate")
     _add_combined_args(p_seed, profile=False)
     p_seed.set_defaults(func=cmd_seed)
 
