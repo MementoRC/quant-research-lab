@@ -4,21 +4,25 @@ validate loading the recorded tests' own tickers. Offline, synthetic data only."
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 import yaml
 
 from qrl.combined import combined_checks, load_combined_config
 from qrl.ledger import Ledger
+from qrl.search import SearchData
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config"
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import search as search_mod  # noqa: E402
 from search import (  # noqa: E402
     FIXED_MARKER,
     SEARCHABLE_SPACES,
@@ -186,3 +190,103 @@ def test_batch_refuses_when_the_fixed_config_changed_after_seeding(tmp_path):
     assert search_main(_batch_argv(ledger_path, universe, run_id, paths)) == 2
     with Ledger(ledger_path) as ledger:
         assert ledger.list_tests(run_id) == []
+
+
+def _fixed_argv(
+    ledger_path: Path, universe: Path, run_id: int, paths: dict, **over: str
+) -> list[str]:
+    opts = {"family": "buy_and_hold", "params": RSP_PARAMS, **over}
+    return [
+        "--ledger", str(ledger_path), "fixed", "--run", str(run_id),
+        "--family", opts["family"], "--params", opts["params"],
+        "--synthetic", "--universe", str(universe), *_combined_args(paths),
+    ]  # fmt: skip
+
+
+def test_fixed_records_exactly_one_test_and_refuses_a_second(tmp_path):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 0
+    with Ledger(ledger_path) as ledger:
+        tests = ledger.list_tests(run_id)
+    assert len(tests) == 1
+    assert (tests[0]["family"], tests[0]["params"]) == ("buy_and_hold", {"ticker": "RSP"})
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 2
+    with Ledger(ledger_path) as ledger:
+        assert len(ledger.list_tests(run_id)) == 1
+
+
+def test_fixed_refuses_a_non_fixed_run(tmp_path, capsys):
+    paths = _fixed_paths(tmp_path)
+    universe = _write_tiny_universe(tmp_path / "universe.yaml")
+    argv = _seed_argv(tmp_path, paths, universe, "--families", "trend_pullback")
+    assert search_main(argv) == 0
+    capsys.readouterr()
+    assert search_main(_fixed_argv(tmp_path / "ledger.sqlite", universe, 1, paths)) == 2
+    assert "not a fixed-candidate run" in capsys.readouterr().err
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        assert ledger.list_tests(1) == []
+
+
+def test_fixed_refuses_a_different_candidate_than_declared(tmp_path):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+    other = json.dumps({"ticker": "SPY"})
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths, params=other)) == 2
+    with Ledger(ledger_path) as ledger:
+        assert ledger.list_tests(run_id) == []
+
+
+def test_fixed_refuses_when_the_pass_rule_config_changed(tmp_path):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+    _edit_yaml(paths["combined"], lambda d: d.update(max_drawdown=0.5))
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 2
+    with Ledger(ledger_path) as ledger:
+        assert ledger.list_tests(run_id) == []
+
+
+def test_preflight_failure_records_nothing(tmp_path, monkeypatch, capsys):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+    real = SearchData.load
+
+    def _late_rsp(cls, tickers, **kw):
+        data = real(tickers, **kw)
+        close = data.close.copy()
+        close.loc[close.index < "2012-01-01", "RSP"] = np.nan
+        return dataclasses.replace(data, close=close)
+
+    monkeypatch.setattr(SearchData, "load", classmethod(_late_rsp))
+    capsys.readouterr()
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 2
+    assert "RSP" in capsys.readouterr().err
+    with Ledger(ledger_path) as ledger:
+        assert ledger.list_tests(run_id) == []
+
+
+def test_error_after_preflight_is_recorded_as_a_failed_test(tmp_path, monkeypatch):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(search_mod, "compute_benchmark_metrics", _boom)
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 0
+    with Ledger(ledger_path) as ledger:
+        tests = ledger.list_tests(run_id)
+    assert len(tests) == 1
+    assert tests[0]["passed"] is False
+    assert tests[0]["failure_reasons"] == "error: boom"
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 2
+
+
+def test_fixed_loads_the_candidates_own_ticker(tmp_path, monkeypatch):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+    seen: list[list[str]] = []
+    real = SearchData.load
+
+    def _spy(cls, tickers, **kw):
+        seen.append(list(tickers))
+        return real(tickers, **kw)
+
+    monkeypatch.setattr(SearchData, "load", classmethod(_spy))
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 0
+    assert "RSP" in seen[0]
+    assert not set(seen[0]) & {"AAA", "BBB", "CCC", "DDD"}  # universe not loaded

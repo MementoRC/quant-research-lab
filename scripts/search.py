@@ -40,7 +40,10 @@ import argparse
 import json
 import sys
 import time
+from collections.abc import Iterable
 from pathlib import Path
+
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -71,6 +74,7 @@ from qrl.ledger import (  # noqa: E402
     candidate_key,
     data_source_fingerprint,
 )
+from qrl.periods import period_bounds  # noqa: E402
 from qrl.profile import ProfileReport, analyze_profile, load_profile  # noqa: E402
 from qrl.search import (  # noqa: E402
     SearchData,
@@ -364,6 +368,19 @@ def _deadline_hit(deadline: float | None) -> bool:
     return deadline is not None and time.monotonic() >= deadline
 
 
+def _needed_tickers(
+    sleeve_tickers: Iterable[str],
+    criteria: dict,
+    combined: tuple[dict, str] | None,
+    extra: Iterable[str] = (),
+) -> set[str]:
+    needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
+    needed |= set(extra)
+    if combined is not None:
+        needed |= set(core_tickers(combined[0]["core"]))
+    return needed
+
+
 def _run_batch(
     ledger: Ledger,
     run_id: int,
@@ -380,9 +397,7 @@ def _run_batch(
     universe_name = universe["name"]
     grid_families = frozenset(families) & FACTOR_FAMILIES
 
-    needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
-    if combined is not None:
-        needed |= set(core_tickers(combined[0]["core"]))
+    needed = _needed_tickers(sleeve_tickers, criteria, combined)
     provider = build_provider(factor) if factor is not None else None
     data = SearchData.load(sorted(needed), synthetic=args.synthetic, provider=provider)
     bench = compute_benchmark_metrics(data, criteria)
@@ -506,6 +521,106 @@ def cmd_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+_PREFLIGHT_SLACK = pd.Timedelta(days=10)  # first/last trading day may fall off the boundary
+
+
+def _missing_research_prices(data: SearchData, tickers: list[str], criteria: dict) -> list[str]:
+    """Tickers whose prices do not cover the research period (absent, empty, or
+    starting after / ending before it by more than a few days)."""
+    start, end = period_bounds(criteria, "research")
+    missing = []
+    for ticker in tickers:
+        valid = data.close[ticker].dropna() if ticker in data.close.columns else None
+        if (
+            valid is None
+            or valid.empty
+            or valid.index[0] > start + _PREFLIGHT_SLACK
+            or valid.index[-1] < end - _PREFLIGHT_SLACK
+        ):
+            missing.append(ticker)
+    return missing
+
+
+def _fixed_problem(ledger: Ledger, run: dict, args: argparse.Namespace) -> str | None:
+    """Why `fixed` must refuse this run/candidate, or None."""
+    fixed = _decode_fixed(run["seed_description"] or "")
+    if fixed is None:
+        return f"Run {args.run} is not a fixed-candidate run; use `search batch`."
+    if ledger.list_tests(args.run):
+        return f"Run {args.run} already has its one attempt recorded; refusing."
+    try:
+        params = json.loads(args.params)
+    except ValueError:
+        return "--params must be a JSON object."
+    if args.family != fixed["family"] or params != fixed["params"]:
+        return f"Run {args.run} declared {fixed['family']} {fixed['params']}; refusing a different candidate."
+    return None
+
+
+def _test_fixed(
+    ledger: Ledger,
+    args: argparse.Namespace,
+    criteria_hash: str,
+    universe_name: str,
+    data: SearchData,
+    criteria: dict,
+    combined: tuple[dict, str],
+) -> bool:
+    """The run's one attempt. An error after preflight is recorded as a failed
+    test (AGENTS.md: every attempt is logged); never retried silently.
+    `evaluate_candidate` already catches its own errors and `_test_one_candidate`
+    records them. The try covers only the benchmark computation, never a ledger
+    write, so `record_test` runs exactly once."""
+    params = json.loads(args.params)
+    try:
+        bench = compute_benchmark_metrics(data, criteria)
+    except Exception as exc:  # recorded below, not swallowed
+        ledger.record_test(
+            args.run, criteria_hash, args.family, params, universe_name,
+            {"error": str(exc)}, False, f"error: {exc}", combined_config_hash=combined[1],
+        )  # fmt: skip
+        return False
+    return _test_one_candidate(
+        ledger, args.run, criteria_hash, universe_name, args.family, params,
+        data, criteria, bench, [], combined,
+    )  # fmt: skip
+
+
+def cmd_fixed(args: argparse.Namespace) -> int:
+    criteria, criteria_hash = load_criteria(args.criteria)
+    with Ledger(args.ledger) as ledger:
+        run, problem = _checked_run(ledger, args.run, criteria_hash)
+        if run is not None:
+            problem = _fixed_problem(ledger, run, args)
+        if run is None or problem:
+            print(problem, file=sys.stderr)
+            return 2
+        try:
+            universe, data_source, criteria, _, combined = _batch_setup(run, args, criteria)
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 2
+        check_result = _check_data_source(ledger, args.run, data_source)
+        if check_result is not None:
+            return check_result
+        if combined is None:
+            print(f"Run {args.run} has no combined pass rule; refusing.", file=sys.stderr)
+            return 2
+        extra = _spec_for(args.family).tickers(json.loads(args.params))
+        needed = sorted(_needed_tickers((), criteria, combined, extra))
+        data = SearchData.load(needed, synthetic=args.synthetic)
+        missing = _missing_research_prices(data, needed, criteria)
+        if missing:
+            print(
+                f"No research-period prices for {missing}; nothing recorded. Fix the data and rerun.",
+                file=sys.stderr,
+            )
+            return 2
+        ok = _test_fixed(ledger, args, criteria_hash, universe["name"], data, criteria, combined)
+    print(f"Fixed candidate {args.family} {args.params}: {'passed' if ok else 'failed'}.")
+    return 0
+
+
 def cmd_summary(args: argparse.Namespace) -> int:
     with Ledger(args.ledger) as ledger:
         run = _get_run(ledger, args.run)
@@ -617,6 +732,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_batch.add_argument("--factor-config", default=None)
     _add_combined_args(p_batch, profile=True)
     p_batch.set_defaults(func=cmd_batch)
+
+    p_fixed = sub.add_parser("fixed", help="Test a fixed-candidate run's one declared candidate.")
+    p_fixed.add_argument("--run", type=int, required=True)
+    p_fixed.add_argument("--family", required=True)
+    p_fixed.add_argument("--params", required=True, help="JSON params, must match the seed")
+    p_fixed.add_argument("--synthetic", action="store_true")
+    p_fixed.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
+    p_fixed.add_argument("--factor-config", default=None)
+    _add_combined_args(p_fixed, profile=True)
+    p_fixed.set_defaults(func=cmd_fixed)
 
     p_summary = sub.add_parser("summary", help="Print funnel, near-misses, pruned regions, notes.")
     p_summary.add_argument("--run", type=int, required=True)
