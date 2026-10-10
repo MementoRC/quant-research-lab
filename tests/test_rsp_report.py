@@ -40,6 +40,16 @@ def test_render_markdown_states_the_verdict_and_both_portfolios():
     assert "sealed" in text
 
 
+def test_render_markdown_labels_the_gated_sharpe_gain_and_the_ranking_series():
+    text = render_markdown(REPORT)
+    assert "- Sharpe gain, combined minus core (the pass rule's check, minimum 0.05): 0.02" in text
+    assert (
+        "- Sharpe of the daily (combined - core) return difference "
+        "(improvement_sharpe, used for ranking): 0.10" in text
+    )
+    assert "Sharpe improvement over core alone" not in text
+
+
 def test_render_markdown_passed():
     text = render_markdown({**REPORT, "passed": True, "failure_reasons": None})
     assert "- verdict: Research period (2005-2018): PASSED" in text

@@ -30,7 +30,10 @@ def _result_lines(m: dict) -> list[str]:
         _row("core alone (100%)", m, "core_"),
         _row("core 80% + RSP 20%", m, "combined_"),
         "",
-        f"- Sharpe improvement over core alone: {m['improvement_sharpe']:.2f}",
+        "- Sharpe gain, combined minus core (the pass rule's check, minimum 0.05): "
+        f"{m['combined_sharpe'] - m['core_sharpe']:.2f}",
+        "- Sharpe of the daily (combined - core) return difference "
+        f"(improvement_sharpe, used for ranking): {m['improvement_sharpe']:.2f}",
         f"- RSP alone: CAGR {_pct(m['cagr'])}, Sharpe {m['sharpe']:.2f}, "
         f"max drawdown {_pct(m['max_drawdown'])}, {m['trades']} trade day(s)",
     ]

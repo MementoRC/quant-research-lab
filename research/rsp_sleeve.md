@@ -16,7 +16,8 @@ Research period 2005-01-01 to 2018-12-31, costs from criteria.yaml.
 | core alone (100%) | 7.3% | 0.48 | 29.9% |
 | core 80% + RSP 20% | 7.8% | 0.53 | 29.8% |
 
-- Sharpe improvement over core alone: 0.04
+- Sharpe gain, combined minus core (the pass rule's check, minimum 0.05): 0.06
+- Sharpe of the daily (combined - core) return difference (improvement_sharpe, used for ranking): 0.04
 - RSP alone: CAGR 7.9%, Sharpe 0.48, max drawdown 59.9%, 1 trade day(s)
 
 ## Validation
