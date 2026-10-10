@@ -94,9 +94,10 @@ rank_by: improvement_sharpe
    config/combined_fixed.yaml`. `scripts/validate.py`
    builds `needed` (~:153-158) before any candidate is selected, from the
    universe, defaults, benchmarks and core. So the extra tickers come from the
-   run's recorded tests: for each test in `ledger.list_tests(run)`, add
-   `qrl.search._spec_for(family).tickers(params)` to `needed`, and skip a
-   family that `_spec_for` cannot resolve (it raises `KeyError`). It is not a
+   run's recorded tests that passed: for each such test in
+   `ledger.list_tests(run)`, add `qrl.search._spec_for(family).tickers(params)`
+   to `needed`, and skip a test that `_spec_for` or `.tickers` cannot resolve
+   (`KeyError`, `TypeError`, `ValueError`). It is not a
    protected file, and existing runs are unaffected since their tickers are
    already loaded.
 8. The holdout (2023 onward) stays sealed.

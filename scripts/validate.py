@@ -105,15 +105,17 @@ def _print_candidates(candidates: list[dict]) -> None:
 
 
 def _candidate_tickers(tests: list[dict]) -> set[str]:
-    """Tickers the run's recorded candidates trade (e.g. a fixed run's RSP), so
-    `validate` can load them. A family `_spec_for` cannot resolve is skipped."""
+    """Tickers the run's passed candidates trade (e.g. a fixed run's RSP), so
+    `validate` can load them. A failed test, or one whose family or params
+    `_spec_for` / `spec.tickers` cannot resolve, is skipped."""
     tickers: set[str] = set()
     for test in tests:
-        try:
-            spec = _spec_for(test["family"])
-        except KeyError:
+        if not test["passed"]:
             continue
-        tickers |= set(spec.tickers(test["params"]))
+        try:
+            tickers |= set(_spec_for(test["family"]).tickers(test["params"]))
+        except (KeyError, TypeError, ValueError):
+            continue
     return tickers
 
 

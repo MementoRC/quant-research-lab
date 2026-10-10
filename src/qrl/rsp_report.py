@@ -15,9 +15,30 @@ def _row(label: str, m: dict, prefix: str) -> str:
     return "| " + " | ".join([label, *cells]) + " |"
 
 
+def _result_lines(m: dict) -> list[str]:
+    if "error" in m:
+        return [
+            "The test errored after preflight; no metrics were computed.",
+            "",
+            f"- error: {m['error']}",
+        ]
+    return [
+        "Research period 2005-01-01 to 2018-12-31, costs from criteria.yaml.",
+        "",
+        "| portfolio | CAGR | Sharpe | max drawdown |",
+        "|---|---|---|---|",
+        _row("core alone (100%)", m, "core_"),
+        _row("core 80% + RSP 20%", m, "combined_"),
+        "",
+        f"- Sharpe improvement over core alone: {m['improvement_sharpe']:.2f}",
+        f"- RSP alone: CAGR {_pct(m['cagr'])}, Sharpe {m['sharpe']:.2f}, "
+        f"max drawdown {_pct(m['max_drawdown'])}, {m['trades']} trade day(s)",
+    ]
+
+
 def render_markdown(r: dict) -> str:
-    m = r["metrics"]
-    verdict = "PASSED" if r["passed"] else f"FAILED ({r['failure_reasons']})"
+    result = "PASSED" if r["passed"] else f"FAILED ({r['failure_reasons']})"
+    verdict = f"Research period (2005-2018): {result}"
     return "\n".join(
         [
             "# RSP sleeve: 80% core + 20% RSP vs 100% core",
@@ -31,16 +52,7 @@ def render_markdown(r: dict) -> str:
             "",
             "## Result",
             "",
-            "Research period 2005-01-01 to 2018-12-31, costs from criteria.yaml.",
-            "",
-            "| portfolio | CAGR | Sharpe | max drawdown |",
-            "|---|---|---|---|",
-            _row("core alone (100%)", m, "core_"),
-            _row("core 80% + RSP 20%", m, "combined_"),
-            "",
-            f"- Sharpe improvement over core alone: {m['improvement_sharpe']:.2f}",
-            f"- RSP alone: CAGR {_pct(m['cagr'])}, Sharpe {m['sharpe']:.2f}, "
-            f"max drawdown {_pct(m['max_drawdown'])}, {m['trades']} trade day(s)",
+            *_result_lines(r["metrics"]),
             "",
             "## Validation",
             "",

@@ -31,7 +31,7 @@ REPORT = {
 def test_render_markdown_states_the_verdict_and_both_portfolios():
     text = render_markdown(REPORT)
     assert text.startswith("# RSP sleeve: 80% core + 20% RSP vs 100% core")
-    assert "- verdict: FAILED (combined_sharpe_improvement)" in text
+    assert "- verdict: Research period (2005-2018): FAILED (combined_sharpe_improvement)" in text
     assert "- attempts: 1" in text
     assert "| core alone (100%) |" in text
     assert "| core 80% + RSP 20% |" in text
@@ -42,7 +42,17 @@ def test_render_markdown_states_the_verdict_and_both_portfolios():
 
 def test_render_markdown_passed():
     text = render_markdown({**REPORT, "passed": True, "failure_reasons": None})
-    assert "- verdict: PASSED" in text
+    assert "- verdict: Research period (2005-2018): PASSED" in text
+
+
+def test_render_markdown_for_an_errored_test_has_no_metrics_table():
+    text = render_markdown(
+        {**REPORT, "metrics": {"error": "boom"}, "failure_reasons": "error: boom"}
+    )
+    assert "- verdict: Research period (2005-2018): FAILED (error: boom)" in text
+    assert "boom" in text
+    assert "| portfolio |" not in text
+    assert "not run: failed on the research period" in text
 
 
 def test_site_block_parses_the_report(tmp_path):
@@ -52,5 +62,8 @@ def test_site_block_parses_the_report(tmp_path):
     block = build_rsp_sleeve(tmp_path)
     assert block is not None
     assert block["source"] == "research/rsp_sleeve.md"
-    assert block["header"]["verdict"] == "FAILED (combined_sharpe_improvement)"
+    assert (
+        block["header"]["verdict"]
+        == "Research period (2005-2018): FAILED (combined_sharpe_improvement)"
+    )
     assert [s["title"] for s in block["sections"]][0] == "Result"

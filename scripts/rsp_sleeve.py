@@ -16,6 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from search import _decode_fixed  # noqa: E402
 
 from qrl.ledger import DEFAULT_LEDGER_PATH  # noqa: E402
 from qrl.rsp_report import render_markdown  # noqa: E402
@@ -36,16 +39,20 @@ def main(argv: list[str] | None = None) -> int:
             "SELECT metrics_json, passed, failure_reasons FROM tests WHERE run_id = ?", (args.run,)
         ).fetchall()
         run = conn.execute(
-            "SELECT combined_config_hash FROM runs WHERE run_id = ?", (args.run,)
+            "SELECT combined_config_hash, seed_description FROM runs WHERE run_id = ?",
+            (args.run,),
         ).fetchone()
     finally:
         conn.close()
+    if run is not None and _decode_fixed(run["seed_description"] or "") is None:
+        print(f"Run {args.run} is not a fixed-candidate run.", file=sys.stderr)
+        return 2
     if run is None or len(rows) != 1:
         print(f"Run {args.run} needs exactly one recorded test; found {len(rows)}.")
         return 1
     row = rows[0]
     metrics = json.loads(row["metrics_json"])
-    if "combined_sharpe" not in metrics:
+    if "combined_sharpe" not in metrics and "error" not in metrics:
         print(f"Run {args.run}'s test has no combined metrics: {metrics}")
         return 1
     report = {

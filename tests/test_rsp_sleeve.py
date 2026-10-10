@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -22,6 +23,7 @@ CONFIG = ROOT / "config"
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import rsp_sleeve as rsp_script  # noqa: E402
 import search as search_mod  # noqa: E402
 import validate as validate_mod  # noqa: E402
 from search import (  # noqa: E402
@@ -296,16 +298,64 @@ def test_fixed_loads_the_candidates_own_ticker(tmp_path, monkeypatch):
 
 def test_candidate_tickers_resolves_known_families_and_skips_unknown():
     tests = [
-        {"family": "buy_and_hold", "params": {"ticker": "RSP"}},
-        {"family": "no_such_family", "params": {}},
+        {"family": "buy_and_hold", "params": {"ticker": "RSP"}, "passed": True},
+        {"family": "no_such_family", "params": {}, "passed": True},
     ]
     assert _candidate_tickers(tests) == {"RSP"}
     assert _candidate_tickers([]) == set()
 
 
+def test_candidate_tickers_only_from_passed_tests_and_skips_bad_params():
+    rsp = {"family": "buy_and_hold", "params": {"ticker": "RSP"}}
+    tests = [
+        {**rsp, "passed": True},
+        {"family": "buy_and_hold", "params": {"ticker": "SPY"}, "passed": False},
+        {"family": "buy_and_hold", "params": {}, "passed": True},  # bad params: KeyError
+    ]
+    assert _candidate_tickers(tests) == {"RSP"}
+    assert _candidate_tickers([{**rsp, "passed": False}]) == set()
+
+
+def _rsp_argv(ledger_path: Path, run_id: int, out: Path, note: str = "n/a") -> list[str]:
+    return [
+        "--run", str(run_id), "--ledger", str(ledger_path),
+        "--validation-note", note, "--out-md", str(out),
+    ]  # fmt: skip
+
+
+def test_rsp_script_writes_a_failed_report_for_an_errored_test(tmp_path, monkeypatch):
+    ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(search_mod, "compute_benchmark_metrics", _boom)
+    assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 0
+    out = tmp_path / "rsp.md"
+    assert rsp_script.main(_rsp_argv(ledger_path, run_id, out)) == 0
+    text = out.read_text()
+    assert "FAILED" in text
+    assert "boom" in text
+    assert "| portfolio |" not in text
+
+
+def test_rsp_script_refuses_a_non_fixed_run(tmp_path, capsys):
+    paths = _fixed_paths(tmp_path)
+    universe = _write_tiny_universe(tmp_path / "universe.yaml")
+    assert search_main(_seed_argv(tmp_path, paths, universe, "--families", "trend_pullback")) == 0
+    ledger_path = tmp_path / "ledger.sqlite"
+    capsys.readouterr()
+    out = tmp_path / "rsp.md"
+    assert rsp_script.main(_rsp_argv(ledger_path, 1, out)) == 2
+    assert "not a fixed" in capsys.readouterr().err
+    assert not out.exists()
+
+
 def test_validate_loads_the_recorded_tests_own_tickers(tmp_path, monkeypatch):
     ledger_path, universe, run_id, paths = _seed_fixed(tmp_path)
     assert search_main(_fixed_argv(ledger_path, universe, run_id, paths)) == 0
+    with sqlite3.connect(ledger_path) as conn:  # validate only loads passed tests' tickers
+        conn.execute("UPDATE tests SET passed = 1 WHERE run_id = ?", (run_id,))
     seen: list[list[str]] = []
     real = SearchData.load
 
