@@ -284,6 +284,14 @@
         <p class="section-note" id="longrun-links"></p>
       </section>
 
+      <section aria-labelledby="rsp-title" id="rsp-section" hidden>
+        <h2 id="rsp-title">RSP sleeve: 80% core + 20% RSP vs 100% core</h2>
+        <p class="section-note">One fixed candidate, tested once on 2005-2018; the holdout stays sealed.</p>
+        <ul id="rsp-header"></ul>
+        <div id="rsp-body"></div>
+        <p class="section-note" id="rsp-links"></p>
+      </section>
+
       <footer>
         <p>Data through ${fmtDate(data.data_through)} from ${data.data_source === "synthetic" ? "synthetic demo prices" : "Yahoo Finance"}. Built ${new Date(data.generated_at).toLocaleString()}.</p>
         <p>Criteria file version <code>${esc(data.criteria_hash)}</code>. If this code changes unexpectedly, the pass rules were edited.</p>
@@ -310,6 +318,7 @@
     renderFragility(data);
     renderDecision(data);
     renderReport(data.longrun, "longrun", "full long-run report");
+    renderReport(data.rsp_sleeve, "rsp", "full RSP sleeve report");
 
     document.getElementById("theme-toggle").addEventListener("click", () => {
       const root = document.documentElement;
