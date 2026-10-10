@@ -67,7 +67,8 @@ rank_by: improvement_sharpe
    JSON `{"description", "families"}` and `_decode_seed_description` (~:101)
    reads it back, falling back to `(raw, [])` for non-JSON text. A fixed run
    adds a `"fixed"` key holding a marker plus the declared family and its
-   params (`buy_and_hold`, `{"ticker":"RSP"}`); the decoder returns that too,
+   params (`buy_and_hold`, `{"ticker":"RSP"}`); a separate `_decode_fixed`
+   reads it back (`_decode_seed_description` keeps its two return values),
    and a missing key means not fixed. No ledger schema change. Runs seeded
    before this change have no such key (or plain-text descriptions), so they
    decode as not fixed and are unaffected.
