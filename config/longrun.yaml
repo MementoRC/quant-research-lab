@@ -7,8 +7,10 @@
 # Portfolios, withdrawal rates' source and the 2018-12-31 data end come from
 # config/decision.yaml, read unchanged; its sha256 is pinned below and
 # checked on load.
+# Amendment 2026-10-10: decision_sha256 re-pinned after the defensive-sleeve
+# blends were added (docs/methodology/defensive-sleeve.md). No other key changed.
 version: 1
-decision_sha256: "b6ae095904f8f5eee9f75ef48e617d954953150b889d6bcfef42f6179105db23"
+decision_sha256: "fc144fb5299440c3e1340b11867680a30517a5f985639c92e9fe78294cd29193"
 
 seed: 20261008
 n_paths: 10000

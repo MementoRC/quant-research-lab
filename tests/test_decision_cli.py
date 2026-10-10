@@ -11,6 +11,7 @@ from decision_helpers import (
     CANDIDATES,
     END,
     GOOD,
+    GOOD_SLEEVE,
     ROOT,
     YEARS_LINE,
     cpi,
@@ -30,7 +31,23 @@ def _shipped():
 
 def test_decision_shipped_config_loads():
     cfg = _shipped()
-    assert [p.id for p in cfg.portfolios] == [*"ABCDEFG", "CASH", "G-EW", "AG", "G-CASH", "A-CASH"]
+    assert [p.id for p in cfg.portfolios] == [
+        *"ABCDEFG",
+        "CASH",
+        "G-EW",
+        "IEF",
+        "TLT",
+        "RSP",
+        "BONDS",
+        "AG",
+        "G-CASH",
+        "A-CASH",
+        "A80-CASH20",
+        "A80-IEF20",
+        "A80-TLT20",
+        "A80-BONDS20",
+        "A80-RSP20",
+    ]
     assert [s.name for s in cfg.scenarios] == [
         "treasury_dollar_crisis",
         "trade_oil_shock",
@@ -77,7 +94,7 @@ def test_decision_shipped_config_tripwire():
 
 
 def test_decision_shipped_config_matches_test_fixture(tmp_path):
-    assert replace(_shipped(), sha256="") == replace(load(tmp_path), sha256="")
+    assert replace(_shipped(), sha256="") == replace(load(tmp_path, GOOD_SLEEVE), sha256="")
 
 
 def test_decision_pixi_task():

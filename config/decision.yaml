@@ -11,10 +11,18 @@
 version: 1
 candidates_sha256: "1a84847ed4ae59e81627c420b88f7736357f0bdc0bcb654a945c5d2ad88107e3"
 
+# Amendment 2026-10-10 (owner-approved design, spec
+# docs/methodology/defensive-sleeve.md): statics IEF, TLT, RSP, BONDS and
+# blends A80-*20 added for the defensive-sleeve comparison. Existing
+# entries unchanged; candidates_sha256 unchanged.
 # Static mixes: weights are fractions of capital and must sum to 1.
 static:
   - {id: CASH, label: "100% SHY", mix: {SHY: 1.0}}
   - {id: G-EW, label: "25% each RSP / TLT / GLD / SHY", mix: {RSP: 0.25, TLT: 0.25, GLD: 0.25, SHY: 0.25}}
+  - {id: IEF, label: "100% IEF", mix: {IEF: 1.0}}
+  - {id: TLT, label: "100% TLT", mix: {TLT: 1.0}}
+  - {id: RSP, label: "100% RSP", mix: {RSP: 1.0}}
+  - {id: BONDS, label: "1/3 each SHY / IEF / TLT", mix: {SHY: 0.3333333333333333, IEF: 0.3333333333333333, TLT: 0.3333333333333333}}
 
 # Blends of A-G and static mixes: daily weights are the share-weighted sum of
 # the parts' weights, so a switching part (A) keeps switching inside a blend.
@@ -22,6 +30,11 @@ blends:
   - {id: AG, label: "1/2 A + 1/2 G", parts: {A: 0.5, G: 0.5}}
   - {id: G-CASH, label: "1/2 G + 1/2 CASH", parts: {G: 0.5, CASH: 0.5}}
   - {id: A-CASH, label: "1/2 A + 1/2 CASH", parts: {A: 0.5, CASH: 0.5}}
+  - {id: A80-CASH20, label: "80% A + 20% CASH", parts: {A: 0.8, CASH: 0.2}}
+  - {id: A80-IEF20, label: "80% A + 20% IEF", parts: {A: 0.8, IEF: 0.2}}
+  - {id: A80-TLT20, label: "80% A + 20% TLT", parts: {A: 0.8, TLT: 0.2}}
+  - {id: A80-BONDS20, label: "80% A + 20% BONDS", parts: {A: 0.8, BONDS: 0.2}}
+  - {id: A80-RSP20, label: "80% A + 20% RSP", parts: {A: 0.8, RSP: 0.2}}
 
 # Historical windows, by name, from config/stress.yaml (read, never edited).
 windows: [dotcom_2000, gfc_2008]
