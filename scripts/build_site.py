@@ -32,6 +32,7 @@ from qrl.site_core import (  # noqa: E402
     build_decision,
     build_fragility,
     build_longrun,
+    build_rsp_sleeve,
 )
 from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 
@@ -412,6 +413,11 @@ def main() -> None:
     if longrun is not None:
         payload["longrun"] = longrun
         print(f"Long-run withdrawals: {len(longrun['sections'])} sections")
+
+    rsp_sleeve = build_rsp_sleeve(ROOT)
+    if rsp_sleeve is not None:
+        payload["rsp_sleeve"] = rsp_sleeve
+        print(f"RSP sleeve: {rsp_sleeve['header'].get('verdict', 'unknown')}")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

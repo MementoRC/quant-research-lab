@@ -10,6 +10,8 @@ Usage:
     python scripts/search.py seed --lane A --universe config/universe.yaml
     python scripts/search.py seed --lane A --pass-rule combined --description "..."
     python scripts/search.py seed --lane A --factor-config config/factor.yaml --pass-rule combined_null --description "..."
+    python scripts/search.py seed --lane B --fixed --families buy_and_hold --params '{"ticker":"RSP"}' --pass-rule combined --combined-config config/combined_fixed.yaml
+    python scripts/search.py fixed --run 1 --family buy_and_hold --params '{"ticker":"RSP"}' --combined-config config/combined_fixed.yaml
     python scripts/search.py batch --run 1 --n 200 --synthetic
     python scripts/search.py batch --run 1 --n 200 --max-seconds 1800
     python scripts/search.py summary --run 1
@@ -38,7 +40,10 @@ import argparse
 import json
 import sys
 import time
+from collections.abc import Iterable
 from pathlib import Path
+
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -69,9 +74,11 @@ from qrl.ledger import (  # noqa: E402
     candidate_key,
     data_source_fingerprint,
 )
+from qrl.periods import period_bounds  # noqa: E402
 from qrl.profile import ProfileReport, analyze_profile, load_profile  # noqa: E402
 from qrl.search import (  # noqa: E402
     SearchData,
+    _spec_for,
     compute_benchmark_metrics,
     evaluate_candidate,
     propose_batch,
@@ -88,14 +95,20 @@ SEARCHABLE_SPACES: dict[str, dict[str, list]] = {
     "core_trend": REGISTRY["core_trend"].space,
 }
 DEFAULT_UNIVERSE_TICKERS = ("QQQ", "GLD", "TLT")
+FIXED_MARKER = "fixed-candidate-v1"
 
 
 def _parse_families(raw: str) -> list[str]:
     return [f.strip() for f in raw.split(",") if f.strip()]
 
 
-def _encode_seed_description(description: str, families: list[str]) -> str:
-    return json.dumps({"description": description, "families": families})
+def _encode_seed_description(
+    description: str, families: list[str], fixed: dict | None = None
+) -> str:
+    payload: dict = {"description": description, "families": families}
+    if fixed is not None:
+        payload["fixed"] = fixed
+    return json.dumps(payload)
 
 
 def _decode_seed_description(raw: str) -> tuple[str, list[str]]:
@@ -104,6 +117,19 @@ def _decode_seed_description(raw: str) -> tuple[str, list[str]]:
         return payload.get("description", ""), list(payload.get("families", []))
     except (json.JSONDecodeError, TypeError, AttributeError):
         return raw, []
+
+
+def _decode_fixed(raw: str) -> dict | None:
+    """The fixed-candidate marker (`marker`, `family`, `params`) stored in a
+    run's seed_description, or None: runs seeded before this existed (JSON
+    without the key, or plain text) are not fixed."""
+    try:
+        fixed = json.loads(raw).get("fixed")
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return None
+    if isinstance(fixed, dict) and fixed.get("marker") == FIXED_MARKER:
+        return fixed
+    return None
 
 
 def _get_run(ledger: Ledger, run_id: int) -> dict | None:
@@ -180,10 +206,40 @@ def _seed_families(
     return _parse_families(args.families) if args.families else list(factor.families)
 
 
+def _validate_fixed(
+    args: argparse.Namespace, families: list[str], factor: FactorRun | None
+) -> str | None:
+    """An error message if a `--fixed` seed request is invalid, else None. Only
+    the declared candidate is checked; buy_and_hold is not in SEARCHABLE_SPACES."""
+    if len(families) != 1:
+        return "--fixed declares exactly one family."
+    if factor is not None or args.pass_rule != "combined":
+        return "--fixed needs --pass-rule combined and no --factor-config."
+    try:
+        params = json.loads(args.params or "")
+        if not isinstance(params, dict):
+            raise ValueError("not an object")
+    except ValueError:
+        return "--fixed needs --params as a JSON object."
+    try:
+        _spec_for(families[0]).tickers(params)
+    except KeyError as err:
+        return f"--fixed candidate is not valid: {err}"
+    return None
+
+
+def _fixed_marker(args: argparse.Namespace, families: list[str]) -> dict | None:
+    if not args.fixed:
+        return None
+    return {"marker": FIXED_MARKER, "family": families[0], "params": json.loads(args.params)}
+
+
 def _validate_seed(
     args: argparse.Namespace, families: list[str], factor: FactorRun | None
 ) -> str | None:
     """An error message if the seed request is invalid, else None."""
+    if args.fixed:
+        return _validate_fixed(args, families, factor)
     unknown = sorted(set(families) - SEARCHABLE_SPACES.keys())
     if unknown:
         return f"Unknown families: {unknown}"
@@ -237,11 +293,12 @@ def cmd_seed(args: argparse.Namespace) -> int:
             return 2
 
     description = args.description or f"lane {args.lane}: {', '.join(families)}"
+    fixed = _fixed_marker(args, families)
     with Ledger(args.ledger) as ledger:
         run_id = ledger.start_run(
             criteria_hash,
             args.lane,
-            _encode_seed_description(description, families),
+            _encode_seed_description(description, families, fixed),
             data_source=data_source,
             pass_rule=args.pass_rule,
             combined_config_hash=combined_hash,
@@ -253,12 +310,18 @@ def cmd_seed(args: argparse.Namespace) -> int:
     )
     if combined_hash is not None:
         print(f"Pass rule: {args.pass_rule} (config hash {combined_hash})")
+    _print_seed_extras(fixed, factor)
+    return 0
+
+
+def _print_seed_extras(fixed: dict | None, factor: FactorRun | None) -> None:
+    if fixed is not None:
+        print(f"Fixed candidate: {fixed['family']} {fixed['params']}")
     if factor is not None:
         print(
             f"Factor run: research start {factor.research_start}, factor.yaml sha256 "
             f"{factor.config_sha256}, membership sha256 {factor.membership_sha256}"
         )
-    return 0
 
 
 def _resolve_families(run: dict, args: argparse.Namespace) -> list[str]:
@@ -309,6 +372,19 @@ def _deadline_hit(deadline: float | None) -> bool:
     return deadline is not None and time.monotonic() >= deadline
 
 
+def _needed_tickers(
+    sleeve_tickers: Iterable[str],
+    criteria: dict,
+    combined: tuple[dict, str] | None,
+    extra: Iterable[str] = (),
+) -> set[str]:
+    needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
+    needed |= set(extra)
+    if combined is not None:
+        needed |= set(core_tickers(combined[0]["core"]))
+    return needed
+
+
 def _run_batch(
     ledger: Ledger,
     run_id: int,
@@ -325,9 +401,7 @@ def _run_batch(
     universe_name = universe["name"]
     grid_families = frozenset(families) & FACTOR_FAMILIES
 
-    needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
-    if combined is not None:
-        needed |= set(core_tickers(combined[0]["core"]))
+    needed = _needed_tickers(sleeve_tickers, criteria, combined)
     provider = build_provider(factor) if factor is not None else None
     data = SearchData.load(sorted(needed), synthetic=args.synthetic, provider=provider)
     bench = compute_benchmark_metrics(data, criteria)
@@ -403,16 +477,27 @@ def _batch_setup(
     return universe, data_source, criteria, factor, combined
 
 
+def _checked_run(ledger: Ledger, run_id: int, criteria_hash: str) -> tuple[dict | None, str | None]:
+    """(run, None) if the run exists and its criteria hash is unchanged, else
+    (None, the reason to refuse)."""
+    run = _get_run(ledger, run_id)
+    if run is None:
+        return None, f"Unknown run {run_id}"
+    if run["criteria_hash"] != criteria_hash:
+        return None, "Criteria hash has changed since this run started; refusing to continue."
+    return run, None
+
+
 def cmd_batch(args: argparse.Namespace) -> int:
     criteria, criteria_hash = load_criteria(args.criteria)
     with Ledger(args.ledger) as ledger:
-        run = _get_run(ledger, args.run)
+        run, problem = _checked_run(ledger, args.run, criteria_hash)
         if run is None:
-            print(f"Unknown run {args.run}", file=sys.stderr)
+            print(problem, file=sys.stderr)
             return 2
-        if run["criteria_hash"] != criteria_hash:
+        if _decode_fixed(run["seed_description"] or "") is not None:
             print(
-                "Criteria hash has changed since this run started; refusing to continue.",
+                f"Run {args.run} is a fixed-candidate run; use `search fixed`, not `batch`.",
                 file=sys.stderr,
             )
             return 2
@@ -437,6 +522,106 @@ def cmd_batch(args: argparse.Namespace) -> int:
             ledger, args.run, criteria, criteria_hash, families, universe, args, combined, factor
         )
     print(f"Batch complete: tested {tested}, passed {passed}, failed {failed}.")
+    return 0
+
+
+_PREFLIGHT_SLACK = pd.Timedelta(days=10)  # first/last trading day may fall off the boundary
+
+
+def _missing_research_prices(data: SearchData, tickers: list[str], criteria: dict) -> list[str]:
+    """Tickers whose prices do not cover the research period (absent, empty, or
+    starting after / ending before it by more than a few days)."""
+    start, end = period_bounds(criteria, "research")
+    missing = []
+    for ticker in tickers:
+        valid = data.close[ticker].dropna() if ticker in data.close.columns else None
+        if (
+            valid is None
+            or valid.empty
+            or valid.index[0] > start + _PREFLIGHT_SLACK
+            or valid.index[-1] < end - _PREFLIGHT_SLACK
+        ):
+            missing.append(ticker)
+    return missing
+
+
+def _fixed_problem(ledger: Ledger, run: dict, args: argparse.Namespace) -> str | None:
+    """Why `fixed` must refuse this run/candidate, or None."""
+    fixed = _decode_fixed(run["seed_description"] or "")
+    if fixed is None:
+        return f"Run {args.run} is not a fixed-candidate run; use `search batch`."
+    if ledger.list_tests(args.run):
+        return f"Run {args.run} already has its one attempt recorded; refusing."
+    try:
+        params = json.loads(args.params)
+    except ValueError:
+        return "--params must be a JSON object."
+    if args.family != fixed["family"] or params != fixed["params"]:
+        return f"Run {args.run} declared {fixed['family']} {fixed['params']}; refusing a different candidate."
+    return None
+
+
+def _test_fixed(
+    ledger: Ledger,
+    args: argparse.Namespace,
+    criteria_hash: str,
+    universe_name: str,
+    data: SearchData,
+    criteria: dict,
+    combined: tuple[dict, str],
+) -> bool:
+    """The run's one attempt. An error after preflight is recorded as a failed
+    test (AGENTS.md: every attempt is logged); never retried silently.
+    `evaluate_candidate` already catches its own errors and `_test_one_candidate`
+    records them. The try covers only the benchmark computation, never a ledger
+    write, so `record_test` runs exactly once."""
+    params = json.loads(args.params)
+    try:
+        bench = compute_benchmark_metrics(data, criteria)
+    except Exception as exc:  # recorded below, not swallowed
+        ledger.record_test(
+            args.run, criteria_hash, args.family, params, universe_name,
+            {"error": str(exc)}, False, f"error: {exc}", combined_config_hash=combined[1],
+        )  # fmt: skip
+        return False
+    return _test_one_candidate(
+        ledger, args.run, criteria_hash, universe_name, args.family, params,
+        data, criteria, bench, [], combined,
+    )  # fmt: skip
+
+
+def cmd_fixed(args: argparse.Namespace) -> int:
+    criteria, criteria_hash = load_criteria(args.criteria)
+    with Ledger(args.ledger) as ledger:
+        run, problem = _checked_run(ledger, args.run, criteria_hash)
+        if run is not None:
+            problem = _fixed_problem(ledger, run, args)
+        if run is None or problem:
+            print(problem, file=sys.stderr)
+            return 2
+        try:
+            universe, data_source, criteria, _, combined = _batch_setup(run, args, criteria)
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 2
+        check_result = _check_data_source(ledger, args.run, data_source)
+        if check_result is not None:
+            return check_result
+        if combined is None:
+            print(f"Run {args.run} has no combined pass rule; refusing.", file=sys.stderr)
+            return 2
+        extra = _spec_for(args.family).tickers(json.loads(args.params))
+        needed = sorted(_needed_tickers((), criteria, combined, extra))
+        data = SearchData.load(needed, synthetic=args.synthetic)
+        missing = _missing_research_prices(data, needed, criteria)
+        if missing:
+            print(
+                f"No research-period prices for {missing}; nothing recorded. Fix the data and rerun.",
+                file=sys.stderr,
+            )
+            return 2
+        ok = _test_fixed(ledger, args, criteria_hash, universe["name"], data, criteria, combined)
+    print(f"Fixed candidate {args.family} {args.params}: {'passed' if ok else 'failed'}.")
     return 0
 
 
@@ -532,6 +717,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # binds config/combined.yaml + the capital split + the core spec by hash;
     # 'combined_null' (amendment 2026-10-02, run 5) the same with combined_null.yaml.
     p_seed.add_argument("--pass-rule", choices=PASS_RULES, default="standalone")
+    p_seed.add_argument(
+        "--fixed", action="store_true", help="fixed-candidate run: one declared family, no search"
+    )
+    p_seed.add_argument("--params", default=None, help="JSON params of the --fixed candidate")
     _add_combined_args(p_seed, profile=False)
     p_seed.set_defaults(func=cmd_seed)
 
@@ -547,6 +736,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_batch.add_argument("--factor-config", default=None)
     _add_combined_args(p_batch, profile=True)
     p_batch.set_defaults(func=cmd_batch)
+
+    p_fixed = sub.add_parser("fixed", help="Test a fixed-candidate run's one declared candidate.")
+    p_fixed.add_argument("--run", type=int, required=True)
+    p_fixed.add_argument("--family", required=True)
+    p_fixed.add_argument("--params", required=True, help="JSON params, must match the seed")
+    p_fixed.add_argument("--synthetic", action="store_true")
+    p_fixed.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
+    p_fixed.add_argument("--factor-config", default=None)
+    _add_combined_args(p_fixed, profile=True)
+    p_fixed.set_defaults(func=cmd_fixed)
 
     p_summary = sub.add_parser("summary", help="Print funnel, near-misses, pruned regions, notes.")
     p_summary.add_argument("--run", type=int, required=True)

@@ -21,6 +21,8 @@ document itself.
 - [longrun.md](longrun.md) — 30-year withdrawal paths built by resampling
   2005-2018 months, comparing the decision-helper portfolios on depletion
   chance and real value.
+- [rsp-sleeve.md](rsp-sleeve.md) — one fixed, pre-registered test of whether a
+  20% RSP (equal-weight S&P 500) sleeve beats the core alone, with no search.
 
 ## Former paths
 

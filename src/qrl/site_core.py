@@ -15,6 +15,7 @@ REVEAL_PATH = "research/core_reveal.md"
 FRAGILITY_PATH = "research/fragility.md"
 DECISION_PATH = "research/decision.md"
 LONGRUN_PATH = "research/longrun.md"
+RSP_PATH = "research/rsp_sleeve.md"
 
 _BULLET = re.compile(r"^- ([^:]+): (.*)$")
 _EVENT_ID = re.compile(r"event id (\d+)")
@@ -190,3 +191,9 @@ def build_longrun(root: Path) -> dict | None:
     """The `longrun` block for results.json from the committed `research/longrun.md`,
     rendered the same way as `build_decision`, or None if absent."""
     return _build_report(root, LONGRUN_PATH)
+
+
+def build_rsp_sleeve(root: Path) -> dict | None:
+    """The `rsp_sleeve` block for results.json from the committed
+    `research/rsp_sleeve.md`, rendered like `build_decision`, or None if absent."""
+    return _build_report(root, RSP_PATH)
