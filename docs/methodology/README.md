@@ -23,6 +23,9 @@ document itself.
   chance and real value.
 - [rsp-sleeve.md](rsp-sleeve.md) — one fixed, pre-registered test of whether a
   20% RSP (equal-weight S&P 500) sleeve beats the core alone, with no search.
+- [defensive-sleeve.md](defensive-sleeve.md) — decision-aid comparison of the
+  core with a 20% cash, bond or RSP sleeve on drawdowns, stress losses,
+  withdrawal survival and lost return.
 
 ## Former paths
 
