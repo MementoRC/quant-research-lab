@@ -3,7 +3,7 @@ docs/methodology/longrun.md, "Outputs"). Percentages only."""
 
 from __future__ import annotations
 
-from .decision_report import BY_PRODUCT_IDS, SLEEVE_PREFIX, _pct
+from .decision_report import BY_PRODUCT_IDS, SLEEVE_PREFIX, _pct, _split
 from .longrun import CASH_ASSUMPTION
 
 _COLS = (
@@ -19,16 +19,37 @@ _COLS = (
 
 
 def _sleeve_note(r: dict) -> list[str]:
-    """Which rows answer the defensive-sleeve question; nothing without A80 rows."""
+    """Which rows answer the defensive-sleeve question; nothing without A80 rows.
+    The cash-assumption row (docs/methodology/true-cash-sleeve.md) is named as
+    an assumption row, not counted as an A80 row; a missing key counts as None."""
     names = list(dict.fromkeys(row["portfolio"] for row in r["rows"]))
-    sleeves = [n for n in names if n.startswith(SLEEVE_PREFIX)]
+    cash_id = r.get("cash_assumption_id")
+    sleeves = [n for n in names if n.startswith(SLEEVE_PREFIX) and n != cash_id]
     if not sleeves:
         return []
     extra = [n for n in names if n in BY_PRODUCT_IDS]
+    assumption = f", the {cash_id} assumption row" if cash_id else ""
     return [
-        f"- {len(names)} rows per withdrawal rate, including the {CASH_ASSUMPTION} row and "
-        f"{len(extra)} by-product rows ({', '.join(extra)}); only the {len(sleeves)} A80 "
-        "rows answer the defensive-sleeve question (docs/methodology/defensive-sleeve.md)"
+        f"- {len(names)} rows per withdrawal rate, including the {CASH_ASSUMPTION} "
+        f"row{assumption} and {len(extra)} by-product rows ({', '.join(extra)}); only the "
+        f"{len(sleeves)} A80 rows answer the defensive-sleeve question "
+        "(docs/methodology/defensive-sleeve.md)"
+    ]
+
+
+def _assumption_note(r: dict) -> list[str]:
+    """The cash-assumption row is an assumption, not history; nothing without it."""
+    cash_id = r.get("cash_assumption_id")
+    if not cash_id:
+        return []
+    share = r["cash_assumption_share"]
+    return [
+        f"- {cash_id}: an assumption, not history. {_pct(1 - share)} "
+        f"{r['cash_assumption_base']} plus {_pct(share)} cash earning each month's inflation "
+        f"plus {_pct(r['cash_real_yield'])} a year, rebalanced daily; its real yield is "
+        "checked equal to the CASH +1% real row's. The cash leg and the daily return to "
+        f"{_split(share)} pay no trading cost, while A80-CASH20 pays {r['cost_bps']:g} bps "
+        "per unit traded on its rebalancing, a small difference in the assumption row's favour."
     ]
 
 
@@ -80,6 +101,7 @@ def _header(r: dict) -> list[str]:
         f"- Portfolio returns pay trading costs of {r['cost_bps']:g} bps (0.01% each) "
         "per unit traded.",
         f"- {CASH_ASSUMPTION}: an assumption, not history. It earns each month's inflation plus {_pct(r['cash_real_yield'])} a year.",
+        *_assumption_note(r),
         "- A path is empty once its value is effectively zero (below one billionth of the start).",
         "- All figures are percentages of the starting value or of paths.",
         "",

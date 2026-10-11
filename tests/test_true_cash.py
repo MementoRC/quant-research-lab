@@ -46,7 +46,19 @@ from qrl.decision_withdraw import (
     usable_cpi,
     withdrawal_path,
 )
-from qrl.longrun import LongrunConfig, check_cash_assumption, load_longrun_config, run_longrun
+from qrl.longrun import (
+    CASH_ASSUMPTION,
+    LongrunConfig,
+    block_starts,
+    check_cash_assumption,
+    load_longrun_config,
+    month_indices,
+    monthly_returns,
+    run_longrun,
+    run_paths,
+    summarize,
+)
+from qrl.longrun_report import render_markdown as render_longrun
 from qrl.metrics import compute_metrics
 from qrl.true_cash import cash_leg_returns, mix_returns, strict_monthly_inflation
 
@@ -496,3 +508,90 @@ def test_decision_report_shows_the_row_last_in_return_and_withdrawal_tables_only
         "Year-one scenario hit",
     ):
         assert "| A80-TCASH20" not in sections[title], title
+
+
+def _longrun_hand(names: list[str], **over) -> dict:
+    row = {
+        "depleted_by": {20: 0.0, 25: 0.0, 30: 0.0},
+        "median_depletion_year": None,
+        "below_floor": 0.0,
+        "end_real_median": 1.0,
+        "end_real_p5": 0.5,
+    }
+    rep = {
+        "data_end": "2018-12-31",
+        "first_month": "2005-01",
+        "last_month": "2018-12",
+        "n_months": 168,
+        "seed": 1,
+        "n_paths": 10,
+        "block_months": 12,
+        "horizon_years": 30,
+        "real_floor": 0.5,
+        "cash_real_yield": 0.01,
+        "rates": [0.04],
+        "longrun_sha256": "ab" * 32,
+        "decision_sha256": "cd" * 32,
+        "cost_bps": 5.0,
+        "rows": [{"rate": 0.04, "portfolio": n, **row} for n in names],
+    }
+    return rep | over
+
+
+NAMES_22 = ALL_IDS[:8] + [CASH_ASSUMPTION] + ALL_IDS[8:]
+TCASH_KEYS = {
+    "cash_assumption_id": "A80-TCASH20",
+    "cash_assumption_base": "A",
+    "cash_assumption_share": 0.2,
+}
+LONGRUN_SLEEVE_23 = (
+    f"- 23 rows per withdrawal rate, including the {CASH_ASSUMPTION} row, the A80-TCASH20 "
+    "assumption row and 4 by-product rows (IEF, TLT, RSP, BONDS); only the 5 A80 rows answer "
+    "the defensive-sleeve question (docs/methodology/defensive-sleeve.md)"
+)
+LONGRUN_NOTE = (
+    "- A80-TCASH20: an assumption, not history. 80.0% A plus 20.0% cash earning each month's "
+    "inflation plus 1.0% a year, rebalanced daily; its real yield is checked equal to the "
+    "CASH +1% real row's. The cash leg and the daily return to 80/20 pay no trading cost, "
+    "while A80-CASH20 pays 5 bps per unit traded on its rebalancing, a small difference in "
+    "the assumption row's favour."
+)
+
+
+def test_longrun_header_names_the_assumption_row_and_does_not_count_it_as_a80():
+    lines = render_longrun(_longrun_hand([*NAMES_22, "A80-TCASH20"], **TCASH_KEYS)).splitlines()
+    assert LONGRUN_SLEEVE_23 in lines
+    assert LONGRUN_NOTE in lines
+    assert (
+        lines.index(LONGRUN_NOTE)
+        == next(i for i, ln in enumerate(lines) if ln.startswith(f"- {CASH_ASSUMPTION}:")) + 1
+    )
+
+
+def test_longrun_report_without_the_key_is_unchanged():
+    plain = render_longrun(_longrun_hand(NAMES_22))
+    nones = dict.fromkeys(TCASH_KEYS)
+    assert render_longrun(_longrun_hand(NAMES_22, **nones)) == plain
+    assert "A80-TCASH20" not in plain
+
+
+def test_run_longrun_adds_the_assumption_row_last_on_the_same_draws(tsmall):
+    index = uneven_cpi()
+    report = run_longrun(_lcfg(), tsmall, prices(), index, criteria())
+    assert [r["portfolio"] for r in report["rows"]] == ["A", "A80-CASH20", "A80-TCASH20"]
+    assert {k: report[k] for k in TCASH_KEYS} == TCASH_KEYS
+    known = index.loc[:END]
+    monthly = monthly_returns(assumption_returns(tsmall, _cut(), known, FIRST, 5.0))
+    infl = monthly_inflation(known, pd.PeriodIndex(monthly.index)).to_numpy()
+    idx = month_indices(block_starts(7, 20, 30, 168), 12, 168)
+    expected = summarize(run_paths(monthly.to_numpy(), infl, idx, 0.04), 0.5)
+    got = {k: v for k, v in report["rows"][-1].items() if k not in ("rate", "portfolio")}
+    assert got == expected
+
+
+def test_run_longrun_without_the_key_has_no_row_and_none_keys(tsmall):
+    report = run_longrun(
+        _lcfg(), replace(tsmall, cash_assumption=None), prices(), uneven_cpi(), criteria()
+    )
+    assert [r["portfolio"] for r in report["rows"]] == ["A", "A80-CASH20"]
+    assert {k: report[k] for k in TCASH_KEYS} == dict.fromkeys(TCASH_KEYS)
