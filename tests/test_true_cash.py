@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 
+import numpy as np
 import pandas as pd
 import pytest
 from decision_helpers import (
@@ -19,13 +20,16 @@ from decision_helpers import (
     ROOT,
     criteria,
     load,
+    prices,
     stress_cfg,
     write,
 )
 
 from qrl import decision_withdraw, longrun
 from qrl.decision_config import CashAssumption, load_decision_config
+from qrl.decision_withdraw import monthly_inflation, usable_cpi
 from qrl.longrun import LongrunConfig, check_cash_assumption, load_longrun_config, run_longrun
+from qrl.true_cash import cash_leg_returns, mix_returns, strict_monthly_inflation
 
 
 def test_monthly_inflation_lives_in_decision_withdraw_and_longrun_reuses_it():
@@ -177,3 +181,105 @@ def test_longrun_main_refuses_a_cash_yield_mismatch_before_loading_data(
     assert printed.startswith("refused: ")
     assert "cash_real_yield" in printed
     assert not out.exists()
+
+
+FIRST = pd.Timestamp("2005-01-03")  # first synthetic trading day on/after 2005-01-01
+
+
+def uneven_cpi(start: str = "1995-01", end: str = "2021-11") -> pd.Series:
+    """CPI with distinct month-over-month changes (0.1% .. 0.7%), indexed by
+    AVAILABILITY date (month M usable from the last day of M+1, as qrl.macro
+    lags it). Unlike the constant-growth decision_helpers.cpi(), a one-month
+    misalignment changes every figure."""
+    months = pd.period_range(start, end, freq="M")
+    levels = 100 * np.cumprod(1 + 0.001 * (1 + np.arange(len(months)) % 7))
+    avail = [(m + 1).to_timestamp(how="end").normalize() for m in months]
+    return pd.Series(levels, index=pd.DatetimeIndex(avail), name="CPIAUCNS")
+
+
+def _trading_days() -> pd.DatetimeIndex:
+    return pd.DatetimeIndex(prices()["close"].loc[:END].index)
+
+
+def test_cash_leg_earns_exactly_the_real_yield_against_the_decision_deflator():
+    trading = _trading_days()
+    cpi = uneven_cpi().loc[:END]
+    for year in range(2005, 2015):
+        days = trading[trading >= pd.Timestamp(year=year, month=1, day=1)]
+        cash = cash_leg_returns(days, trading, cpi, 0.01)
+        growth = float(np.prod(1.0 + cash.to_numpy()))
+        # path_metrics' deflator: CPI usable on the last day over the first day
+        deflator = usable_cpi(cpi, days[-1]) / usable_cpi(cpi, days[0])
+        assert growth / deflator == pytest.approx(1.01 ** (2019 - year), rel=1e-12), year
+
+
+def test_each_whole_month_earns_its_inflation_plus_the_real_yield():
+    trading = _trading_days()
+    days = trading[trading >= FIRST]
+    cpi = uneven_cpi().loc[:END]
+    cash = cash_leg_returns(days, trading, cpi, 0.01)
+    months = days.to_period("M")
+    monthly = (1.0 + cash).groupby(months).prod()
+    infl = monthly_inflation(cpi, pd.PeriodIndex(monthly.index))
+    assert len(monthly) == 168
+    assert (monthly / (1.0 + infl)).to_numpy() == pytest.approx(
+        np.full(168, 1.01 ** (1 / 12)), rel=1e-13
+    )
+    # January 2005 by hand: December 2004's CPI (usable 2005-01-31) over
+    # November 2004's (usable 2004-12-31)
+    jan = cpi[pd.Timestamp("2005-01-31")] / cpi[pd.Timestamp("2004-12-31")]
+    assert monthly.iloc[0] == pytest.approx(jan * 1.01 ** (1 / 12), rel=1e-13)
+    # every trading day of a month earns the same rate
+    assert cash.groupby(months).nunique().eq(1).all()
+
+
+def test_a_partial_first_month_earns_only_its_share_of_the_month():
+    trading = _trading_days()
+    jan = trading[(trading >= "2005-01-01") & (trading <= "2005-01-31")]
+    days = trading[trading >= jan[5]]
+    cpi = uneven_cpi().loc[:END]
+    cash = cash_leg_returns(days, trading, cpi, 0.01)
+    full = cpi[pd.Timestamp("2005-01-31")] / cpi[pd.Timestamp("2004-12-31")] * 1.01 ** (1 / 12)
+    got = float(np.prod(1.0 + cash.loc[:"2005-01-31"].to_numpy()))
+    assert got == pytest.approx(full ** ((len(jan) - 5) / len(jan)), rel=1e-13)
+
+
+def test_a_single_missing_cpi_month_is_refused_though_monthly_inflation_passes_it():
+    cpi = uneven_cpi().loc[:END].drop(pd.Timestamp("2010-03-31"))
+    months = pd.period_range("2005-01", "2018-12", freq="M")
+    monthly_inflation(cpi, months)  # the 45-day tolerance lets one gap through
+    with pytest.raises(ValueError, match="missing CPI for month 2010-03"):
+        strict_monthly_inflation(cpi, months)
+
+
+def test_a_nan_cpi_value_is_refused():
+    cpi = uneven_cpi().loc[:END].copy()
+    cpi[pd.Timestamp("2010-03-31")] = np.nan
+    months = pd.period_range("2005-01", "2018-12", freq="M")
+    with pytest.raises(ValueError, match="missing CPI for month 2010-03"):
+        strict_monthly_inflation(cpi, months)
+
+
+def test_the_first_month_needs_the_previous_month_end_cpi():
+    cpi = uneven_cpi(start="2004-12")  # first value usable 2005-01-31
+    months = pd.period_range("2005-01", "2005-03", freq="M")
+    with pytest.raises(ValueError, match="missing CPI for month 2005-01"):
+        strict_monthly_inflation(cpi, months)
+
+
+def test_cash_leg_refuses_a_month_without_trading_days():
+    trading = _trading_days()
+    days = trading[trading >= FIRST]
+    with pytest.raises(ValueError, match="no trading day"):
+        cash_leg_returns(days, trading[trading >= "2005-02-01"], uneven_cpi(), 0.01)
+
+
+def test_mix_returns_is_the_daily_weighted_sum_and_refuses_misaligned_series():
+    idx = pd.bdate_range("2005-01-03", periods=4)
+    base = pd.Series([0.01, -0.02, 0.0, 0.03], index=idx)
+    cash = pd.Series([0.001] * 4, index=idx)
+    pd.testing.assert_series_equal(
+        mix_returns(base, cash, 0.2), (1 - 0.2) * base + 0.2 * cash, check_exact=True
+    )
+    with pytest.raises(ValueError, match="one index"):
+        mix_returns(base, cash.iloc[1:], 0.2)
