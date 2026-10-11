@@ -1,6 +1,6 @@
 # True-cash sleeve: 80% A + 20% cash at an assumed +1% real
 
-Status: spec written 2026-10-11, owner-approved design and spec 2026-10-11. Tooling implemented (branch feature/true-cash-sleeve). Not yet run.
+Status: spec written 2026-10-11, owner-approved design and spec 2026-10-11. Run 2026-10-11 (branch feature/true-cash-sleeve): results in research/decision.md and research/longrun.md.
 Extends [defensive-sleeve.md](defensive-sleeve.md), [decision-helper.md](decision-helper.md)
 and [longrun.md](longrun.md).
 

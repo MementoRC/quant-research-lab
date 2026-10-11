@@ -4,9 +4,9 @@ Compares portfolios over 30-year withdrawal paths built by resampling 2005-01 to
 
 - data: up to 2018-12-31 only (validation and holdout stay sealed)
 - 10000 paths of 30 years, 12-month blocks drawn from 168 months (circular), seed 20261008; every portfolio sees the same draws
-- longrun.yaml sha256: `451ada66da288c992b5ddf1aa5b2afdb0ff7c25cf77c10ed8ed6b189fd108ff6`
-- decision.yaml sha256: `fc144fb5299440c3e1340b11867680a30517a5f985639c92e9fe78294cd29193` (read unchanged)
-- 22 rows per withdrawal rate, including the CASH +1% real (assumption) row and 4 by-product rows (IEF, TLT, RSP, BONDS); only the 5 A80 rows answer the defensive-sleeve question (docs/methodology/defensive-sleeve.md)
+- longrun.yaml sha256: `23b2da2636637a84da26470f5b14c54e2572580aebc0954c43f91b3296ffbfe7`
+- decision.yaml sha256: `7b0d96a47a16f44562286358d05b6b90749d05c1b9ced8f73ad86323dc026774` (read unchanged)
+- 23 rows per withdrawal rate, including the CASH +1% real (assumption) row, the A80-TCASH20 assumption row and 4 by-product rows (IEF, TLT, RSP, BONDS); only the 5 A80 rows answer the defensive-sleeve question (docs/methodology/defensive-sleeve.md)
 
 ## How to read this
 
@@ -31,6 +31,7 @@ Resampling recombines these months. It cannot create a 1970s-style inflation dec
 - Each month the withdrawal is taken first, then the month's return applies. It starts at the annual rate / 12 of the starting value and is raised every 12 months by the path's own inflation.
 - Portfolio returns pay trading costs of 5 bps (0.01% each) per unit traded.
 - CASH +1% real (assumption): an assumption, not history. It earns each month's inflation plus 1.0% a year.
+- A80-TCASH20: an assumption, not history. 80.0% A plus 20.0% cash earning each month's inflation plus 1.0% a year, rebalanced daily; its real yield is checked equal to the CASH +1% real row's. The cash leg and the daily return to 80/20 pay no trading cost, while A80-CASH20 pays 5 bps per unit traded on its rebalancing, a small difference in the assumption row's favour.
 - A path is empty once its value is effectively zero (below one billionth of the start).
 - All figures are percentages of the starting value or of paths.
 
@@ -62,6 +63,7 @@ Resampling recombines these months. It cannot create a 1970s-style inflation dec
 | A80-TLT20 | 0.0% | 0.0% | 0.1% | 28 | 6.1% | 330.7% | 77.8% |
 | A80-BONDS20 | 0.0% | 0.0% | 0.1% | 27 | 8.2% | 280.6% | 61.7% |
 | A80-RSP20 | 0.0% | 0.1% | 0.3% | 27 | 10.5% | 358.1% | 61.2% |
+| A80-TCASH20 | 0.0% | 0.0% | 0.2% | 27 | 10.2% | 251.2% | 52.2% |
 
 ### Withdrawal rate 3.3% per year
 
@@ -89,6 +91,7 @@ Resampling recombines these months. It cannot create a 1970s-style inflation dec
 | A80-TLT20 | 0.2% | 1.0% | 2.6% | 27 | 15.4% | 233.4% | 18.9% |
 | A80-BONDS20 | 0.4% | 1.6% | 3.7% | 26 | 19.8% | 191.9% | 6.6% |
 | A80-RSP20 | 0.6% | 2.4% | 4.5% | 25 | 20.3% | 255.2% | 3.7% |
+| A80-TCASH20 | 0.5% | 2.1% | 5.1% | 26 | 23.5% | 168.0% | 0.0% |
 
 ### Withdrawal rate 4.0% per year
 
@@ -116,6 +119,7 @@ Resampling recombines these months. It cannot create a 1970s-style inflation dec
 | A80-TLT20 | 1.1% | 3.9% | 7.1% | 25 | 23.5% | 181.0% | 0.0% |
 | A80-BONDS20 | 1.6% | 5.4% | 9.7% | 25 | 29.3% | 144.9% | 0.0% |
 | A80-RSP20 | 2.5% | 6.0% | 10.0% | 24 | 27.5% | 200.4% | 0.0% |
+| A80-TCASH20 | 2.1% | 6.6% | 12.3% | 25 | 33.6% | 123.1% | 0.0% |
 
 ### Withdrawal rate 5.0% per year
 
@@ -143,3 +147,4 @@ Resampling recombines these months. It cannot create a 1970s-style inflation dec
 | A80-TLT20 | 5.4% | 12.5% | 20.3% | 24 | 38.6% | 108.5% | 0.0% |
 | A80-BONDS20 | 7.0% | 16.5% | 26.0% | 24 | 45.4% | 77.9% | 0.0% |
 | A80-RSP20 | 8.0% | 16.0% | 22.8% | 23 | 39.8% | 122.3% | 0.0% |
+| A80-TCASH20 | 8.6% | 19.6% | 29.8% | 23 | 50.4% | 59.7% | 0.0% |
