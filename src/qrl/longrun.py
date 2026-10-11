@@ -2,9 +2,10 @@
 built by a paired circular block bootstrap of 2005-2018 calendar months, for
 the decision helper's portfolios plus a labelled CASH +1% real assumption
 row, and the decision helper's optional cash-assumption row
-(docs/methodology/true-cash-sleeve.md). It compares; it selects and recommends nothing. Pure functions; callers
-inject data and configs. Every frame is cut at the research end (2018-12-31)
-before use, so validation and holdout data never enter.
+(docs/methodology/true-cash-sleeve.md). It compares; it selects and recommends
+nothing. Pure functions; callers inject data and configs. Every frame is cut at
+the research end (2018-12-31) before use, so validation and holdout data never
+enter.
 """
 
 from __future__ import annotations
