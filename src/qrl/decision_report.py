@@ -33,6 +33,51 @@ def _mix(mix: dict[str, float]) -> str:
     return ", ".join(f"{t} {_pct(w)}" for t, w in sorted(mix.items()))
 
 
+def _cash_row(report: dict) -> dict | None:
+    """The cash-assumption row's config fields; a missing key counts as None
+    (spec: docs/methodology/true-cash-sleeve.md)."""
+    row: dict | None = report.get("cash_assumption")
+    return row
+
+
+def _split(share: float) -> str:
+    """The two legs' shares as whole percentages, e.g. 80/20."""
+    return f"{round((1 - share) * 100)}/{round(share * 100)}"
+
+
+def _assumption_note(report: dict) -> list[str]:
+    """The cash-assumption row is an assumption, not a fund; nothing without it."""
+    ca = _cash_row(report)
+    if ca is None:
+        return []
+    n = len(report["portfolios"])
+    return [
+        f"- {ca['id']} ({ca['label']}) is an assumption row, not a fund: "
+        f"{_pct(ca['cash_share'])} cash earning each month's inflation plus "
+        f"{_pct(ca['real_yield'])} a year, the long-run report's CASH +1% real assumption, "
+        "shown to answer the SHY caveat above. "
+        f"It is comparison {n + 1} but not one of the {n} portfolios. "
+        f"Its cash leg and its daily return to {_split(ca['cash_share'])} pay no trading cost, "
+        f"while A80-CASH20 pays {report['cost_bps']:g} bps per unit of turnover on its "
+        "rebalancing, a small difference in the assumption row's favour."
+    ]
+
+
+def _assumption_scope_note(report: dict) -> list[str]:
+    """Why the row is only in the return and withdrawal tables; nothing without it."""
+    ca = _cash_row(report)
+    if ca is None:
+        return []
+    return [
+        f"- {ca['id']} appears only in the research-period return and withdrawal tables: the "
+        "historical windows and the judgement-based scenarios have no cash return to give it. "
+        "In `dotcom_2000` SHY is already replaced by cash at 0%, so the row would equal "
+        "A80-CASH20 there; in `gfc_2008` A80-CASH20 uses SHY's actual prices; the scenarios "
+        "set SHY's one-year return by judgement and set none for cash; the year-one table is "
+        "built from the scenarios."
+    ]
+
+
 def _has_sleeves(report: dict) -> bool:
     return any(p["id"].startswith(SLEEVE_PREFIX) for p in report["portfolios"])
 
@@ -56,7 +101,8 @@ def _sleeve_note(report: dict) -> list[str]:
 
 
 def _header(report: dict) -> list[str]:
-    n, prior = len(report["portfolios"]), report["candidate_count"]
+    prior = report["candidate_count"]
+    n = len(report["portfolios"]) + (0 if _cash_row(report) is None else 1)
     return [
         "# Decision helper: portfolios, scenarios and withdrawals",
         "",
@@ -72,6 +118,7 @@ def _header(report: dict) -> list[str]:
         f"{n - prior} new); the more portfolios compared, the likelier the best-looking one "
         "is luck",
         *_sleeve_note(report),
+        *_assumption_note(report),
         "- scenarios are judgement-based, v1: owner-set what-ifs, not forecasts",
         "",
     ]
@@ -99,6 +146,7 @@ def _notes(report: dict) -> list[str]:
         "is not separated from sales.",
         "- All figures are percentages: of capital for losses, of the starting value for "
         "withdrawal paths.",
+        *_assumption_scope_note(report),
         "",
     ]
 

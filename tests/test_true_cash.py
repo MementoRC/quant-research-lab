@@ -25,6 +25,8 @@ from decision_helpers import (
     stress_cfg,
     write,
 )
+from test_decision_report import _hand_report
+from test_defensive_sleeve import ALL_IDS
 
 from qrl import decision_withdraw, longrun
 from qrl.decision import (
@@ -36,6 +38,7 @@ from qrl.decision import (
     withdrawal_rows,
 )
 from qrl.decision_config import CashAssumption, load_decision_config
+from qrl.decision_report import _header, _notes, render_markdown
 from qrl.decision_withdraw import (
     monthly_inflation,
     monthly_withdrawals,
@@ -408,3 +411,88 @@ def test_run_decision_carries_the_row_and_keeps_it_out_of_the_other_tables(trepo
     assert "A80-TCASH20" not in [p["id"] for p in treport["portfolios"]]
     for key in ("windows", "scenario_rows", "year_one"):
         assert not any(r["portfolio"].startswith("A80-TCASH20") for r in treport[key]), key
+
+
+CA = {
+    "id": "A80-TCASH20",
+    "label": "80% A + 20% cash at +1% real (assumption)",
+    "base": "A",
+    "cash_share": 0.2,
+    "real_yield": 0.01,
+}
+ASSUMPTION_BULLET = (
+    "- A80-TCASH20 (80% A + 20% cash at +1% real (assumption)) is an assumption row, not a "
+    "fund: 20.0% cash earning each month's inflation plus 1.0% a year, the long-run report's "
+    "CASH +1% real assumption, shown to answer the SHY caveat above. It is comparison 22 but "
+    "not one of the 21 portfolios. Its cash leg and its daily return to 80/20 pay no trading "
+    "cost, while A80-CASH20 pays 5 bps per unit of turnover on its rebalancing, a small "
+    "difference in the assumption row's favour."
+)
+SCOPE_NOTE = (
+    "- A80-TCASH20 appears only in the research-period return and withdrawal tables: the "
+    "historical windows and the judgement-based scenarios have no cash return to give it. "
+    "In `dotcom_2000` SHY is already replaced by cash at 0%, so the row would equal "
+    "A80-CASH20 there; in `gfc_2008` A80-CASH20 uses SHY's actual prices; the scenarios "
+    "set SHY's one-year return by judgement and set none for cash; the year-one table is "
+    "built from the scenarios."
+)
+
+
+def _sleeve_report(**over) -> dict:
+    portfolios = [{"id": i, "label": i, "states": {}} for i in ALL_IDS]
+    return _hand_report(portfolios=portfolios, cost_bps=5.0, **over)
+
+
+def test_decision_header_counts_the_row_and_says_it_is_an_assumption():
+    lines = _header(_sleeve_report(cash_assumption=CA))
+    assert any("7 in the core comparison, 22 here (A-G again plus 15 new)" in ln for ln in lines)
+    assert ASSUMPTION_BULLET in lines
+    shy = next(i for i, ln in enumerate(lines) if ln.startswith("- CASH here is SHY"))
+    assert lines.index(ASSUMPTION_BULLET) == shy + 1
+
+
+def test_decision_header_bullet_counts_come_from_the_portfolios():
+    rep = _hand_report(cash_assumption=CA, cost_bps=5.0)  # one portfolio, X
+    text = "\n".join(_header(rep))
+    assert "It is comparison 2 but not one of the 1 portfolios." in text
+
+
+def test_decision_notes_say_why_the_row_is_left_out_of_the_other_tables():
+    assert SCOPE_NOTE in _notes(_sleeve_report(cash_assumption=CA))
+    assert SCOPE_NOTE not in _notes(_sleeve_report())
+
+
+def test_decision_report_without_the_key_is_unchanged():
+    assert render_markdown(_hand_report()) == render_markdown(_hand_report(cash_assumption=None))
+    rep = _sleeve_report()
+    assert _header(rep) == _header(_sleeve_report(cash_assumption=None))
+    assert any(
+        "7 in the core comparison, 21 here (A-G again plus 14 new)" in ln for ln in _header(rep)
+    )
+    assert not any("A80-TCASH20" in ln for ln in _header(rep) + _notes(rep))
+
+
+def _table_rows(section: str) -> list[str]:
+    return [
+        ln
+        for ln in section.splitlines()
+        if ln.startswith("| ") and not ln.lower().startswith("| portfolio")
+    ]
+
+
+def test_decision_report_shows_the_row_last_in_return_and_withdrawal_tables_only(treport):
+    md = render_markdown(treport)
+    sections = {s.split("\n", 1)[0]: s for s in md.split("\n## ")[1:]}
+    returns = _table_rows(sections["Research-period return (2005-2018, no withdrawals)"])
+    assert returns[-1].startswith("| A80-TCASH20 |")
+    tables = sections["Withdrawals"].split("\n### ")[1:]
+    assert len(tables) == 1
+    for table in tables:
+        assert _table_rows(table)[-1].startswith("| A80-TCASH20 |")
+    for title in (
+        "Portfolios (100% of capital)",
+        "Historical windows",
+        "Judgement-based scenarios (one year)",
+        "Year-one scenario hit",
+    ):
+        assert "| A80-TCASH20" not in sections[title], title
