@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -26,9 +27,24 @@ from decision_helpers import (
 )
 
 from qrl import decision_withdraw, longrun
+from qrl.decision import (
+    assumption_returns,
+    portfolio_returns,
+    return_rows,
+    run_decision,
+    start_dates,
+    withdrawal_rows,
+)
 from qrl.decision_config import CashAssumption, load_decision_config
-from qrl.decision_withdraw import monthly_inflation, usable_cpi
+from qrl.decision_withdraw import (
+    monthly_inflation,
+    monthly_withdrawals,
+    path_metrics,
+    usable_cpi,
+    withdrawal_path,
+)
 from qrl.longrun import LongrunConfig, check_cash_assumption, load_longrun_config, run_longrun
+from qrl.metrics import compute_metrics
 from qrl.true_cash import cash_leg_returns, mix_returns, strict_monthly_inflation
 
 
@@ -283,3 +299,112 @@ def test_mix_returns_is_the_daily_weighted_sum_and_refuses_misaligned_series():
     )
     with pytest.raises(ValueError, match="one index"):
         mix_returns(base, cash.iloc[1:], 0.2)
+
+
+def _cut() -> dict[str, pd.DataFrame]:
+    return {k: v.loc[:END] for k, v in prices().items()}
+
+
+@pytest.fixture(scope="module")
+def tsmall(tmp_path_factory):
+    cfg = load(tmp_path_factory.mktemp("tcash"), GOOD_TCASH)
+    by_id = {p.id: p for p in cfg.portfolios}
+    return replace(
+        cfg,
+        portfolios=[by_id["A"], by_id["A80-CASH20"]],
+        rates=[0.04],
+        start_years=[2005, 2010],
+    )
+
+
+@pytest.fixture(scope="module")
+def treport(tsmall):
+    return run_decision(tsmall, prices(), uneven_cpi(), criteria(), "cd" * 32)
+
+
+def test_assumption_row_is_the_base_mixed_daily_with_the_cash_leg(tsmall):
+    cut, known = _cut(), uneven_cpi().loc[:END]
+    row = assumption_returns(tsmall, cut, known, FIRST, 5.0)
+    base = portfolio_returns(tsmall.portfolios[0], cut, FIRST, 5.0)
+    cash = cash_leg_returns(
+        pd.DatetimeIndex(base.index), pd.DatetimeIndex(cut["close"].index), known, 0.01
+    )
+    pd.testing.assert_series_equal(row, (1 - 0.2) * base + 0.2 * cash, check_exact=True)
+
+
+def test_assumption_returns_none_without_a_cash_assumption_and_refuse_without_its_base(tsmall):
+    cut, known = _cut(), uneven_cpi().loc[:END]
+    assert assumption_returns(replace(tsmall, cash_assumption=None), cut, known, FIRST, 5.0) is None
+    no_base = replace(tsmall, portfolios=tsmall.portfolios[1:])
+    with pytest.raises(ValueError, match="not among the portfolios"):
+        assumption_returns(no_base, cut, known, FIRST, 5.0)
+
+
+def test_return_rows_add_the_assumption_row_last(tsmall):
+    index = uneven_cpi()
+    rows = return_rows(tsmall, prices(), criteria(), index)
+    assert [r["portfolio"] for r in rows] == ["A", "A80-CASH20", "A80-TCASH20"]
+    m = compute_metrics(assumption_returns(tsmall, _cut(), index.loc[:END], FIRST, 5.0))
+    assert rows[-1]["cagr"] == m["cagr"]
+    assert rows[-1]["max_drawdown"] == m["max_drawdown"]
+    assert rows[-1]["lost_return"] == rows[0]["cagr"] - m["cagr"]
+
+
+def test_return_rows_refuse_a_cash_assumption_without_cpi(tsmall):
+    with pytest.raises(ValueError, match="needs `cpi`"):
+        return_rows(tsmall, prices(), criteria())
+
+
+def test_withdrawal_rows_add_the_assumption_row_last_for_every_start_year(tsmall):
+    index = uneven_cpi()
+    rows = withdrawal_rows(tsmall, prices(), index, criteria())
+    assert [(r["portfolio"], r["rate"]) for r in rows] == [
+        ("A", 0.04),
+        ("A80-CASH20", 0.04),
+        ("A80-TCASH20", 0.04),
+    ]
+    row, known, cut = rows[-1], index.loc[:END], _cut()
+    starts = start_dates(pd.DatetimeIndex(cut["close"].index), [2005, 2010], END)
+    assert sorted(row["per_year"]) == [2005, 2010]
+    for year, day in starts.items():
+        r = assumption_returns(tsmall, cut, known, day, 5.0)
+        monthly = monthly_withdrawals(0.04, year, 2018, known)
+        assert row["per_year"][year] == path_metrics(withdrawal_path(r, monthly), known)
+    without = withdrawal_rows(replace(tsmall, cash_assumption=None), prices(), index, criteria())
+    assert without == rows[:-1]
+
+
+def test_assumption_rows_ignore_data_after_the_data_end(tsmall):
+    data, index = prices(), uneven_cpi()
+    rng = np.random.default_rng(11)
+    after = np.asarray(data["close"].index > END)
+    poisoned = {
+        k: v * np.where(after[:, None], rng.uniform(0.2, 5.0, v.shape), 1.0)
+        for k, v in data.items()
+    }
+    poisoned_cpi = index * np.where(
+        np.asarray(index.index > END), rng.uniform(0.2, 5.0, len(index)), 1.0
+    )
+    assert not poisoned_cpi.equals(index)
+    crit = criteria()
+    assert return_rows(tsmall, poisoned, crit, poisoned_cpi) == return_rows(
+        tsmall, data, crit, index
+    )
+    assert withdrawal_rows(tsmall, poisoned, poisoned_cpi, crit) == withdrawal_rows(
+        tsmall, data, index, crit
+    )
+
+
+def test_run_decision_carries_the_row_and_keeps_it_out_of_the_other_tables(treport):
+    assert treport["cash_assumption"] == {
+        "id": "A80-TCASH20",
+        "label": "80% A + 20% cash at +1% real (assumption)",
+        "base": "A",
+        "cash_share": 0.2,
+        "real_yield": 0.01,
+    }
+    assert treport["returns"][-1]["portfolio"] == "A80-TCASH20"
+    assert treport["withdrawals"][-1]["portfolio"] == "A80-TCASH20"
+    assert "A80-TCASH20" not in [p["id"] for p in treport["portfolios"]]
+    for key in ("windows", "scenario_rows", "year_one"):
+        assert not any(r["portfolio"].startswith("A80-TCASH20") for r in treport[key]), key
