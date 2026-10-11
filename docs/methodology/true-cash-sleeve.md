@@ -191,19 +191,24 @@ import). Therefore:
     in `tests/test_defensive_sleeve.py` (lines 109, 133, 147, 152, 161,
     167) pass three positional arguments; they are unchanged and still pass,
     because their fixture (`GOOD_SLEEVE`) has no `cash_assumption`.
-  - `withdrawal_rows`: the per-portfolio block inside `for p in
-    cfg.portfolios` (the per-start-year paths, the per-rate metrics and
-    the row dicts keyed by `p.id`) is extracted, unchanged, into a helper
-    `_withdrawal_rows_for(pid, paths, cfg, cpi)`, where `paths` maps start
-    year to daily returns. The loop calls it for each portfolio, then once
-    for the row with its own paths. Without a `cash_assumption` the output
-    is byte-identical to today's.
+  - `withdrawal_rows`: building the paths stays in the caller, because
+    `portfolio_returns` needs a `Portfolio` (`decision.py:234`). For each
+    portfolio the loop builds `paths` (start year to daily returns) with
+    `portfolio_returns` as today; for the row it builds them with
+    `assumption_returns` at each start day. Only the per-rate block (the
+    metrics per start year, first and worst year, and the row dict;
+    `decision.py:235-253`) is extracted, unchanged, into a helper
+    `_withdrawal_rows_for(pid, paths, cfg, cpi)`, called once per portfolio
+    and once for the row. Without a `cash_assumption` the output is
+    byte-identical to today's.
   - `run_decision` adds one key, `cash_assumption` (the five config fields
     as a dict, or None).
 - `src/qrl/longrun.py`: `run_longrun` compounds the same daily series to
   months with `monthly_returns` and appends the row after all portfolio
-  rows, on the same block draws (paired). Its report dict gains
-  `cash_assumption_id` (the id, or None).
+  rows, on the same block draws (paired). Its report dict gains three keys
+  from the decision config: `cash_assumption_id` (the id, or None),
+  `cash_assumption_base` (the base portfolio id, or None) and
+  `cash_assumption_share` (the cash share, or None).
 
 ## Where the row is shown
 
@@ -257,17 +262,20 @@ key, and its rendered text stays byte-for-byte as today.
   `len(report["portfolios"])` plus one when `cash_assumption` is present;
   without it the line is unchanged.
 - One new header bullet, after the existing sleeve note and present only
-  with the row. With N = `len(report["portfolios"])` (computed, never
-  hard-coded) and the id, label and real yield read from
-  `report["cash_assumption"]`, it reads, for the shipped config: "-
-  A80-TCASH20 (80% A + 20% cash at +1% real (assumption)) is an assumption
-  row, not a fund: 20% cash earning each month's inflation plus 1.0% a year,
-  the long-run report's CASH +1% real assumption, shown to answer the SHY
-  caveat above. It is comparison N + 1 (22) but not one of the N (21)
-  portfolios. Its cash leg and its daily return to 80/20 pay no trading
-  cost, while A80-CASH20 pays 5 bps per unit of turnover on its rebalancing,
-  a small difference in the assumption row's favour." The 5 bps is
-  `report["cost_bps"]`.
+  with the row. For the shipped config it renders as: "- A80-TCASH20 (80%
+  A + 20% cash at +1% real (assumption)) is an assumption row, not a fund:
+  20.0% cash earning each month's inflation plus 1.0% a year, the long-run
+  report's CASH +1% real assumption, shown to answer the SHY caveat above.
+  It is comparison 22 but not one of the 21 portfolios. Its cash leg and
+  its daily return to 80/20 pay no trading cost, while A80-CASH20 pays 5 bps
+  per unit of turnover on its rebalancing, a small difference in the
+  assumption row's favour."
+  Template: with N = `len(report["portfolios"])` (computed, never
+  hard-coded), the id, label, cash share and real yield come from
+  `report["cash_assumption"]` (share and yield via `_pct`), "comparison 22"
+  is N + 1, "the 21 portfolios" is N, and "5 bps" is
+  `{report['cost_bps']:g} bps`, as in the existing cost note
+  (`decision_report.py:86`).
 - `_sleeve_note` needs no change. It counts ids in `report["portfolios"]`,
   which never contains the row, so it still reads "of the 21 portfolios
   here, 4 are by-product rows ...; only the 5 A80 rows ... answer the
@@ -285,13 +293,18 @@ Long-run report (`longrun_report.py`):
   BONDS); only the 5 A80 rows answer the defensive-sleeve question
   (docs/methodology/defensive-sleeve.md)". When it is absent (or the key is
   missing from the report dict) the line is byte-for-byte as today.
-- One new note, present only with the row: "- A80-TCASH20: an assumption,
-  not history. 80% A plus 20% cash earning each month's inflation plus 1.0% a
-  year, rebalanced daily; its real yield is checked equal to the CASH +1%
-  real row's. The cash leg and the daily return to 80/20 pay no trading
-  cost, while A80-CASH20 pays 5 bps per unit traded on its rebalancing, a
-  small difference in the assumption row's favour." The 5 bps is
-  `r["cost_bps"]`.
+- One new note, present only with the row. For the shipped config it
+  renders as: "- A80-TCASH20: an assumption, not history. 80.0% A plus 20.0%
+  cash earning each month's inflation plus 1.0% a year, rebalanced daily;
+  its real yield is checked equal to the CASH +1% real row's. The cash leg
+  and the daily return to 80/20 pay no trading cost, while A80-CASH20 pays
+  5 bps per unit traded on its rebalancing, a small difference in the
+  assumption row's favour."
+  Template: the id is `r["cash_assumption_id"]`; "80.0%" is
+  `_pct(1 - r["cash_assumption_share"])` and "A" is
+  `r["cash_assumption_base"]`; "20.0%" is `_pct(r["cash_assumption_share"])`;
+  "1.0%" is `_pct(r["cash_real_yield"])` (already checked equal to the
+  decision config's yield); "5 bps" is `{r['cost_bps']:g} bps`.
 
 ## Outputs
 
