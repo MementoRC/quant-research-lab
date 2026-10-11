@@ -1,6 +1,6 @@
 # True-cash sleeve: 80% A + 20% cash at an assumed +1% real
 
-Status: spec written 2026-10-11, owner-approved design 2026-10-11. Not yet implemented.
+Status: spec written 2026-10-11, owner-approved design and spec 2026-10-11. Not yet implemented.
 Extends [defensive-sleeve.md](defensive-sleeve.md), [decision-helper.md](decision-helper.md)
 and [longrun.md](longrun.md).
 
@@ -144,6 +144,10 @@ Cash leg, daily return on trading day d of calendar month m:
   CPI for month m". When the check passes, `monthly_inflation` returns
   exactly those values, so the long-run report's monthly inflation and this
   row's agree month for month.
+- Decision (owner, 2026-10-11): the long-run report's existing "CASH +1%
+  real (assumption)" row and `monthly_inflation` itself keep their current
+  behaviour, including the 45-day tolerance. Tightening them is out of
+  scope; the stricter check applies only to the new row's cash leg.
 
 The row:
 
@@ -349,15 +353,15 @@ New file `tests/test_true_cash.py`, offline (synthetic prices and CPI from
   identical to today's; the long-run sleeve note reads as above with the id
   and unchanged without it.
 
-### Existing test edits (requires owner approval before implementation)
+### Existing test edits (owner-approved 2026-10-11)
 
 Only one existing assertion breaks. Every other existing test either uses
 fixtures without the new key (`GOOD`, `GOOD_SLEEVE`, hand-built reports),
 or checks things the row does not touch (portfolio ids and count, section
 titles, table counts, the longrun pin values).
 
-1. `tests/test_decision_cli.py::test_decision_shipped_config_matches_test_fixture`.
-   The shipped config now carries `cash_assumption`, the fixture does not,
+1. `tests/test_decision_cli.py::test_decision_shipped_config_matches_test_fixture`
+   (approved by the owner on 2026-10-11). The shipped config now carries `cash_assumption`, the fixture does not,
    so the two `DecisionConfig`s differ in the new field.
    - before: `assert replace(_shipped(), sha256="") == replace(load(tmp_path, GOOD_SLEEVE), sha256="")`
    - after: `assert replace(_shipped(), sha256="") == replace(load(tmp_path, GOOD_TCASH), sha256="")`
