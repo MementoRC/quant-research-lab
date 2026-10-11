@@ -118,7 +118,17 @@ Cash leg, daily return on trading day d of calendar month m:
   last calendar day divided by CPIAUCNS usable on (m-1)'s last calendar day,
   minus 1, with the decision helper's availability rule (month M's value is
   usable from the last calendar day of M+1). So infl_m is month m-1's
-  published change, the most recent one known during m.
+  published change, which first becomes usable on m's last calendar day.
+- Timing, a known simplification. infl_m accrues on every trading day of
+  m, including the days before it is published at the end of m. This is
+  deliberate: it keeps the cash leg at exactly +1% a year real against the
+  decision helper's own deflator (see the check below). It is not a trading
+  look-ahead: the row's returns never feed any weight, signal or choice;
+  they only fill report cells. It is a simplification inside an assumption
+  that is already labelled as one. Alternative rejected: lagging the figure
+  one more month (month m earns infl_(m-1)). It removes the timing issue but
+  breaks the exact deflator identity, so the row would no longer be exactly
+  +1% real over a path.
 - First month. For a path starting in January of year Y, the first figure
   reads the values available on 31 December of Y-1 (November's CPI) and
   31 January of Y (December's CPI). For 2005 this reads one pre-2005 value,
@@ -164,16 +174,32 @@ import). Therefore:
 - `monthly_inflation` moves, body unchanged, from `longrun.py` to
   `src/qrl/decision_withdraw.py` (beside `usable_cpi`, its only dependency).
   `longrun.py` imports it from there, so `qrl.longrun.monthly_inflation`
-  stays importable and `tests/test_longrun.py` is unaffected.
+  stays importable and `tests/test_longrun.py` is unaffected. Its
+  `from .decision_withdraw import usable_cpi` import, used only inside
+  `monthly_inflation`, becomes unused and is replaced by
+  `from .decision_withdraw import monthly_inflation`.
 - New module `src/qrl/true_cash.py`, pure functions:
   `cash_leg_returns(days, trading_days, cpi, real_yield)` (the strict CPI
   check, then r_cash on `days`) and `mix_returns(base, cash, share)`.
 - `src/qrl/decision.py`: new `assumption_returns(cfg, data, cpi, start,
   cost_bps)` returning the row's daily series (or None without a
-  `cash_assumption`). `return_rows` and `withdrawal_rows` call it and append
-  the row after all portfolio rows, so it is the last row of each table.
-  `run_decision` adds one key, `cash_assumption` (the five config fields as
-  a dict, or None).
+  `cash_assumption`). It appends the row after all portfolio rows, so it is
+  the last row of each table:
+  - `return_rows(cfg, data, criteria, cpi=None)`: the new `cpi` argument
+    is optional. It raises ValueError when `cfg.cash_assumption` is set and
+    `cpi` is None. `run_decision` passes its `cpi`. The six existing calls
+    in `tests/test_defensive_sleeve.py` (lines 109, 133, 147, 152, 161,
+    167) pass three positional arguments; they are unchanged and still pass,
+    because their fixture (`GOOD_SLEEVE`) has no `cash_assumption`.
+  - `withdrawal_rows`: the per-portfolio block inside `for p in
+    cfg.portfolios` (the per-start-year paths, the per-rate metrics and
+    the row dicts keyed by `p.id`) is extracted, unchanged, into a helper
+    `_withdrawal_rows_for(pid, paths, cfg, cpi)`, where `paths` maps start
+    year to daily returns. The loop calls it for each portfolio, then once
+    for the row with its own paths. Without a `cash_assumption` the output
+    is byte-identical to today's.
+  - `run_decision` adds one key, `cash_assumption` (the five config fields
+    as a dict, or None).
 - `src/qrl/longrun.py`: `run_longrun` compounds the same daily series to
   months with `monthly_returns` and appends the row after all portfolio
   rows, on the same block draws (paired). Its report dict gains
@@ -221,17 +247,27 @@ in plain words (present only when the row is).
 
 ### Header and notes
 
-Decision report (`decision_report.py`):
+Decision report (`decision_report.py`). Everywhere below, a missing
+`report["cash_assumption"]` key is treated the same as None (no row): the
+hand-built `_hand_report` in `tests/test_decision_report.py` has no such
+key, and its rendered text stays byte-for-byte as today.
 
 - `_header`: the multiple-comparison count includes the row: "7 in the core
-  comparison, 22 here (A-G again plus 15 new)". The count is the number of
-  portfolios plus one when `cash_assumption` is present; without it the
-  line is unchanged.
+  comparison, 22 here (A-G again plus 15 new)". The count is
+  `len(report["portfolios"])` plus one when `cash_assumption` is present;
+  without it the line is unchanged.
 - One new header bullet, after the existing sleeve note and present only
-  with the row: A80-TCASH20 (its label) is an assumption row, not a fund:
-  20% cash earning each month's inflation plus 1% a year, the long-run
-  report's "CASH +1% real" assumption, shown to answer the SHY caveat above;
-  it is the 22nd comparison but not one of the 21 portfolios.
+  with the row. With N = `len(report["portfolios"])` (computed, never
+  hard-coded) and the id, label and real yield read from
+  `report["cash_assumption"]`, it reads, for the shipped config: "-
+  A80-TCASH20 (80% A + 20% cash at +1% real (assumption)) is an assumption
+  row, not a fund: 20% cash earning each month's inflation plus 1.0% a year,
+  the long-run report's CASH +1% real assumption, shown to answer the SHY
+  caveat above. It is comparison N + 1 (22) but not one of the N (21)
+  portfolios. Its cash leg and its daily return to 80/20 pay no trading
+  cost, while A80-CASH20 pays 5 bps per unit of turnover on its rebalancing,
+  a small difference in the assumption row's favour." The 5 bps is
+  `report["cost_bps"]`.
 - `_sleeve_note` needs no change. It counts ids in `report["portfolios"]`,
   which never contains the row, so it still reads "of the 21 portfolios
   here, 4 are by-product rows ...; only the 5 A80 rows ... answer the
@@ -249,10 +285,13 @@ Long-run report (`longrun_report.py`):
   BONDS); only the 5 A80 rows answer the defensive-sleeve question
   (docs/methodology/defensive-sleeve.md)". When it is absent (or the key is
   missing from the report dict) the line is byte-for-byte as today.
-- One new note, present only with the row: A80-TCASH20 is an assumption,
-  not history: 80% A plus 20% cash earning each month's inflation plus 1.0% a
-  year, rebalanced daily; its real yield is checked equal to
-  `cash_real_yield`.
+- One new note, present only with the row: "- A80-TCASH20: an assumption,
+  not history. 80% A plus 20% cash earning each month's inflation plus 1.0% a
+  year, rebalanced daily; its real yield is checked equal to the CASH +1%
+  real row's. The cash leg and the daily return to 80/20 pay no trading
+  cost, while A80-CASH20 pays 5 bps per unit traded on its rebalancing, a
+  small difference in the assumption row's favour." The 5 bps is
+  `r["cost_bps"]`.
 
 ## Outputs
 
@@ -276,6 +315,11 @@ New file `tests/test_true_cash.py`, offline (synthetic prices and CPI from
 - long-run: `check_cash_assumption` raises on a real-yield mismatch, passes
   on equality and without the key; `run_longrun` raises before reading any
   data; `scripts/longrun.py` refuses before loading prices or CPI.
+- every exactness test below uses a CPI with uneven monthly changes (as
+  `tests/test_longrun.py`'s `_cpi_by_availability(levels=...)` does), not
+  the constant-growth `decision_helpers.cpi()`, which cannot catch a
+  one-month misalignment.
+- `return_rows` refuses a `cash_assumption` without `cpi`.
 - cash leg: deflated by the CPI, each whole month earns exactly
   (1.01)^(1/12) real, and over 2005-2018 the leg divided by the decision
   helper's own deflator is 1.01^14 (relative tolerance 1e-12).
@@ -313,7 +357,9 @@ titles, table counts, the longrun pin values).
 
 Checked and not affected: `test_decision_shipped_config_loads` (portfolio
 ids unchanged), `test_shipped_decision_config_counts_21_portfolios_with_five_a80_rows`
-(the row is not a portfolio), `test_shipped_longrun_pin_matches_shipped_decision_config`
+(the row is not a portfolio), the six `return_rows` calls in
+`tests/test_defensive_sleeve.py` (the new `cpi` argument is optional and
+their fixture has no `cash_assumption`), `test_shipped_longrun_pin_matches_shipped_decision_config`
 (passes once the pin is re-pinned), `test_header_sleeve_note_counts_by_products_and_a80_rows`
 and `test_longrun_header_sleeve_note_counts_22_rows` (hand-built reports
 without the new keys), `test_decision_report_sections_in_order` and the
@@ -332,6 +378,10 @@ Full suite run in the background before the PR.
 - A fixed nominal yield (e.g. 4% a year). It ignores inflation, which is
   what a retiree's withdrawals follow, and would differ from the long-run
   report's assumption.
+- Inflation lagged one more month (month m earns infl_(m-1)), so no day
+  earns a figure before its publication. Rejected because it breaks the
+  exact +1% real identity against the decision helper's deflator; see
+  "Timing, a known simplification" under Computation.
 - A 0% / +1% real bracket (two rows). The 0% end is close to what SHY
   already shows, so it adds a row and a comparison for little information.
 - Showing the row in every section. Windows and scenarios would need new
