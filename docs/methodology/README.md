@@ -26,6 +26,9 @@ document itself.
 - [defensive-sleeve.md](defensive-sleeve.md) — decision-aid comparison of the
   core with a 20% cash, bond or RSP sleeve on drawdowns, stress losses,
   withdrawal survival and lost return.
+- [true-cash-sleeve.md](true-cash-sleeve.md) — one assumption row, 80% of
+  the core plus 20% cash at +1% real, showing how much SHY's near-zero
+  2009-2015 yields weigh on the cash-sleeve baseline.
 
 ## Former paths
 
