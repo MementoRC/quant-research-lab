@@ -18,7 +18,7 @@ import yaml
 
 from .decision import data_end, portfolio_returns
 from .decision_config import DecisionConfig
-from .decision_withdraw import usable_cpi
+from .decision_withdraw import monthly_inflation
 from .periods import period_bounds
 
 DEPLETED = 1e-9  # of the starting value: at or below, the path is empty (spec "Withdrawals")
@@ -92,19 +92,6 @@ def monthly_returns(daily: pd.Series) -> pd.Series:
         raise ValueError(f"NaN return on {bad.date()}")
     months = pd.DatetimeIndex(daily.index).to_period("M")
     return (1.0 + daily).groupby(months).prod() - 1.0
-
-
-def monthly_inflation(cpi: pd.Series, months: pd.PeriodIndex) -> pd.Series:
-    """Inflation of each month m: usable CPI on m's last calendar day over
-    usable CPI on (m-1)'s last calendar day, minus 1 (`usable_cpi`'s
-    availability rule; raises "missing CPI" if none is usable). Calendar month
-    ends, not trading days: spec amendment 2026-10-08."""
-
-    def end(p: pd.Period) -> pd.Timestamp:
-        return p.to_timestamp(how="end").normalize()
-
-    out = [usable_cpi(cpi, end(m)) / usable_cpi(cpi, end(m - 1)) - 1.0 for m in months]
-    return pd.Series(out, index=months, dtype=float)
 
 
 def block_starts(seed: int, n_paths: int, n_blocks: int, n_months: int) -> np.ndarray:

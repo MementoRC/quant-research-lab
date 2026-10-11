@@ -26,6 +26,19 @@ def usable_cpi(cpi: pd.Series, on: pd.Timestamp) -> float:
     return float(known.iloc[-1])
 
 
+def monthly_inflation(cpi: pd.Series, months: pd.PeriodIndex) -> pd.Series:
+    """Inflation of each month m: usable CPI on m's last calendar day over
+    usable CPI on (m-1)'s last calendar day, minus 1 (`usable_cpi`'s
+    availability rule; raises "missing CPI" if none is usable). Calendar month
+    ends, not trading days: spec amendment 2026-10-08."""
+
+    def end(p: pd.Period) -> pd.Timestamp:
+        return p.to_timestamp(how="end").normalize()
+
+    out = [usable_cpi(cpi, end(m)) / usable_cpi(cpi, end(m - 1)) - 1.0 for m in months]
+    return pd.Series(out, index=months, dtype=float)
+
+
 def monthly_withdrawals(
     rate: float, start_year: int, end_year: int, cpi: pd.Series
 ) -> dict[int, float]:
