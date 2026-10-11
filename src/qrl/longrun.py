@@ -84,6 +84,17 @@ def load_longrun_config(path: str | Path, decision_sha256: str) -> LongrunConfig
     )
 
 
+def check_cash_assumption(lcfg: LongrunConfig, dcfg: DecisionConfig) -> None:
+    """Spec docs/methodology/true-cash-sleeve.md: decision.yaml's cash_assumption
+    must use longrun.yaml's cash_real_yield (exact equality). No-op without one."""
+    ca = dcfg.cash_assumption
+    if ca is not None and ca.real_yield != lcfg.cash_real_yield:
+        raise ValueError(
+            f"decision.yaml cash_assumption real_yield {ca.real_yield} differs from "
+            f"longrun.yaml cash_real_yield {lcfg.cash_real_yield}"
+        )
+
+
 def monthly_returns(daily: pd.Series) -> pd.Series:
     """Daily net returns compounded to calendar-month returns, indexed by
     monthly Period. Refuses any NaN (a NaN is never turned into cash)."""
@@ -187,6 +198,7 @@ def run_longrun(
     """The whole report as plain data (rendered by `qrl.longrun_report`).
     Price and CPI frames are cut at the research end first. Raises
     ValueError on any refusal (spec "Refusals")."""
+    check_cash_assumption(lcfg, dcfg)
     end = data_end(criteria)
     begin, _ = period_bounds(criteria, "research")
     if begin is None:

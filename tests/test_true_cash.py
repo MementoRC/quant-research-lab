@@ -6,8 +6,174 @@ only."""
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
+
+import pandas as pd
+import pytest
+from decision_helpers import (
+    CANDIDATES,
+    END,
+    GOOD_SLEEVE,
+    GOOD_TCASH,
+    ROOT,
+    criteria,
+    load,
+    stress_cfg,
+    write,
+)
+
 from qrl import decision_withdraw, longrun
+from qrl.decision_config import CashAssumption, load_decision_config
+from qrl.longrun import LongrunConfig, check_cash_assumption, load_longrun_config, run_longrun
 
 
 def test_monthly_inflation_lives_in_decision_withdraw_and_longrun_reuses_it():
     assert longrun.monthly_inflation is decision_withdraw.monthly_inflation
+
+
+TCASH = CashAssumption(
+    id="A80-TCASH20",
+    label="80% A + 20% cash at +1% real (assumption)",
+    base="A",
+    cash_share=0.2,
+    real_yield=0.01,
+)
+
+
+def _shipped():
+    return load_decision_config(ROOT / "config" / "decision.yaml", CANDIDATES, stress_cfg(), END)
+
+
+def test_shipped_decision_config_carries_the_cash_assumption_outside_the_portfolios():
+    cfg = _shipped()
+    assert cfg.cash_assumption == TCASH
+    ids = [p.id for p in cfg.portfolios]
+    assert len(ids) == 21
+    assert "A80-TCASH20" not in ids
+
+
+def test_shipped_longrun_cash_real_yield_matches_the_cash_assumption():
+    dcfg = _shipped()
+    lcfg = load_longrun_config(ROOT / "config" / "longrun.yaml", dcfg.sha256)
+    check_cash_assumption(lcfg, dcfg)
+    assert lcfg.cash_real_yield == TCASH.real_yield
+
+
+def test_absent_cash_assumption_gives_none_and_the_same_portfolios(tmp_path):
+    with_row = load(tmp_path, GOOD_TCASH)
+    without = load(tmp_path, GOOD_SLEEVE)
+    assert with_row.cash_assumption == TCASH
+    assert without.cash_assumption is None
+    assert with_row.portfolios == without.portfolios
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "match"),
+    [
+        ("  base: A\n", "", "needs"),
+        ("id: A80-TCASH20", "id: A80 TCASH20", "must match"),
+        ("id: A80-TCASH20", "id: A80-CASH20", "already a portfolio id"),
+        ("base: A", "base: Z", "not a portfolio id"),
+        ("cash_share: 0.2", "cash_share: 0.0", "strictly between 0 and 1"),
+        ("cash_share: 0.2", "cash_share: 1.0", "strictly between 0 and 1"),
+        ("cash_share: 0.2", "cash_share: .nan", "strictly between 0 and 1"),
+        ("real_yield: 0.01", "real_yield: 0.0501", "real_yield"),
+        ("real_yield: 0.01", "real_yield: -0.0501", "real_yield"),
+        ("real_yield: 0.01", "real_yield: .inf", "real_yield"),
+        ("real_yield: 0.01", "real_yield: .nan", "real_yield"),
+    ],
+)
+def test_cash_assumption_refusals(tmp_path, old, new, match):
+    assert old in GOOD_TCASH
+    with pytest.raises(ValueError, match=match):
+        load(tmp_path, GOOD_TCASH.replace(old, new, 1))
+
+
+@pytest.mark.parametrize("value", ["7", "", "[A, 0.2]"])
+def test_cash_assumption_must_be_a_mapping(tmp_path, value):
+    text = GOOD_SLEEVE.replace("windows:", f"cash_assumption: {value}\nwindows:", 1)
+    with pytest.raises(ValueError, match="needs"):
+        load(tmp_path, text)
+
+
+@pytest.mark.parametrize("real_yield", ["0.05", "-0.05"])
+def test_cash_assumption_real_yield_bounds_are_inclusive(tmp_path, real_yield):
+    cfg = load(tmp_path, GOOD_TCASH.replace("real_yield: 0.01", f"real_yield: {real_yield}", 1))
+    assert cfg.cash_assumption is not None
+    assert cfg.cash_assumption.real_yield == float(real_yield)
+
+
+def _lcfg(real_yield: float = 0.01) -> LongrunConfig:
+    return LongrunConfig(
+        seed=7,
+        n_paths=20,
+        block_months=12,
+        horizon_years=30,
+        real_floor=0.5,
+        rates=[0.04],
+        cash_real_yield=real_yield,
+        sha256="ab" * 32,
+    )
+
+
+def test_check_cash_assumption_refuses_a_real_yield_mismatch(tmp_path):
+    dcfg = load(tmp_path, GOOD_TCASH)
+    with pytest.raises(ValueError, match="cash_real_yield"):
+        check_cash_assumption(_lcfg(0.02), dcfg)
+    check_cash_assumption(_lcfg(0.01), dcfg)  # equal: no refusal
+
+
+def test_check_cash_assumption_is_silent_without_the_key(tmp_path):
+    check_cash_assumption(_lcfg(0.02), load(tmp_path, GOOD_SLEEVE))
+
+
+def test_run_longrun_refuses_a_mismatch_before_reading_any_data(tmp_path):
+    # {} has no "close": any data access would raise KeyError, not ValueError
+    with pytest.raises(ValueError, match="cash_real_yield"):
+        run_longrun(_lcfg(0.02), load(tmp_path, GOOD_TCASH), {}, pd.Series(dtype=float), criteria())
+
+
+def _longrun_cli():
+    spec = importlib.util.spec_from_file_location(
+        "longrun_cli_tcash", ROOT / "scripts" / "longrun.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+LONGRUN_YAML = """\
+version: 1
+decision_sha256: "{sha}"
+seed: 7
+n_paths: 20
+block_months: 12
+horizon_years: 30
+real_floor: 0.5
+withdrawal_rates: [0.04]
+cash_real_yield: {real_yield}
+"""
+
+
+def test_longrun_main_refuses_a_cash_yield_mismatch_before_loading_data(
+    tmp_path, monkeypatch, capsys
+):
+    cli = _longrun_cli()
+
+    def no_access(*args, **kwargs):
+        raise AssertionError("data must not be loaded before the cash yield is checked")
+
+    monkeypatch.setattr(cli, "load_ohlcv", no_access)
+    monkeypatch.setattr(cli, "load_macro", no_access)
+    decision = write(tmp_path, GOOD_TCASH)
+    pinned = tmp_path / "longrun.yaml"
+    sha = hashlib.sha256(decision.read_bytes()).hexdigest()
+    pinned.write_text(LONGRUN_YAML.format(sha=sha, real_yield=0.02))
+    out = tmp_path / "longrun.md"
+    argv = ["--config", str(decision), "--longrun-config", str(pinned), "--out-md", str(out)]
+    assert cli.main(argv) == 1
+    printed = capsys.readouterr().out
+    assert printed.startswith("refused: ")
+    assert "cash_real_yield" in printed
+    assert not out.exists()

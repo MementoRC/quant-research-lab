@@ -11,7 +11,7 @@ from decision_helpers import (
     CANDIDATES,
     END,
     GOOD,
-    GOOD_SLEEVE,
+    GOOD_TCASH,
     ROOT,
     YEARS_LINE,
     cpi,
@@ -94,7 +94,7 @@ def test_decision_shipped_config_tripwire():
 
 
 def test_decision_shipped_config_matches_test_fixture(tmp_path):
-    assert replace(_shipped(), sha256="") == replace(load(tmp_path, GOOD_SLEEVE), sha256="")
+    assert replace(_shipped(), sha256="") == replace(load(tmp_path, GOOD_TCASH), sha256="")
 
 
 def test_decision_pixi_task():

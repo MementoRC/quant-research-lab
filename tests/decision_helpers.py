@@ -70,6 +70,19 @@ SLEEVE_BLENDS = """\
 GOOD_SLEEVE = GOOD.replace("blends:\n", SLEEVE_STATIC + "blends:\n", 1).replace(
     "windows:", SLEEVE_BLENDS + "windows:", 1
 )
+# Amendment 2026-10-11 (docs/methodology/true-cash-sleeve.md, owner-approved):
+# GOOD_SLEEVE plus the cash_assumption row mirrors the shipped
+# config/decision.yaml. GOOD, GOOD_SLEEVE and every fixture-driven test stay
+# unchanged.
+TCASH_BLOCK = """\
+cash_assumption:
+  id: A80-TCASH20
+  label: "80% A + 20% cash at +1% real (assumption)"
+  base: A
+  cash_share: 0.2
+  real_yield: 0.01
+"""
+GOOD_TCASH = GOOD_SLEEVE.replace("windows:", TCASH_BLOCK + "windows:", 1)
 
 
 def criteria() -> dict:
