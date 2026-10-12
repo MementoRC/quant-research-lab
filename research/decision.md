@@ -3,25 +3,26 @@
 A decision aid for deploying savings while withdrawing for income. It compares a fixed set of portfolios; it selects nothing and recommends nothing. Spec: docs/methodology/decision-helper.md.
 
 - data: up to 2018-12-31 only (validation and holdout stay sealed)
-- decision.yaml sha256: `7b0d96a47a16f44562286358d05b6b90749d05c1b9ced8f73ad86323dc026774`
+- decision.yaml sha256: `88ab8b08a34f8b3d106fd7670af02e3e827b86467a2755eb3620ada4490aa76d`
 - core_candidates.yaml sha256: `1a84847ed4ae59e81627c420b88f7736357f0bdc0bcb654a945c5d2ad88107e3` (read unchanged)
 - stress.yaml sha256: `edd4b0853cc1b9a832111e74690e0c408ef89632002e1cbcfca7594c081cc682` (read unchanged)
-- multiple comparisons: 7 in the core comparison, 22 here (A-G again plus 15 new); the more portfolios compared, the likelier the best-looking one is luck
-- of the 21 portfolios here, 4 are by-product rows, each a sleeve held alone (IEF, TLT, RSP, BONDS); only the 5 A80 rows (A80-CASH20, A80-IEF20, A80-TLT20, A80-BONDS20, A80-RSP20) answer the defensive-sleeve question (docs/methodology/defensive-sleeve.md)
+- multiple comparisons: 7 in the core comparison, 34 here (A-G again plus 27 new); the more portfolios compared, the likelier the best-looking one is luck
+- of the 27 portfolios here, 4 are by-product rows, each a sleeve held alone (IEF, TLT, RSP, BONDS); only the 5 A80 rows (A80-CASH20, A80-IEF20, A80-TLT20, A80-BONDS20, A80-RSP20) answer the defensive-sleeve question (docs/methodology/defensive-sleeve.md); the 7 X80-CASH20 rows and the 7 assumption rows answer the true-cash question (docs/methodology/true-cash-all-cores.md)
 - CASH here is SHY, not true cash: SHY's near-zero 2009-2015 yields make the A80-CASH20 baseline look worse than cash at today's rates
-- A80-TCASH20 (80% A + 20% cash at +1% real (assumption)) is an assumption row, not a fund: 20.0% cash earning each month's inflation plus 1.0% a year, the long-run report's CASH +1% real assumption, shown to answer the SHY caveat above. It is comparison 22 but not one of the 21 portfolios. Its cash leg and its daily return to 80/20 pay no trading cost, while A80-CASH20 pays 5 bps per unit of turnover on its rebalancing, a small difference in the assumption row's favour.
+- A80-TCASH20 to G80-TCASH20 are 7 assumption rows, not funds: for each core, 20.0% cash earning each month's inflation plus 1.0% a year, the long-run report's CASH +1% real assumption, shown next to that core's SHY pair (A80-CASH20 to G80-CASH20) to answer the SHY caveat. They are comparisons 28-34 but not among the 27 portfolios. Their cash legs and daily returns to 80/20 pay no trading cost, while each SHY pair pays 5 bps per unit of turnover on its rebalancing, a small difference in the assumption rows' favour.
 - scenarios are judgement-based, v1: owner-set what-ifs, not forecasts
 
 ## Notes
 
 - Every portfolio is 100% of capital, rebalanced daily to its target weights, so blends look smoother than practice: real rebalancing would be less frequent.
 - Costs differ by table. Withdrawal paths pay 5 bps per unit of turnover (criteria.yaml cost_bps). Historical-window cells come from `qrl.stress` unchanged: replay cells use the engine's default of 5 bps, frozen cells pay none. Scenario cells are instantaneous and carry no cost.
-- Switching portfolios (A, B, C, F and blends holding A) are shown in both states, risk-on and risk-off, because their current state would need sealed data; the worse is marked.
+- Switching portfolios (A, B, C, F, AG, A-CASH, A80-CASH20, A80-IEF20, A80-TLT20, A80-BONDS20, A80-RSP20, B80-CASH20, C80-CASH20 and F80-CASH20) are shown in both states, risk-on and risk-off, because their current state would need sealed data; the worse is marked.
 - In the dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet trade), so those cells are indicative only.
 - Known gap: no portfolio holds an asset that gains from a falling dollar other than gold.
 - Prices are dividend-adjusted, so totals are correct; dividend and interest income is not separated from sales.
 - All figures are percentages: of capital for losses, of the starting value for withdrawal paths.
-- A80-TCASH20 appears only in the research-period return and withdrawal tables: the historical windows and the judgement-based scenarios have no cash return to give it. In `dotcom_2000` SHY is already replaced by cash at 0%, so the row would equal A80-CASH20 there; in `gfc_2008` A80-CASH20 uses SHY's actual prices; the scenarios set SHY's one-year return by judgement and set none for cash; the year-one table is built from the scenarios.
+- A80-TCASH20 to G80-TCASH20 appear only in the research-period return and withdrawal tables: the historical windows and the judgement-based scenarios have no cash return to give them. In `dotcom_2000` SHY is already replaced by cash at 0%, so each row would equal its SHY pair there; in `gfc_2008` each SHY pair uses SHY's actual prices; the scenarios set SHY's one-year return by judgement and set none for cash; the year-one table is built from the scenarios.
+- G already holds 25% SHY, so G80-CASH20 holds 40% SHY in all and G80-TCASH20 swaps only the added 20%.
 
 ## Portfolios (100% of capital)
 
@@ -59,6 +60,15 @@ A decision aid for deploying savings while withdrawing for income. It compares a
 | A80-BONDS20 | 80% A + 20% BONDS | risk_off | GLD 80.0%, IEF 6.7%, SHY 6.7%, TLT 6.7% |
 | A80-RSP20 | 80% A + 20% RSP | risk_on | QQQ 80.0%, RSP 20.0% |
 | A80-RSP20 | 80% A + 20% RSP | risk_off | GLD 80.0%, RSP 20.0% |
+| B80-CASH20 | 80% B + 20% CASH | risk_on | SHY 20.0%, SPY 80.0% |
+| B80-CASH20 | 80% B + 20% CASH | risk_off | GLD 80.0%, SHY 20.0% |
+| C80-CASH20 | 80% C + 20% CASH | risk_on | SHY 20.0%, SPY 80.0% |
+| C80-CASH20 | 80% C + 20% CASH | risk_off | IEF 80.0%, SHY 20.0% |
+| D80-CASH20 | 80% D + 20% CASH | static | IEF 32.0%, SHY 20.0%, SPY 48.0% |
+| E80-CASH20 | 80% E + 20% CASH | static | GLD 16.0%, IEF 16.0%, SHY 20.0%, SPY 48.0% |
+| F80-CASH20 | 80% F + 20% CASH | risk_on | IEF 32.0%, SHY 20.0%, SPY 48.0% |
+| F80-CASH20 | 80% F + 20% CASH | risk_off | GLD 40.0%, IEF 40.0%, SHY 20.0% |
+| G80-CASH20 | 80% G + 20% CASH | static | GLD 20.0%, SHY 40.0%, SPY 20.0%, TLT 20.0% |
 
 ## Research-period return (2005-2018, no withdrawals)
 
@@ -87,7 +97,19 @@ Each portfolio bought on the first trading day of the research period and held t
 | A80-TLT20 | 7.5% | 25.3% | -0.2 pp |
 | A80-BONDS20 | 7.0% | 25.4% | 0.3 pp |
 | A80-RSP20 | 7.7% | 29.8% | -0.5 pp |
+| B80-CASH20 | 6.4% | 29.0% | 0.8 pp |
+| C80-CASH20 | 5.3% | 21.6% | 1.9 pp |
+| D80-CASH20 | 5.9% | 24.7% | 1.3 pp |
+| E80-CASH20 | 6.6% | 25.3% | 0.7 pp |
+| F80-CASH20 | 5.6% | 15.5% | 1.7 pp |
+| G80-CASH20 | 5.7% | 11.1% | 1.6 pp |
 | A80-TCASH20 | 6.7% | 24.6% | 0.6 pp |
+| B80-TCASH20 | 6.6% | 29.6% | 0.6 pp |
+| C80-TCASH20 | 5.5% | 21.7% | 1.7 pp |
+| D80-TCASH20 | 6.1% | 25.4% | 1.1 pp |
+| E80-TCASH20 | 6.8% | 26.0% | 0.4 pp |
+| F80-TCASH20 | 5.8% | 15.1% | 1.4 pp |
+| G80-TCASH20 | 5.9% | 10.7% | 1.3 pp |
 
 ## Historical windows
 
@@ -178,8 +200,32 @@ Each portfolio bought on the first trading day of the research period and held t
 | A80-RSP20[risk_on] | gfc_2008 | frozen | 54.0% |  |  |
 | A80-RSP20[risk_off] | dotcom_2000 | frozen | 9.5% | equity 20%, gold 80% | mostly proxied, indicative only |
 | A80-RSP20[risk_off] | gfc_2008 | frozen | 30.4% |  |  |
+| B80-CASH20 | gfc_2008 | replay | 28.7% |  |  |
+| B80-CASH20[risk_on] | dotcom_2000 | frozen | 38.0% | bonds 20% |  |
+| B80-CASH20[risk_on] | gfc_2008 | frozen | 42.4% |  |  |
+| B80-CASH20[risk_off] | dotcom_2000 | frozen | 0.0% | bonds 20%, gold 80% | mostly proxied, indicative only |
+| B80-CASH20[risk_off] | gfc_2008 | frozen | 24.2% |  |  |
+| C80-CASH20 | gfc_2008 | replay | 10.5% |  |  |
+| C80-CASH20[risk_on] | dotcom_2000 | frozen | 38.0% | bonds 20% |  |
+| C80-CASH20[risk_on] | gfc_2008 | frozen | 42.4% |  |  |
+| C80-CASH20[risk_off] | dotcom_2000 | frozen | 0.0% | bonds 100% | mostly proxied, indicative only |
+| C80-CASH20[risk_off] | gfc_2008 | frozen | 5.3% |  |  |
+| D80-CASH20 | dotcom_2000 | frozen | 22.8% | bonds 52% | mostly proxied, indicative only |
+| D80-CASH20 | gfc_2008 | replay | 24.7% |  |  |
+| D80-CASH20 | gfc_2008 | frozen | 18.6% |  |  |
+| E80-CASH20 | dotcom_2000 | frozen | 22.8% | bonds 36%, gold 16% | mostly proxied, indicative only |
+| E80-CASH20 | gfc_2008 | replay | 25.3% |  |  |
+| E80-CASH20 | gfc_2008 | frozen | 21.5% |  |  |
+| F80-CASH20 | gfc_2008 | replay | 15.5% |  |  |
+| F80-CASH20[risk_on] | dotcom_2000 | frozen | 22.8% | bonds 52% | mostly proxied, indicative only |
+| F80-CASH20[risk_on] | gfc_2008 | frozen | 18.6% |  |  |
+| F80-CASH20[risk_off] | dotcom_2000 | frozen | 0.0% | bonds 60%, gold 40% | mostly proxied, indicative only |
+| F80-CASH20[risk_off] | gfc_2008 | frozen | 13.3% |  |  |
+| G80-CASH20 | dotcom_2000 | frozen | 9.5% | bonds 60%, gold 20% | mostly proxied, indicative only |
+| G80-CASH20 | gfc_2008 | replay | 11.1% |  |  |
+| G80-CASH20 | gfc_2008 | frozen | 10.8% |  |  |
 
-Proxies (`qrl.stress`): in a frozen cell, a fund without a price at the window start is replaced by SPY (equity) or by cash (bonds, gold). A cell more than 25% proxied is marked mostly proxied, indicative only. `dotcom_2000` starts before SHY, IEF and TLT (2002), RSP (2003) and GLD (2004): CASH is entirely cash there (0% loss by construction) and G, G-EW, G-CASH and A-CASH are mostly proxied. IEF, TLT and BONDS are, like CASH, entirely cash in `dotcom_2000` (0% loss), so the A80-CASH20, A80-IEF20, A80-TLT20 and A80-BONDS20 frozen cells are identical there and that window cannot tell the bond sleeves apart; A80-RSP20 uses the SPY proxy.
+Proxies (`qrl.stress`): in a frozen cell, a fund without a price at the window start is replaced by SPY (equity) or by cash (bonds, gold). A cell more than 25% proxied is marked mostly proxied, indicative only. `dotcom_2000` starts before SHY, IEF and TLT (2002), RSP (2003) and GLD (2004): CASH is entirely cash there (0% loss by construction) and A[risk_off], B[risk_off], C[risk_off], D, E, F[risk_on], F[risk_off], G, CASH, G-EW, IEF, TLT, RSP, BONDS, AG[risk_on], AG[risk_off], G-CASH, A-CASH[risk_on], A-CASH[risk_off], A80-CASH20[risk_off], A80-IEF20[risk_off], A80-TLT20[risk_off], A80-BONDS20[risk_off], A80-RSP20[risk_off], B80-CASH20[risk_off], C80-CASH20[risk_off], D80-CASH20, E80-CASH20, F80-CASH20[risk_on], F80-CASH20[risk_off] and G80-CASH20 are mostly proxied. IEF, TLT and BONDS are, like CASH, entirely cash in `dotcom_2000` (0% loss), so the A80-CASH20, A80-IEF20, A80-TLT20 and A80-BONDS20 frozen cells are identical there and that window cannot tell the bond sleeves apart; A80-RSP20 uses the SPY proxy.
 
 Switching portfolios: the replay cell runs the rule; `[risk_on]` / `[risk_off]` frozen cells hold that state's fixed weights.
 
@@ -291,6 +337,33 @@ Loss is positive; a negative loss is a gain. Real = (1 + nominal) / (1 + inflati
 | A80-RSP20 | trade_oil_shock | risk_off | -4.4% | 2.4% |  |
 | A80-RSP20 | ai_megacap_crash | risk_on | 39.0% | 40.2% | worse |
 | A80-RSP20 | ai_megacap_crash | risk_off | -1.0% | 1.0% |  |
+| B80-CASH20 | treasury_dollar_crisis | risk_on | 19.8% | 25.7% | worse |
+| B80-CASH20 | treasury_dollar_crisis | risk_off | -20.2% | -11.3% |  |
+| B80-CASH20 | trade_oil_shock | risk_on | 15.6% | 21.1% | worse |
+| B80-CASH20 | trade_oil_shock | risk_off | -8.4% | -1.3% |  |
+| B80-CASH20 | ai_megacap_crash | risk_on | 23.4% | 24.9% | worse |
+| B80-CASH20 | ai_megacap_crash | risk_off | -4.6% | -2.5% |  |
+| C80-CASH20 | treasury_dollar_crisis | risk_on | 19.8% | 25.7% | worse |
+| C80-CASH20 | treasury_dollar_crisis | risk_off | 9.4% | 16.1% |  |
+| C80-CASH20 | trade_oil_shock | risk_on | 15.6% | 21.1% | worse |
+| C80-CASH20 | trade_oil_shock | risk_off | 4.4% | 10.7% |  |
+| C80-CASH20 | ai_megacap_crash | risk_on | 23.4% | 24.9% | worse |
+| C80-CASH20 | ai_megacap_crash | risk_off | -5.4% | -3.3% |  |
+| D80-CASH20 | treasury_dollar_crisis | static | 15.6% | 21.9% |  |
+| D80-CASH20 | trade_oil_shock | static | 11.1% | 16.9% |  |
+| D80-CASH20 | ai_megacap_crash | static | 11.9% | 13.6% |  |
+| E80-CASH20 | treasury_dollar_crisis | static | 9.7% | 16.4% |  |
+| E80-CASH20 | trade_oil_shock | static | 8.6% | 14.5% |  |
+| E80-CASH20 | ai_megacap_crash | static | 12.0% | 13.8% |  |
+| F80-CASH20 | treasury_dollar_crisis | risk_on | 15.6% | 21.9% | worse |
+| F80-CASH20 | treasury_dollar_crisis | risk_off | -5.4% | 2.4% |  |
+| F80-CASH20 | trade_oil_shock | risk_on | 11.1% | 16.9% | worse |
+| F80-CASH20 | trade_oil_shock | risk_off | -2.0% | 4.7% |  |
+| F80-CASH20 | ai_megacap_crash | risk_on | 11.9% | 13.6% | worse |
+| F80-CASH20 | ai_megacap_crash | risk_off | -5.0% | -2.9% |  |
+| G80-CASH20 | treasury_dollar_crisis | static | 5.6% | 12.6% |  |
+| G80-CASH20 | trade_oil_shock | static | 4.2% | 10.5% |  |
+| G80-CASH20 | ai_megacap_crash | static | 1.4% | 3.3% |  |
 
 ## Withdrawals
 
@@ -321,7 +394,19 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 | A80-TLT20 | 157.5% | 71.4% | 28.6% | 57 months | yes | no | 2014 (135.9%) |
 | A80-BONDS20 | 146.4% | 71.3% | 28.7% | 58 months | yes | no | 2014 (131.1%) |
 | A80-RSP20 | 162.0% | 64.3% | 35.7% | 59 months | yes | no | 2014 (134.7%) |
+| B80-CASH20 | 136.5% | 73.5% | 31.2% | 37 months | yes | no | 2014 (129.5%) |
+| C80-CASH20 | 118.0% | 92.1% | 22.3% | 40 months | yes | no | 2014 (110.1%) |
+| D80-CASH20 | 131.0% | 84.8% | 26.7% | 35 months | yes | no | 2014 (109.7%) |
+| E80-CASH20 | 147.0% | 92.8% | 26.6% | 23 months | yes | no | 2014 (108.0%) |
+| F80-CASH20 | 123.7% | 90.8% | 16.8% | 18 months | yes | no | 2014 (113.4%) |
+| G80-CASH20 | 130.5% | 98.5% | 12.0% | 27 months | yes | no | 2013 (93.5%) |
 | A80-TCASH20 | 139.3% | 70.9% | 29.1% | 59 months | yes | no | 2014 (129.5%) |
+| B80-TCASH20 | 140.9% | 73.4% | 31.8% | 37 months | yes | no | 2014 (132.1%) |
+| C80-TCASH20 | 121.9% | 92.9% | 22.4% | 39 months | yes | no | 2014 (112.3%) |
+| D80-TCASH20 | 135.1% | 84.1% | 27.4% | 37 months | yes | no | 2014 (111.8%) |
+| E80-TCASH20 | 151.6% | 92.0% | 27.2% | 23 months | yes | no | 2014 (110.2%) |
+| F80-TCASH20 | 127.8% | 90.9% | 16.4% | 17 months | yes | no | 2014 (115.7%) |
+| G80-TCASH20 | 134.8% | 98.7% | 11.8% | 26 months | yes | no | 2013 (95.8%) |
 
 ### Withdrawal rate 3.3% per year
 
@@ -348,7 +433,19 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 | A80-TLT20 | 124.5% | 67.7% | 32.3% | 63 months | yes | no | 2005 (124.5%) |
 | A80-BONDS20 | 114.7% | 66.9% | 33.1% | 63 months | yes | no | 2005 (114.7%) |
 | A80-RSP20 | 127.5% | 60.0% | 40.0% | 63 months | yes | no | 2014 (127.0%) |
+| B80-CASH20 | 107.6% | 69.2% | 32.8% | 43 months | yes | no | 2005 (107.6%) |
+| C80-CASH20 | 93.2% | 86.9% | 22.8% | 47 months | yes | no | 2005 (93.2%) |
+| D80-CASH20 | 106.2% | 79.9% | 28.2% | 51 months | yes | no | 2014 (102.8%) |
+| E80-CASH20 | 122.2% | 87.7% | 27.7% | 36 months | yes | no | 2014 (101.2%) |
+| F80-CASH20 | 98.9% | 85.8% | 17.7% | 27 months | yes | no | 2005 (98.9%) |
+| G80-CASH20 | 108.7% | 98.2% | 12.7% | 46 months | yes | no | 2013 (85.5%) |
 | A80-TCASH20 | 108.1% | 66.1% | 33.9% | 103 months | yes | no | 2005 (108.1%) |
+| B80-TCASH20 | 111.3% | 69.1% | 33.4% | 42 months | yes | no | 2005 (111.3%) |
+| C80-TCASH20 | 96.5% | 86.5% | 22.9% | 44 months | yes | no | 2005 (96.5%) |
+| D80-TCASH20 | 109.7% | 79.3% | 28.9% | 51 months | yes | no | 2014 (104.9%) |
+| E80-TCASH20 | 126.2% | 87.0% | 28.5% | 37 months | yes | no | 2014 (103.2%) |
+| F80-TCASH20 | 102.4% | 85.8% | 17.3% | 27 months | yes | no | 2005 (102.4%) |
+| G80-TCASH20 | 112.4% | 98.4% | 12.5% | 28 months | yes | no | 2013 (87.7%) |
 
 ### Withdrawal rate 4.0% per year
 
@@ -375,7 +472,19 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 | A80-TLT20 | 106.8% | 65.0% | 35.0% | 79 months | yes | no | 2005 (106.8%) |
 | A80-BONDS20 | 97.6% | 64.3% | 35.7% | 105 months | yes | no | 2005 (97.6%) |
 | A80-RSP20 | 108.9% | 57.7% | 42.3% | 104 months | yes | no | 2005 (108.9%) |
+| B80-CASH20 | 92.0% | 67.0% | 33.7% | 49 months | yes | no | 2005 (92.0%) |
+| C80-CASH20 | 79.9% | 81.9% | 23.9% | 55 months | yes | no | 2005 (79.9%) |
+| D80-CASH20 | 92.8% | 77.2% | 29.1% | 59 months | yes | no | 2005 (92.8%) |
+| E80-CASH20 | 108.8% | 84.9% | 28.5% | 38 months | yes | no | 2014 (97.5%) |
+| F80-CASH20 | 85.6% | 83.0% | 18.2% | 42 months | yes | no | 2005 (85.6%) |
+| G80-CASH20 | 96.9% | 98.0% | 13.1% | at least 75 months, not recovered | yes | no | 2012 (80.7%) |
 | A80-TCASH20 | 91.3% | 63.6% | 36.4% | 109 months | yes | no | 2005 (91.3%) |
+| B80-TCASH20 | 95.4% | 66.9% | 34.3% | 80 months | yes | no | 2005 (95.4%) |
+| C80-TCASH20 | 82.8% | 82.2% | 23.3% | 50 months | yes | no | 2005 (82.8%) |
+| D80-TCASH20 | 96.1% | 76.6% | 29.8% | 59 months | yes | no | 2005 (96.1%) |
+| E80-TCASH20 | 112.5% | 84.3% | 29.3% | 40 months | yes | no | 2014 (99.5%) |
+| F80-TCASH20 | 88.8% | 83.1% | 17.8% | 38 months | yes | no | 2005 (88.8%) |
+| G80-TCASH20 | 100.3% | 98.2% | 13.0% | at least 75 months, not recovered | yes | no | 2013 (83.4%) |
 
 ### Withdrawal rate 5.0% per year
 
@@ -402,7 +511,19 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 | A80-TLT20 | 81.4% | 61.3% | 38.7% | 115 months | yes | no | 2005 (81.4%) |
 | A80-BONDS20 | 73.2% | 60.6% | 39.4% | 121 months | yes | no | 2005 (73.2%) |
 | A80-RSP20 | 82.4% | 54.4% | 45.6% | 114 months | yes | no | 2005 (82.4%) |
+| B80-CASH20 | 69.8% | 63.7% | 36.3% | 156 months | yes | no | 2005 (69.8%) |
+| C80-CASH20 | 60.8% | 73.2% | 26.9% | at least 104 months, not recovered | yes | no | 2005 (60.8%) |
+| D80-CASH20 | 73.7% | 73.5% | 30.4% | 85 months | yes | no | 2005 (73.7%) |
+| E80-CASH20 | 89.7% | 81.0% | 29.8% | 42 months | yes | no | 2008 (83.7%) |
+| F80-CASH20 | 66.5% | 79.1% | 20.9% | at least 167 months, not recovered | yes | no | 2005 (66.5%) |
+| G80-CASH20 | 80.1% | 97.8% | 19.7% | at least 75 months, not recovered | yes | no | 2012 (73.5%) |
 | A80-TCASH20 | 67.4% | 59.9% | 40.1% | 162 months | yes | no | 2005 (67.4%) |
+| B80-TCASH20 | 72.6% | 63.6% | 36.4% | 156 months | yes | no | 2005 (72.6%) |
+| C80-TCASH20 | 63.3% | 73.7% | 26.8% | at least 137 months, not recovered | yes | no | 2005 (63.3%) |
+| D80-TCASH20 | 76.6% | 72.9% | 31.1% | 81 months | yes | no | 2005 (76.6%) |
+| E80-TCASH20 | 93.0% | 80.4% | 30.5% | 42 months | yes | no | 2008 (86.7%) |
+| F80-TCASH20 | 69.3% | 79.2% | 20.8% | at least 167 months, not recovered | yes | no | 2005 (69.3%) |
+| G80-TCASH20 | 83.1% | 98.0% | 17.1% | at least 75 months, not recovered | yes | no | 2012 (76.1%) |
 
 ## Year-one scenario hit
 
@@ -433,6 +554,12 @@ Value after one year as a percentage of the start: (1 + the worse state's scenar
 | A80-TLT20 (risk_on) | 68.0% / 63.0% | 66.7% / 61.8% | 66.0% / 61.1% | 65.0% / 60.2% |
 | A80-BONDS20 (risk_on) | 71.3% / 66.0% | 70.0% / 64.8% | 69.3% / 64.1% | 68.3% / 63.2% |
 | A80-RSP20 (risk_on) | 69.6% / 64.4% | 68.3% / 63.2% | 67.6% / 62.6% | 66.6% / 61.7% |
+| B80-CASH20 (risk_on) | 78.2% / 72.4% | 76.9% / 71.2% | 76.2% / 70.6% | 75.2% / 69.6% |
+| C80-CASH20 (risk_on) | 78.2% / 72.4% | 76.9% / 71.2% | 76.2% / 70.6% | 75.2% / 69.6% |
+| D80-CASH20 | 82.4% / 76.3% | 81.1% / 75.1% | 80.4% / 74.4% | 79.4% / 73.5% |
+| E80-CASH20 | 88.3% / 81.7% | 87.0% / 80.5% | 86.3% / 79.9% | 85.3% / 79.0% |
+| F80-CASH20 (risk_on) | 82.4% / 76.3% | 81.1% / 75.1% | 80.4% / 74.4% | 79.4% / 73.5% |
+| G80-CASH20 | 92.4% / 85.6% | 91.1% / 84.4% | 90.4% / 83.7% | 89.4% / 82.8% |
 
 ### trade_oil_shock
 
@@ -459,6 +586,12 @@ Value after one year as a percentage of the start: (1 + the worse state's scenar
 | A80-TLT20 (risk_on) | 75.0% / 70.1% | 73.7% / 68.9% | 73.0% / 68.2% | 72.0% / 67.3% |
 | A80-BONDS20 (risk_on) | 76.7% / 71.7% | 75.4% / 70.5% | 74.7% / 69.8% | 73.7% / 68.9% |
 | A80-RSP20 (risk_on) | 74.4% / 69.5% | 73.1% / 68.3% | 72.4% / 67.7% | 71.4% / 66.7% |
+| B80-CASH20 (risk_on) | 82.4% / 77.0% | 81.1% / 75.8% | 80.4% / 75.1% | 79.4% / 74.2% |
+| C80-CASH20 (risk_on) | 82.4% / 77.0% | 81.1% / 75.8% | 80.4% / 75.1% | 79.4% / 74.2% |
+| D80-CASH20 | 86.9% / 81.2% | 85.6% / 80.0% | 84.9% / 79.3% | 83.9% / 78.4% |
+| E80-CASH20 | 89.4% / 83.6% | 88.1% / 82.4% | 87.4% / 81.7% | 86.4% / 80.8% |
+| F80-CASH20 (risk_on) | 86.9% / 81.2% | 85.6% / 80.0% | 84.9% / 79.3% | 83.9% / 78.4% |
+| G80-CASH20 | 93.8% / 87.7% | 92.5% / 86.4% | 91.8% / 85.8% | 90.8% / 84.9% |
 
 ### ai_megacap_crash
 
@@ -485,3 +618,9 @@ Value after one year as a percentage of the start: (1 + the worse state's scenar
 | A80-TLT20 (risk_on) | 64.4% / 63.1% | 63.1% / 61.9% | 62.4% / 61.2% | 61.4% / 60.2% |
 | A80-BONDS20 (risk_on) | 63.4% / 62.2% | 62.1% / 60.9% | 61.4% / 60.2% | 60.4% / 59.2% |
 | A80-RSP20 (risk_on) | 59.0% / 57.8% | 57.7% / 56.6% | 57.0% / 55.9% | 56.0% / 54.9% |
+| B80-CASH20 (risk_on) | 74.6% / 73.1% | 73.3% / 71.9% | 72.6% / 71.2% | 71.6% / 70.2% |
+| C80-CASH20 (risk_on) | 74.6% / 73.1% | 73.3% / 71.9% | 72.6% / 71.2% | 71.6% / 70.2% |
+| D80-CASH20 | 86.1% / 84.4% | 84.8% / 83.2% | 84.1% / 82.5% | 83.1% / 81.5% |
+| E80-CASH20 | 86.0% / 84.3% | 84.7% / 83.0% | 84.0% / 82.3% | 83.0% / 81.3% |
+| F80-CASH20 (risk_on) | 86.1% / 84.4% | 84.8% / 83.2% | 84.1% / 82.5% | 83.1% / 81.5% |
+| G80-CASH20 | 96.6% / 94.7% | 95.3% / 93.4% | 94.6% / 92.7% | 93.6% / 91.8% |
