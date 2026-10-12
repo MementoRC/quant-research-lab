@@ -1,6 +1,7 @@
 # True cash for every core: 80% core + 20% cash, SHY and +1% real
 
-Status: spec written 2026-10-12, awaiting owner review. Owner choices
+Status: spec written 2026-10-12, owner-approved design and spec 2026-10-12.
+Owner choices
 (2026-10-12): every core B-G, each with a SHY pair, 20% share, +1% real.
 Extends [true-cash-sleeve.md](true-cash-sleeve.md) and
 [defensive-sleeve.md](defensive-sleeve.md).
@@ -167,7 +168,7 @@ yield checked against longrun; row order in every table; header count 34 and
 the multi-row bullet; long-run sleeve note; byte-identical output for a
 one-row config; sealing (poisoned data after 2018-12-31 changes nothing).
 
-### Existing test edits (need owner approval)
+### Existing test edits (owner-approved 2026-10-12)
 
 Exact-equality tripwires on the shipped config that must change; no
 assertion is weakened, each is replaced by its new exact value:
