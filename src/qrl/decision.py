@@ -10,7 +10,6 @@ unseal_holdout=True)` is never called.
 from __future__ import annotations
 
 import inspect
-from dataclasses import asdict
 
 import numpy as np
 import pandas as pd
@@ -423,5 +422,13 @@ def run_decision(
         "withdrawals": withdrawal_rows(cfg, data, cpi, criteria),
         "year_one": year_one_rows(cfg.portfolios, cfg.scenarios, cfg.rates),
         "returns": return_rows(cfg, data, criteria, cpi),
-        "cash_assumption": None if cfg.cash_assumption is None else asdict(cfg.cash_assumption),
+        "cash_assumption": None
+        if cfg.cash_assumption is None
+        else {
+            "id": cfg.cash_assumption.id,
+            "label": cfg.cash_assumption.label,
+            "base": cfg.cash_assumption.base,
+            "cash_share": cfg.cash_assumption.cash_share,
+            "real_yield": cfg.cash_assumption.real_yield,
+        },
     }
