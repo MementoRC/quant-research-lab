@@ -29,6 +29,8 @@ document itself.
 - [true-cash-sleeve.md](true-cash-sleeve.md) — one assumption row, 80% of
   the core plus 20% cash at +1% real, showing how much SHY's near-zero
   2009-2015 yields weigh on the cash-sleeve baseline.
+- [true-cash-all-cores.md](true-cash-all-cores.md) — true cash and SHY 80/20
+  rows for every core A-G (spec awaiting owner review).
 
 ## Former paths
 
