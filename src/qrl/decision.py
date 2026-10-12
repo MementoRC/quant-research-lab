@@ -10,6 +10,7 @@ unseal_holdout=True)` is never called.
 from __future__ import annotations
 
 import inspect
+from dataclasses import asdict
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,7 @@ from .periods import period_bounds
 from .portfolio import combine_portfolio
 from .strategies import REGISTRY
 from .stress import Cell, PortfolioDef, StressConfig, run_stress
+from .true_cash import cash_leg_returns, mix_returns
 
 FULL = {"core": 1.0, "sleeve": 0.0}  # 100% of capital, empty sleeve (as benchmark_metrics)
 _NO_CAP = 1.0  # cells carry losses only; this report compares, it tests no cap
@@ -218,12 +220,70 @@ def portfolio_returns(
     return result.returns.loc[start:]
 
 
+def assumption_returns(
+    cfg: DecisionConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    start: pd.Timestamp,
+    cost_bps: float,
+) -> pd.Series | None:
+    """Daily returns of the cash-assumption row (spec:
+    docs/methodology/true-cash-sleeve.md): the base portfolio's
+    `portfolio_returns`, unchanged, mixed daily with a cash leg earning CPI
+    inflation plus real_yield. `data` and `cpi` must already be cut at the
+    data end. None without a cash_assumption; raises ValueError if its base
+    is not among the portfolios."""
+    ca = cfg.cash_assumption
+    if ca is None:
+        return None
+    by_id = {p.id: p for p in cfg.portfolios}
+    if ca.base not in by_id:
+        raise ValueError(f"cash_assumption base {ca.base!r} is not among the portfolios")
+    base = portfolio_returns(by_id[ca.base], data, start, cost_bps)
+    cash = cash_leg_returns(
+        pd.DatetimeIndex(base.index), pd.DatetimeIndex(data["close"].index), cpi, ca.real_yield
+    )
+    return mix_returns(base, cash, ca.cash_share)
+
+
+def _withdrawal_rows_for(
+    pid: str, paths: dict[int, pd.Series], cfg: DecisionConfig, cpi: pd.Series
+) -> list[dict]:
+    """One row per withdrawal rate for row `pid`: the first start year's path
+    metrics, the worst start year by real ending value, and every start
+    year's metrics. `paths` maps start year to daily returns; `cpi` is
+    already cut at the data end."""
+    rows: list[dict] = []
+    for rate in cfg.rates:
+        per_year: dict[int, dict] = {}
+        for year, returns in paths.items():
+            last = pd.DatetimeIndex(returns.index)[-1]
+            monthly = monthly_withdrawals(rate, year, last.year, cpi)
+            per_year[year] = path_metrics(withdrawal_path(returns, monthly), cpi)
+        first = min(per_year)
+        worst_real, worst_year = min((m["end_real"], y) for y, m in per_year.items())
+        rows.append(
+            {
+                "portfolio": pid,
+                "rate": rate,
+                "first_year": first,
+                "first": per_year[first],
+                "worst_year": worst_year,
+                "worst_end_real": worst_real,
+                "per_year": per_year,
+            }
+        )
+    return rows
+
+
 def withdrawal_rows(
     cfg: DecisionConfig, data: dict[str, pd.DataFrame], cpi: pd.Series, criteria: dict
 ) -> list[dict]:
-    """Per portfolio and rate: the first start year's path metrics, the worst
-    start year by real ending value, and every start year's metrics. Price
-    and CPI (availability-dated) frames are cut at the data end first."""
+    """Per portfolio and rate, then the cash-assumption row if the config has
+    one (spec: docs/methodology/true-cash-sleeve.md): the first start year's
+    path metrics, the worst start year by real ending value, and every start
+    year's metrics. Price and CPI (availability-dated) frames are cut at the
+    data end first."""
     end = data_end(criteria)
     cut = {k: v.loc[:end] for k, v in data.items()}
     known_cpi = cpi.loc[:end]
@@ -232,25 +292,15 @@ def withdrawal_rows(
     rows: list[dict] = []
     for p in cfg.portfolios:
         paths = {year: portfolio_returns(p, cut, day, cost_bps) for year, day in starts.items()}
-        for rate in cfg.rates:
-            per_year: dict[int, dict] = {}
-            for year, returns in paths.items():
-                last = pd.DatetimeIndex(returns.index)[-1]
-                monthly = monthly_withdrawals(rate, year, last.year, known_cpi)
-                per_year[year] = path_metrics(withdrawal_path(returns, monthly), known_cpi)
-            first = min(per_year)
-            worst_real, worst_year = min((m["end_real"], y) for y, m in per_year.items())
-            rows.append(
-                {
-                    "portfolio": p.id,
-                    "rate": rate,
-                    "first_year": first,
-                    "first": per_year[first],
-                    "worst_year": worst_year,
-                    "worst_end_real": worst_real,
-                    "per_year": per_year,
-                }
-            )
+        rows += _withdrawal_rows_for(p.id, paths, cfg, known_cpi)
+    ca = cfg.cash_assumption
+    if ca is not None:
+        assumed: dict[int, pd.Series] = {}
+        for year, day in starts.items():
+            row = assumption_returns(cfg, cut, known_cpi, day, cost_bps)
+            if row is not None:  # always, given ca; narrows the type for mypy
+                assumed[year] = row
+        rows += _withdrawal_rows_for(ca.id, assumed, cfg, known_cpi)
     return rows
 
 
@@ -265,21 +315,33 @@ def research_start(index: pd.DatetimeIndex, criteria: dict) -> pd.Timestamp:
     return pd.Timestamp(after[0])
 
 
-def return_rows(cfg: DecisionConfig, data: dict[str, pd.DataFrame], criteria: dict) -> list[dict]:
+def return_rows(
+    cfg: DecisionConfig,
+    data: dict[str, pd.DataFrame],
+    criteria: dict,
+    cpi: pd.Series | None = None,
+) -> list[dict]:
     """Research-period return per portfolio, in config order (spec:
-    docs/methodology/defensive-sleeve.md): bought at the first research
-    trading day, held to the data end with no withdrawals, paying criteria
-    cost_bps. CAGR and max drawdown (positive) from `qrl.metrics.compute_metrics`.
-    `lost_return` is A's CAGR minus the portfolio's, in CAGR units (0.01 = one
-    percentage point); None without portfolio A. Frames are cut at the data
-    end first."""
+    docs/methodology/defensive-sleeve.md), then the cash-assumption row if
+    the config has one (docs/methodology/true-cash-sleeve.md; it needs
+    `cpi`): bought at the first research trading day, held to the data end
+    with no withdrawals, paying criteria cost_bps. CAGR and max drawdown
+    (positive) from `qrl.metrics.compute_metrics`. `lost_return` is A's CAGR
+    minus the row's, in CAGR units (0.01 = one percentage point); None
+    without portfolio A. Price and CPI frames are cut at the data end first."""
     end = data_end(criteria)
+    ca = cfg.cash_assumption
+    if ca is not None and cpi is None:
+        raise ValueError(f"return_rows: the cash_assumption row {ca.id} needs `cpi`")
     cut = {k: v.loc[:end] for k, v in data.items()}
     first = research_start(pd.DatetimeIndex(cut["close"].index), criteria)
     cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
-    metrics = {
-        p.id: compute_metrics(portfolio_returns(p, cut, first, cost_bps)) for p in cfg.portfolios
-    }
+    series = {p.id: portfolio_returns(p, cut, first, cost_bps) for p in cfg.portfolios}
+    if ca is not None and cpi is not None:
+        row = assumption_returns(cfg, cut, cpi.loc[:end], first, cost_bps)
+        if row is not None:  # always, given ca; narrows the type for mypy
+            series[ca.id] = row
+    metrics = {pid: compute_metrics(r) for pid, r in series.items()}
     base = metrics["A"]["cagr"] if "A" in metrics else None
     return [
         {
@@ -360,5 +422,6 @@ def run_decision(
         "scenario_rows": scenario_rows(cfg.portfolios, cfg.scenarios),
         "withdrawals": withdrawal_rows(cfg, data, cpi, criteria),
         "year_one": year_one_rows(cfg.portfolios, cfg.scenarios, cfg.rates),
-        "returns": return_rows(cfg, data, criteria),
+        "returns": return_rows(cfg, data, criteria, cpi),
+        "cash_assumption": None if cfg.cash_assumption is None else asdict(cfg.cash_assumption),
     }

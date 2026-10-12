@@ -3,12 +3,13 @@
 A decision aid for deploying savings while withdrawing for income. It compares a fixed set of portfolios; it selects nothing and recommends nothing. Spec: docs/methodology/decision-helper.md.
 
 - data: up to 2018-12-31 only (validation and holdout stay sealed)
-- decision.yaml sha256: `fc144fb5299440c3e1340b11867680a30517a5f985639c92e9fe78294cd29193`
+- decision.yaml sha256: `7b0d96a47a16f44562286358d05b6b90749d05c1b9ced8f73ad86323dc026774`
 - core_candidates.yaml sha256: `1a84847ed4ae59e81627c420b88f7736357f0bdc0bcb654a945c5d2ad88107e3` (read unchanged)
 - stress.yaml sha256: `edd4b0853cc1b9a832111e74690e0c408ef89632002e1cbcfca7594c081cc682` (read unchanged)
-- multiple comparisons: 7 in the core comparison, 21 here (A-G again plus 14 new); the more portfolios compared, the likelier the best-looking one is luck
+- multiple comparisons: 7 in the core comparison, 22 here (A-G again plus 15 new); the more portfolios compared, the likelier the best-looking one is luck
 - of the 21 portfolios here, 4 are by-product rows, each a sleeve held alone (IEF, TLT, RSP, BONDS); only the 5 A80 rows (A80-CASH20, A80-IEF20, A80-TLT20, A80-BONDS20, A80-RSP20) answer the defensive-sleeve question (docs/methodology/defensive-sleeve.md)
 - CASH here is SHY, not true cash: SHY's near-zero 2009-2015 yields make the A80-CASH20 baseline look worse than cash at today's rates
+- A80-TCASH20 (80% A + 20% cash at +1% real (assumption)) is an assumption row, not a fund: 20.0% cash earning each month's inflation plus 1.0% a year, the long-run report's CASH +1% real assumption, shown to answer the SHY caveat above. It is comparison 22 but not one of the 21 portfolios. Its cash leg and its daily return to 80/20 pay no trading cost, while A80-CASH20 pays 5 bps per unit of turnover on its rebalancing, a small difference in the assumption row's favour.
 - scenarios are judgement-based, v1: owner-set what-ifs, not forecasts
 
 ## Notes
@@ -20,6 +21,7 @@ A decision aid for deploying savings while withdrawing for income. It compares a
 - Known gap: no portfolio holds an asset that gains from a falling dollar other than gold.
 - Prices are dividend-adjusted, so totals are correct; dividend and interest income is not separated from sales.
 - All figures are percentages: of capital for losses, of the starting value for withdrawal paths.
+- A80-TCASH20 appears only in the research-period return and withdrawal tables: the historical windows and the judgement-based scenarios have no cash return to give it. In `dotcom_2000` SHY is already replaced by cash at 0%, so the row would equal A80-CASH20 there; in `gfc_2008` A80-CASH20 uses SHY's actual prices; the scenarios set SHY's one-year return by judgement and set none for cash; the year-one table is built from the scenarios.
 
 ## Portfolios (100% of capital)
 
@@ -85,6 +87,7 @@ Each portfolio bought on the first trading day of the research period and held t
 | A80-TLT20 | 7.5% | 25.3% | -0.2 pp |
 | A80-BONDS20 | 7.0% | 25.4% | 0.3 pp |
 | A80-RSP20 | 7.7% | 29.8% | -0.5 pp |
+| A80-TCASH20 | 6.7% | 24.6% | 0.6 pp |
 
 ## Historical windows
 
@@ -318,6 +321,7 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 | A80-TLT20 | 157.5% | 71.4% | 28.6% | 57 months | yes | no | 2014 (135.9%) |
 | A80-BONDS20 | 146.4% | 71.3% | 28.7% | 58 months | yes | no | 2014 (131.1%) |
 | A80-RSP20 | 162.0% | 64.3% | 35.7% | 59 months | yes | no | 2014 (134.7%) |
+| A80-TCASH20 | 139.3% | 70.9% | 29.1% | 59 months | yes | no | 2014 (129.5%) |
 
 ### Withdrawal rate 3.3% per year
 
@@ -344,6 +348,7 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 | A80-TLT20 | 124.5% | 67.7% | 32.3% | 63 months | yes | no | 2005 (124.5%) |
 | A80-BONDS20 | 114.7% | 66.9% | 33.1% | 63 months | yes | no | 2005 (114.7%) |
 | A80-RSP20 | 127.5% | 60.0% | 40.0% | 63 months | yes | no | 2014 (127.0%) |
+| A80-TCASH20 | 108.1% | 66.1% | 33.9% | 103 months | yes | no | 2005 (108.1%) |
 
 ### Withdrawal rate 4.0% per year
 
@@ -370,6 +375,7 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 | A80-TLT20 | 106.8% | 65.0% | 35.0% | 79 months | yes | no | 2005 (106.8%) |
 | A80-BONDS20 | 97.6% | 64.3% | 35.7% | 105 months | yes | no | 2005 (97.6%) |
 | A80-RSP20 | 108.9% | 57.7% | 42.3% | 104 months | yes | no | 2005 (108.9%) |
+| A80-TCASH20 | 91.3% | 63.6% | 36.4% | 109 months | yes | no | 2005 (91.3%) |
 
 ### Withdrawal rate 5.0% per year
 
@@ -396,6 +402,7 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 | A80-TLT20 | 81.4% | 61.3% | 38.7% | 115 months | yes | no | 2005 (81.4%) |
 | A80-BONDS20 | 73.2% | 60.6% | 39.4% | 121 months | yes | no | 2005 (73.2%) |
 | A80-RSP20 | 82.4% | 54.4% | 45.6% | 114 months | yes | no | 2005 (82.4%) |
+| A80-TCASH20 | 67.4% | 59.9% | 40.1% | 162 months | yes | no | 2005 (67.4%) |
 
 ## Year-one scenario hit
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import itertools
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,8 @@ _KEYS = frozenset(
         "start_years",
     }
 )
+_CASH_KEYS = frozenset({"id", "label", "base", "cash_share", "real_yield"})
+MAX_REAL_YIELD = 0.05  # |real_yield| bound of the cash assumption (inclusive)
 
 
 @dataclass(frozen=True)
@@ -61,6 +64,19 @@ class Scenario:
 
 
 @dataclass(frozen=True)
+class CashAssumption:
+    """An assumption row, not a portfolio (spec:
+    docs/methodology/true-cash-sleeve.md): `base` held at 1 - cash_share plus
+    cash earning each month's CPI inflation and `real_yield` a year."""
+
+    id: str
+    label: str
+    base: str
+    cash_share: float
+    real_yield: float
+
+
+@dataclass(frozen=True)
 class DecisionConfig:
     portfolios: list[Portfolio]
     windows: list[Window]
@@ -71,6 +87,7 @@ class DecisionConfig:
     candidate_count: int
     candidates_sha256: str
     sha256: str
+    cash_assumption: CashAssumption | None = None
 
 
 def portfolio_states(p: Portfolio) -> dict[str, dict[str, float]]:
@@ -181,6 +198,28 @@ def _portfolios(cands: list[Candidate], static: list, blends: list) -> list[Port
     return list(portfolios.values())
 
 
+def _cash_assumption(doc: dict, ids: set[str]) -> CashAssumption | None:
+    """The optional cash-assumption row (spec: docs/methodology/true-cash-sleeve.md):
+    a missing key gives None; a present key must be a valid mapping."""
+    if "cash_assumption" not in doc:
+        return None
+    e = _entry(doc["cash_assumption"], set(_CASH_KEYS), "cash_assumption")
+    cid, base = str(e["id"]), str(e["base"])
+    if cid in ids:
+        raise ValueError(f"cash_assumption id {cid!r} is already a portfolio id")
+    if base not in ids:
+        raise ValueError(f"cash_assumption base {base!r} is not a portfolio id")
+    share, real_yield = float(e["cash_share"]), float(e["real_yield"])
+    if not 0 < share < 1:
+        raise ValueError(f"cash_assumption cash_share {share} must be strictly between 0 and 1")
+    if not (math.isfinite(real_yield) and abs(real_yield) <= MAX_REAL_YIELD):
+        raise ValueError(
+            f"cash_assumption real_yield {real_yield} must be finite and within "
+            f"-{MAX_REAL_YIELD}..{MAX_REAL_YIELD}"
+        )
+    return CashAssumption(cid, str(e["label"]), base, share, real_yield)
+
+
 def _scenario(raw: object, held: set[str]) -> Scenario:
     keys = {"name", "label", "returns", "inflation"}
     if not isinstance(raw, dict) or not raw.keys() >= keys or not isinstance(raw["returns"], dict):
@@ -251,7 +290,10 @@ def load_decision_config(
     sha256 mismatch, a bad or duplicate id, a portfolio not at 100% of
     capital, an unknown blend component, a scenario missing a held fund or
     with a return/inflation <= -1, a duplicate scenario name, an unknown
-    window, or a window or start year past `end`."""
+    window, or a window or start year past `end`, or an invalid optional
+    `cash_assumption` (not a mapping, a missing key, a bad or duplicate id, an
+    unknown base, a cash_share not in (0, 1), a real_yield not finite or beyond
+    +/-0.05)."""
     raw = Path(path).read_bytes()
     try:
         doc = yaml.safe_load(raw)
@@ -279,4 +321,5 @@ def load_decision_config(
         candidate_count=len(cands),
         candidates_sha256=cand_hash,
         sha256=hashlib.sha256(raw).hexdigest(),
+        cash_assumption=_cash_assumption(doc, {p.id for p in portfolios}),
     )

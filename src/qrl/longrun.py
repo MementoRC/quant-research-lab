@@ -1,9 +1,11 @@
 """Long-run withdrawals (spec: docs/methodology/longrun.md): 30-year paths
 built by a paired circular block bootstrap of 2005-2018 calendar months, for
 the decision helper's portfolios plus a labelled CASH +1% real assumption
-row. It compares; it selects and recommends nothing. Pure functions; callers
-inject data and configs. Every frame is cut at the research end (2018-12-31)
-before use, so validation and holdout data never enter.
+row, and the decision helper's optional cash-assumption row
+(docs/methodology/true-cash-sleeve.md). It compares; it selects and recommends
+nothing. Pure functions; callers inject data and configs. Every frame is cut at
+the research end (2018-12-31) before use, so validation and holdout data never
+enter.
 """
 
 from __future__ import annotations
@@ -16,9 +18,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from .decision import data_end, portfolio_returns
+from .decision import assumption_returns, data_end, portfolio_returns
 from .decision_config import DecisionConfig
-from .decision_withdraw import usable_cpi
+from .decision_withdraw import monthly_inflation
 from .periods import period_bounds
 
 DEPLETED = 1e-9  # of the starting value: at or below, the path is empty (spec "Withdrawals")
@@ -84,6 +86,17 @@ def load_longrun_config(path: str | Path, decision_sha256: str) -> LongrunConfig
     )
 
 
+def check_cash_assumption(lcfg: LongrunConfig, dcfg: DecisionConfig) -> None:
+    """Spec docs/methodology/true-cash-sleeve.md: decision.yaml's cash_assumption
+    must use longrun.yaml's cash_real_yield (exact equality). No-op without one."""
+    ca = dcfg.cash_assumption
+    if ca is not None and ca.real_yield != lcfg.cash_real_yield:
+        raise ValueError(
+            f"decision.yaml cash_assumption real_yield {ca.real_yield} differs from "
+            f"longrun.yaml cash_real_yield {lcfg.cash_real_yield}"
+        )
+
+
 def monthly_returns(daily: pd.Series) -> pd.Series:
     """Daily net returns compounded to calendar-month returns, indexed by
     monthly Period. Refuses any NaN (a NaN is never turned into cash)."""
@@ -92,19 +105,6 @@ def monthly_returns(daily: pd.Series) -> pd.Series:
         raise ValueError(f"NaN return on {bad.date()}")
     months = pd.DatetimeIndex(daily.index).to_period("M")
     return (1.0 + daily).groupby(months).prod() - 1.0
-
-
-def monthly_inflation(cpi: pd.Series, months: pd.PeriodIndex) -> pd.Series:
-    """Inflation of each month m: usable CPI on m's last calendar day over
-    usable CPI on (m-1)'s last calendar day, minus 1 (`usable_cpi`'s
-    availability rule; raises "missing CPI" if none is usable). Calendar month
-    ends, not trading days: spec amendment 2026-10-08."""
-
-    def end(p: pd.Period) -> pd.Timestamp:
-        return p.to_timestamp(how="end").normalize()
-
-    out = [usable_cpi(cpi, end(m)) / usable_cpi(cpi, end(m - 1)) - 1.0 for m in months]
-    return pd.Series(out, index=months, dtype=float)
 
 
 def block_starts(seed: int, n_paths: int, n_blocks: int, n_months: int) -> np.ndarray:
@@ -190,6 +190,32 @@ CASH_ID = "CASH"
 CASH_ASSUMPTION = "CASH +1% real (assumption)"
 
 
+def _assumption_monthly(
+    dcfg: DecisionConfig,
+    cut: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    first: pd.Timestamp,
+    cost_bps: float,
+) -> dict[str, pd.Series]:
+    """The cash-assumption row's calendar-month returns, keyed by its id (spec:
+    docs/methodology/true-cash-sleeve.md); empty without one."""
+    ca = dcfg.cash_assumption
+    row = assumption_returns(dcfg, cut, cpi, first, cost_bps)
+    if ca is None or row is None:
+        return {}
+    return {ca.id: monthly_returns(row)}
+
+
+def _cash_keys(dcfg: DecisionConfig) -> dict:
+    """Report fields of the cash-assumption row (None without one)."""
+    ca = dcfg.cash_assumption
+    return {
+        "cash_assumption_id": None if ca is None else ca.id,
+        "cash_assumption_base": None if ca is None else ca.base,
+        "cash_assumption_share": None if ca is None else ca.cash_share,
+    }
+
+
 def run_longrun(
     lcfg: LongrunConfig,
     dcfg: DecisionConfig,
@@ -200,6 +226,7 @@ def run_longrun(
     """The whole report as plain data (rendered by `qrl.longrun_report`).
     Price and CPI frames are cut at the research end first. Raises
     ValueError on any refusal (spec "Refusals")."""
+    check_cash_assumption(lcfg, dcfg)
     end = data_end(criteria)
     begin, _ = period_bounds(criteria, "research")
     if begin is None:
@@ -215,6 +242,7 @@ def run_longrun(
     monthly = {
         p.id: monthly_returns(portfolio_returns(p, cut, first, cost_bps)) for p in dcfg.portfolios
     }
+    monthly.update(_assumption_monthly(dcfg, cut, known_cpi, first, cost_bps))
     months = pd.PeriodIndex(next(iter(monthly.values())).index)
     for pid, series in monthly.items():
         if not series.index.equals(months):
@@ -261,5 +289,6 @@ def run_longrun(
         "longrun_sha256": lcfg.sha256,
         "decision_sha256": dcfg.sha256,
         "cost_bps": cost_bps,
+        **_cash_keys(dcfg),
         "rows": rows,
     }

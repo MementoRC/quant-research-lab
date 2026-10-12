@@ -36,6 +36,18 @@ blends:
   - {id: A80-BONDS20, label: "80% A + 20% BONDS", parts: {A: 0.8, BONDS: 0.2}}
   - {id: A80-RSP20, label: "80% A + 20% RSP", parts: {A: 0.8, RSP: 0.2}}
 
+# Amendment 2026-10-11 (owner-approved design, spec
+# docs/methodology/true-cash-sleeve.md): optional cash_assumption row
+# A80-TCASH20 added. It is not a portfolio: it never enters the windows,
+# scenarios or year-one tables. Existing entries unchanged; candidates_sha256
+# unchanged.
+cash_assumption:
+  id: A80-TCASH20
+  label: "80% A + 20% cash at +1% real (assumption)"
+  base: A
+  cash_share: 0.2
+  real_yield: 0.01
+
 # Historical windows, by name, from config/stress.yaml (read, never edited).
 windows: [dotcom_2000, gfc_2008]
 

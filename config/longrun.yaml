@@ -9,8 +9,10 @@
 # checked on load.
 # Amendment 2026-10-10: decision_sha256 re-pinned after the defensive-sleeve
 # blends were added (docs/methodology/defensive-sleeve.md). No other key changed.
+# Amendment 2026-10-11: decision_sha256 re-pinned after the true-cash
+# assumption row was added (docs/methodology/true-cash-sleeve.md). No other key changed.
 version: 1
-decision_sha256: "fc144fb5299440c3e1340b11867680a30517a5f985639c92e9fe78294cd29193"
+decision_sha256: "7b0d96a47a16f44562286358d05b6b90749d05c1b9ced8f73ad86323dc026774"
 
 seed: 20261008
 n_paths: 10000

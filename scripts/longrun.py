@@ -24,7 +24,7 @@ from qrl.data import load_ohlcv  # noqa: E402
 from qrl.decision import data_end, portfolio_tickers  # noqa: E402
 from qrl.decision_config import load_decision_config  # noqa: E402
 from qrl.decision_withdraw import CPI_SERIES  # noqa: E402
-from qrl.longrun import load_longrun_config, run_longrun  # noqa: E402
+from qrl.longrun import check_cash_assumption, load_longrun_config, run_longrun  # noqa: E402
 from qrl.longrun_report import render_markdown  # noqa: E402
 from qrl.macro import load_macro  # noqa: E402
 from qrl.periods import period_bounds  # noqa: E402
@@ -46,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
             args.config, ROOT / "config" / "core_candidates.yaml", stress_cfg, data_end(criteria)
         )
         lcfg = load_longrun_config(args.longrun_config, cfg.sha256)
+        check_cash_assumption(lcfg, cfg)
         tickers = sorted({EQUITY_PROXY} | {t for p in cfg.portfolios for t in portfolio_tickers(p)})
         # refresh=False: the cache is shared with other runs, so only tickers not
         # yet cached are fetched; the 2018-12-31 cut makes newer bars moot
