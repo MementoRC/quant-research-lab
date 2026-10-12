@@ -4,7 +4,7 @@ Status: spec written 2026-10-12, owner-approved design and spec 2026-10-12.
 Owner choices
 (2026-10-12): every core B-G, each with a SHY pair, 20% share, +1% real.
 Extends [true-cash-sleeve.md](true-cash-sleeve.md) and
-[defensive-sleeve.md](defensive-sleeve.md).
+[defensive-sleeve.md](defensive-sleeve.md). Run 2026-10-12 (branch feature/true-cash-all-cores): results in research/decision.md and research/longrun.md.
 
 ## Question
 
