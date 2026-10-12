@@ -83,6 +83,21 @@ cash_assumption:
   real_yield: 0.01
 """
 GOOD_TCASH = GOOD_SLEEVE.replace("windows:", TCASH_BLOCK + "windows:", 1)
+# Amendment 2026-10-12 (docs/methodology/true-cash-all-cores.md, owner-approved):
+# GOOD_SLEEVE plus the six X80-CASH20 blends and the cash_assumptions list
+# mirrors the shipped config/decision.yaml.
+TCASH_ALL_BLENDS = "".join(
+    f'  - {{id: {x}80-CASH20, label: "80% {x} + 20% CASH", parts: {{{x}: 0.8, CASH: 0.2}}}}\n'
+    for x in "BCDEFG"
+)
+TCASH_ALL_BLOCK = "cash_assumptions:\n" + "".join(
+    f'  - {{id: {x}80-TCASH20, label: "80% {x} + 20% cash at +1% real (assumption)",\n'
+    f"     base: {x}, cash_share: 0.2, real_yield: 0.01, pair: {x}80-CASH20}}\n"
+    for x in "ABCDEFG"
+)
+GOOD_TCASH_ALL = GOOD_SLEEVE.replace("windows:", TCASH_ALL_BLENDS + "windows:", 1).replace(
+    "windows:", TCASH_ALL_BLOCK + "windows:", 1
+)
 
 
 def criteria() -> dict:

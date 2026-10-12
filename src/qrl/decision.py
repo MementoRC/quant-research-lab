@@ -10,13 +10,12 @@ unseal_holdout=True)` is never called.
 from __future__ import annotations
 
 import inspect
-from dataclasses import asdict
 
 import numpy as np
 import pandas as pd
 
 from .core_compare import Build, candidate_weights
-from .decision_config import DecisionConfig, Portfolio, Scenario, portfolio_states
+from .decision_config import CashAssumption, DecisionConfig, Portfolio, Scenario, portfolio_states
 from .decision_withdraw import monthly_withdrawals, path_metrics, withdrawal_path
 from .engine import run_backtest
 from .metrics import compute_metrics
@@ -236,6 +235,23 @@ def assumption_returns(
     ca = cfg.cash_assumption
     if ca is None:
         return None
+    return _row_returns(ca, cfg, data, cpi, start, cost_bps)
+
+
+def cash_rows(cfg: DecisionConfig) -> tuple[CashAssumption, ...]:
+    """The cash-assumption rows in A-G order (spec:
+    docs/methodology/true-cash-all-cores.md); none when `cash_assumption` is None."""
+    return cfg.cash_assumptions if cfg.cash_assumption is not None else ()
+
+
+def _row_returns(
+    ca: CashAssumption,
+    cfg: DecisionConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    start: pd.Timestamp,
+    cost_bps: float,
+) -> pd.Series:
     by_id = {p.id: p for p in cfg.portfolios}
     if ca.base not in by_id:
         raise ValueError(f"cash_assumption base {ca.base!r} is not among the portfolios")
@@ -244,6 +260,18 @@ def assumption_returns(
         pd.DatetimeIndex(base.index), pd.DatetimeIndex(data["close"].index), cpi, ca.real_yield
     )
     return mix_returns(base, cash, ca.cash_share)
+
+
+def all_assumption_returns(
+    cfg: DecisionConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    start: pd.Timestamp,
+    cost_bps: float,
+) -> dict[str, pd.Series]:
+    """Daily returns of every cash-assumption row, keyed by id in A-G order
+    (empty without any); each as `assumption_returns` computes one."""
+    return {ca.id: _row_returns(ca, cfg, data, cpi, start, cost_bps) for ca in cash_rows(cfg)}
 
 
 def _withdrawal_rows_for(
@@ -293,13 +321,12 @@ def withdrawal_rows(
     for p in cfg.portfolios:
         paths = {year: portfolio_returns(p, cut, day, cost_bps) for year, day in starts.items()}
         rows += _withdrawal_rows_for(p.id, paths, cfg, known_cpi)
-    ca = cfg.cash_assumption
-    if ca is not None:
-        assumed: dict[int, pd.Series] = {}
-        for year, day in starts.items():
-            row = assumption_returns(cfg, cut, known_cpi, day, cost_bps)
-            if row is not None:  # always, given ca; narrows the type for mypy
-                assumed[year] = row
+    per_start = {
+        year: all_assumption_returns(cfg, cut, known_cpi, day, cost_bps)
+        for year, day in starts.items()
+    }
+    for ca in cash_rows(cfg):
+        assumed = {year: rets[ca.id] for year, rets in per_start.items()}
         rows += _withdrawal_rows_for(ca.id, assumed, cfg, known_cpi)
     return rows
 
@@ -330,17 +357,15 @@ def return_rows(
     minus the row's, in CAGR units (0.01 = one percentage point); None
     without portfolio A. Price and CPI frames are cut at the data end first."""
     end = data_end(criteria)
-    ca = cfg.cash_assumption
-    if ca is not None and cpi is None:
-        raise ValueError(f"return_rows: the cash_assumption row {ca.id} needs `cpi`")
+    rows = cash_rows(cfg)
+    if rows and cpi is None:
+        raise ValueError(f"return_rows: the cash_assumption row {rows[0].id} needs `cpi`")
     cut = {k: v.loc[:end] for k, v in data.items()}
     first = research_start(pd.DatetimeIndex(cut["close"].index), criteria)
     cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
     series = {p.id: portfolio_returns(p, cut, first, cost_bps) for p in cfg.portfolios}
-    if ca is not None and cpi is not None:
-        row = assumption_returns(cfg, cut, cpi.loc[:end], first, cost_bps)
-        if row is not None:  # always, given ca; narrows the type for mypy
-            series[ca.id] = row
+    if cpi is not None:
+        series.update(all_assumption_returns(cfg, cut, cpi.loc[:end], first, cost_bps))
     metrics = {pid: compute_metrics(r) for pid, r in series.items()}
     base = metrics["A"]["cagr"] if "A" in metrics else None
     return [
@@ -400,6 +425,7 @@ def run_decision(
 ) -> dict:
     """The whole report as plain data (rendered by `qrl.decision_report`).
     Raises ValueError on any refusal (spec "Refusals")."""
+    rows = cash_rows(cfg)
     return {
         "data_end": str(data_end(criteria).date()),
         "decision_sha256": cfg.sha256,
@@ -423,5 +449,16 @@ def run_decision(
         "withdrawals": withdrawal_rows(cfg, data, cpi, criteria),
         "year_one": year_one_rows(cfg.portfolios, cfg.scenarios, cfg.rates),
         "returns": return_rows(cfg, data, criteria, cpi),
-        "cash_assumption": None if cfg.cash_assumption is None else asdict(cfg.cash_assumption),
+        "cash_assumption": _cash_fields(rows[0]) if len(rows) == 1 else None,
+        "cash_assumptions": [{**_cash_fields(ca), "pair": ca.pair} for ca in rows],
+    }
+
+
+def _cash_fields(ca: CashAssumption) -> dict:
+    return {
+        "id": ca.id,
+        "label": ca.label,
+        "base": ca.base,
+        "cash_share": ca.cash_share,
+        "real_yield": ca.real_yield,
     }

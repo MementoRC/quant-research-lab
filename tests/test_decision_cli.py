@@ -11,7 +11,7 @@ from decision_helpers import (
     CANDIDATES,
     END,
     GOOD,
-    GOOD_TCASH,
+    GOOD_TCASH_ALL,
     ROOT,
     YEARS_LINE,
     cpi,
@@ -47,6 +47,12 @@ def test_decision_shipped_config_loads():
         "A80-TLT20",
         "A80-BONDS20",
         "A80-RSP20",
+        "B80-CASH20",
+        "C80-CASH20",
+        "D80-CASH20",
+        "E80-CASH20",
+        "F80-CASH20",
+        "G80-CASH20",
     ]
     assert [s.name for s in cfg.scenarios] == [
         "treasury_dollar_crisis",
@@ -94,7 +100,7 @@ def test_decision_shipped_config_tripwire():
 
 
 def test_decision_shipped_config_matches_test_fixture(tmp_path):
-    assert replace(_shipped(), sha256="") == replace(load(tmp_path, GOOD_TCASH), sha256="")
+    assert replace(_shipped(), sha256="") == replace(load(tmp_path, GOOD_TCASH_ALL), sha256="")
 
 
 def test_decision_pixi_task():

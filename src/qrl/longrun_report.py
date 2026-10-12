@@ -3,7 +3,7 @@ docs/methodology/longrun.md, "Outputs"). Percentages only."""
 
 from __future__ import annotations
 
-from .decision_report import BY_PRODUCT_IDS, SLEEVE_PREFIX, _pct, _split
+from .decision_report import BY_PRODUCT_IDS, SLEEVE_PREFIX, _pct, _span, _split
 from .longrun import CASH_ASSUMPTION
 
 _COLS = (
@@ -18,16 +18,39 @@ _COLS = (
 )
 
 
+def _rows(r: dict) -> list[dict]:
+    """The `cash_assumptions` list (spec: docs/methodology/true-cash-all-cores.md);
+    a missing key counts as empty."""
+    rows: list[dict] = r.get("cash_assumptions") or []
+    return rows
+
+
 def _sleeve_note(r: dict) -> list[str]:
     """Which rows answer the defensive-sleeve question; nothing without A80 rows.
     The cash-assumption row (docs/methodology/true-cash-sleeve.md) is named as
     an assumption row, not counted as an A80 row; a missing key counts as None."""
     names = list(dict.fromkeys(row["portfolio"] for row in r["rows"]))
     cash_id = r.get("cash_assumption_id")
-    sleeves = [n for n in names if n.startswith(SLEEVE_PREFIX) and n != cash_id]
+    rows = _rows(r)
+    sleeves = [
+        n
+        for n in names
+        if n.startswith(SLEEVE_PREFIX) and n != cash_id and n not in {x["id"] for x in rows}
+    ]
     if not sleeves:
         return []
     extra = [n for n in names if n in BY_PRODUCT_IDS]
+    if len(rows) > 1:
+        pairs = [x for x in rows if x.get("pair")]
+        return [
+            f"- {len(names)} rows per withdrawal rate, including the {CASH_ASSUMPTION} "
+            f"row, {len(rows)} assumption rows ({_span([x['id'] for x in rows])}) and "
+            f"{len(extra)} by-product rows ({', '.join(extra)}); only the {len(sleeves)} A80 "
+            "rows answer the defensive-sleeve question "
+            f"(docs/methodology/defensive-sleeve.md); the {len(pairs)} X80-CASH20 rows and "
+            f"the {len(rows)} assumption rows answer the true-cash question "
+            "(docs/methodology/true-cash-all-cores.md)"
+        ]
     assumption = f", the {cash_id} assumption row" if cash_id else ""
     return [
         f"- {len(names)} rows per withdrawal rate, including the {CASH_ASSUMPTION} "
@@ -37,8 +60,26 @@ def _sleeve_note(r: dict) -> list[str]:
     ]
 
 
+def _multi_assumption_note(r: dict, rows: list[dict]) -> list[str]:
+    share = rows[0]["share"]
+    pairs = [f"{x['id']} with {x['pair']}" for x in rows if x.get("pair")]
+    pair_text = f" ({', '.join(pairs)})" if pairs else ""
+    return [
+        f"- {_span([x['id'] for x in rows])}: assumptions, not history. Each is "
+        f"{_pct(1 - share)} of its own core plus {_pct(share)} cash earning each month's "
+        f"inflation plus {_pct(r['cash_real_yield'])} a year, rebalanced daily; every real "
+        "yield is checked equal to the CASH +1% real row's. The cash legs and the daily "
+        f"returns to {_split(share)} pay no trading cost, while each row's SHY pair{pair_text} "
+        f"pays {r['cost_bps']:g} bps per unit traded on its rebalancing, a small difference "
+        "in the assumption rows' favour."
+    ]
+
+
 def _assumption_note(r: dict) -> list[str]:
     """The cash-assumption row is an assumption, not history; nothing without it."""
+    rows = _rows(r)
+    if len(rows) > 1:
+        return _multi_assumption_note(r, rows)
     cash_id = r.get("cash_assumption_id")
     if not cash_id:
         return []

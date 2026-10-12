@@ -76,7 +76,7 @@ def test_shipped_a80_blends_hold_80_percent_a_and_20_percent_sleeve():
 
 def test_shipped_decision_config_counts_21_portfolios_with_five_a80_rows():
     ids = [p.id for p in _shipped().portfolios]
-    assert len(ids) == 21
+    assert len(ids) == 27
     assert [i for i in ids if i.startswith("A80-")] == A80
 
 

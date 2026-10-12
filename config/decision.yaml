@@ -35,18 +35,39 @@ blends:
   - {id: A80-TLT20, label: "80% A + 20% TLT", parts: {A: 0.8, TLT: 0.2}}
   - {id: A80-BONDS20, label: "80% A + 20% BONDS", parts: {A: 0.8, BONDS: 0.2}}
   - {id: A80-RSP20, label: "80% A + 20% RSP", parts: {A: 0.8, RSP: 0.2}}
+  - {id: B80-CASH20, label: "80% B + 20% CASH", parts: {B: 0.8, CASH: 0.2}}
+  - {id: C80-CASH20, label: "80% C + 20% CASH", parts: {C: 0.8, CASH: 0.2}}
+  - {id: D80-CASH20, label: "80% D + 20% CASH", parts: {D: 0.8, CASH: 0.2}}
+  - {id: E80-CASH20, label: "80% E + 20% CASH", parts: {E: 0.8, CASH: 0.2}}
+  - {id: F80-CASH20, label: "80% F + 20% CASH", parts: {F: 0.8, CASH: 0.2}}
+  - {id: G80-CASH20, label: "80% G + 20% CASH", parts: {G: 0.8, CASH: 0.2}}
 
 # Amendment 2026-10-11 (owner-approved design, spec
 # docs/methodology/true-cash-sleeve.md): optional cash_assumption row
 # A80-TCASH20 added. It is not a portfolio: it never enters the windows,
 # scenarios or year-one tables. Existing entries unchanged; candidates_sha256
 # unchanged.
-cash_assumption:
-  id: A80-TCASH20
-  label: "80% A + 20% cash at +1% real (assumption)"
-  base: A
-  cash_share: 0.2
-  real_yield: 0.01
+#
+# Amendment 2026-10-12 (owner-approved design, spec
+# docs/methodology/true-cash-all-cores.md): blends B80-CASH20 ... G80-CASH20
+# added; cash_assumption replaced by the list cash_assumptions, whose first
+# entry is the former A80-TCASH20 row unchanged plus its pair. Existing
+# portfolios unchanged; candidates_sha256 unchanged.
+cash_assumptions:
+  - {id: A80-TCASH20, label: "80% A + 20% cash at +1% real (assumption)",
+     base: A, cash_share: 0.2, real_yield: 0.01, pair: A80-CASH20}
+  - {id: B80-TCASH20, label: "80% B + 20% cash at +1% real (assumption)",
+     base: B, cash_share: 0.2, real_yield: 0.01, pair: B80-CASH20}
+  - {id: C80-TCASH20, label: "80% C + 20% cash at +1% real (assumption)",
+     base: C, cash_share: 0.2, real_yield: 0.01, pair: C80-CASH20}
+  - {id: D80-TCASH20, label: "80% D + 20% cash at +1% real (assumption)",
+     base: D, cash_share: 0.2, real_yield: 0.01, pair: D80-CASH20}
+  - {id: E80-TCASH20, label: "80% E + 20% cash at +1% real (assumption)",
+     base: E, cash_share: 0.2, real_yield: 0.01, pair: E80-CASH20}
+  - {id: F80-TCASH20, label: "80% F + 20% cash at +1% real (assumption)",
+     base: F, cash_share: 0.2, real_yield: 0.01, pair: F80-CASH20}
+  - {id: G80-TCASH20, label: "80% G + 20% cash at +1% real (assumption)",
+     base: G, cash_share: 0.2, real_yield: 0.01, pair: G80-CASH20}
 
 # Historical windows, by name, from config/stress.yaml (read, never edited).
 windows: [dotcom_2000, gfc_2008]

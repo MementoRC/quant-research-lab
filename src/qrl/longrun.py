@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from .decision import assumption_returns, data_end, portfolio_returns
+from .decision import all_assumption_returns, cash_rows, data_end, portfolio_returns
 from .decision_config import DecisionConfig
 from .decision_withdraw import monthly_inflation
 from .periods import period_bounds
@@ -89,12 +89,12 @@ def load_longrun_config(path: str | Path, decision_sha256: str) -> LongrunConfig
 def check_cash_assumption(lcfg: LongrunConfig, dcfg: DecisionConfig) -> None:
     """Spec docs/methodology/true-cash-sleeve.md: decision.yaml's cash_assumption
     must use longrun.yaml's cash_real_yield (exact equality). No-op without one."""
-    ca = dcfg.cash_assumption
-    if ca is not None and ca.real_yield != lcfg.cash_real_yield:
-        raise ValueError(
-            f"decision.yaml cash_assumption real_yield {ca.real_yield} differs from "
-            f"longrun.yaml cash_real_yield {lcfg.cash_real_yield}"
-        )
+    for ca in cash_rows(dcfg):
+        if ca.real_yield != lcfg.cash_real_yield:
+            raise ValueError(
+                f"decision.yaml cash_assumption {ca.id} real_yield {ca.real_yield} differs from "
+                f"longrun.yaml cash_real_yield {lcfg.cash_real_yield}"
+            )
 
 
 def monthly_returns(daily: pd.Series) -> pd.Series:
@@ -197,22 +197,24 @@ def _assumption_monthly(
     first: pd.Timestamp,
     cost_bps: float,
 ) -> dict[str, pd.Series]:
-    """The cash-assumption row's calendar-month returns, keyed by its id (spec:
-    docs/methodology/true-cash-sleeve.md); empty without one."""
-    ca = dcfg.cash_assumption
-    row = assumption_returns(dcfg, cut, cpi, first, cost_bps)
-    if ca is None or row is None:
-        return {}
-    return {ca.id: monthly_returns(row)}
+    """Every cash-assumption row's calendar-month returns, keyed by id in A-G
+    order (spec: docs/methodology/true-cash-all-cores.md); empty without any."""
+    rows = all_assumption_returns(dcfg, cut, cpi, first, cost_bps)
+    return {cid: monthly_returns(row) for cid, row in rows.items()}
 
 
 def _cash_keys(dcfg: DecisionConfig) -> dict:
-    """Report fields of the cash-assumption row (None without one)."""
-    ca = dcfg.cash_assumption
+    """Report fields of the cash-assumption rows: the list, and the scalar
+    id/base/share when there is exactly one row (None otherwise)."""
+    rows = cash_rows(dcfg)
+    one = rows[0] if len(rows) == 1 else None
     return {
-        "cash_assumption_id": None if ca is None else ca.id,
-        "cash_assumption_base": None if ca is None else ca.base,
-        "cash_assumption_share": None if ca is None else ca.cash_share,
+        "cash_assumptions": [
+            {"id": ca.id, "base": ca.base, "share": ca.cash_share, "pair": ca.pair} for ca in rows
+        ],
+        "cash_assumption_id": None if one is None else one.id,
+        "cash_assumption_base": None if one is None else one.base,
+        "cash_assumption_share": None if one is None else one.cash_share,
     }
 
 

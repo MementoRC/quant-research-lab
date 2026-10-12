@@ -82,9 +82,9 @@ def _shipped():
 
 def test_shipped_decision_config_carries_the_cash_assumption_outside_the_portfolios():
     cfg = _shipped()
-    assert cfg.cash_assumption == TCASH
+    assert cfg.cash_assumptions[0] == replace(TCASH, pair="A80-CASH20")
     ids = [p.id for p in cfg.portfolios]
-    assert len(ids) == 21
+    assert len(ids) == 27
     assert "A80-TCASH20" not in ids
 
 

@@ -74,6 +74,7 @@ class CashAssumption:
     base: str
     cash_share: float
     real_yield: float
+    pair: str | None = None  # id of the blend holding the same split in SHY
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,7 @@ class DecisionConfig:
     candidates_sha256: str
     sha256: str
     cash_assumption: CashAssumption | None = None
+    cash_assumptions: tuple[CashAssumption, ...] = ()
 
 
 def portfolio_states(p: Portfolio) -> dict[str, dict[str, float]]:
@@ -198,12 +200,26 @@ def _portfolios(cands: list[Candidate], static: list, blends: list) -> list[Port
     return list(portfolios.values())
 
 
-def _cash_assumption(doc: dict, ids: set[str]) -> CashAssumption | None:
-    """The optional cash-assumption row (spec: docs/methodology/true-cash-sleeve.md):
-    a missing key gives None; a present key must be a valid mapping."""
-    if "cash_assumption" not in doc:
-        return None
-    e = _entry(doc["cash_assumption"], set(_CASH_KEYS), "cash_assumption")
+def _check_pair(pair: str, base: str, share: float, portfolios: list[Portfolio]) -> None:
+    """`pair` must be a blend of exactly {base: 1 - share, CASH: share}."""
+    by_id = {p.id: p for p in portfolios}
+    p = by_id.get(pair)
+    if p is None:
+        raise ValueError(f"cash_assumption pair {pair!r} is not a portfolio id")
+    want = {base: 1.0 - share, "CASH": share}
+    got: dict[str, float] = {}
+    for cand, part in p.parts:
+        got[cand.id] = got.get(cand.id, 0.0) + part
+    if got.keys() != want.keys() or any(abs(got[k] - want[k]) > _EPS for k in want):
+        raise ValueError(
+            f"cash_assumption pair {pair!r} must be a blend of exactly "
+            f"{{{base}: {1.0 - share:g}, CASH: {share:g}}}"
+        )
+
+
+def _cash_row(raw: object, portfolios: list[Portfolio]) -> CashAssumption:
+    e = _entry(raw, set(_CASH_KEYS), "cash_assumption")
+    ids = {p.id for p in portfolios}
     cid, base = str(e["id"]), str(e["base"])
     if cid in ids:
         raise ValueError(f"cash_assumption id {cid!r} is already a portfolio id")
@@ -217,7 +233,34 @@ def _cash_assumption(doc: dict, ids: set[str]) -> CashAssumption | None:
             f"cash_assumption real_yield {real_yield} must be finite and within "
             f"-{MAX_REAL_YIELD}..{MAX_REAL_YIELD}"
         )
-    return CashAssumption(cid, str(e["label"]), base, share, real_yield)
+    pair = e.get("pair")
+    if pair is not None:
+        pair = str(pair)
+        _check_pair(pair, base, share, portfolios)
+    return CashAssumption(cid, str(e["label"]), base, share, real_yield, pair)
+
+
+def _cash_assumptions(doc: dict, portfolios: list[Portfolio]) -> tuple[CashAssumption, ...]:
+    """The optional cash-assumption rows (specs: docs/methodology/true-cash-sleeve.md,
+    true-cash-all-cores.md): the singular key gives one row, the list key a
+    non-empty list; both together are refused; neither gives ()."""
+    single, many = "cash_assumption" in doc, "cash_assumptions" in doc
+    if single and many:
+        raise ValueError("decision config has both `cash_assumption` and `cash_assumptions`")
+    if single:
+        return (_cash_row(doc["cash_assumption"], portfolios),)
+    if not many:
+        return ()
+    raw = doc["cash_assumptions"]
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("decision config `cash_assumptions` must be a non-empty list")
+    rows = tuple(_cash_row(r, portfolios) for r in raw)
+    for field in ("id", "base"):
+        values = [getattr(r, field) for r in rows]
+        dupes = sorted({v for v in values if values.count(v) > 1})
+        if dupes:
+            raise ValueError(f"duplicate cash_assumption {field}(s): {dupes}")
+    return rows
 
 
 def _scenario(raw: object, held: set[str]) -> Scenario:
@@ -311,6 +354,7 @@ def load_decision_config(
             f"decision.yaml pins {doc['candidates_sha256']}"
         )
     portfolios = _portfolios(cands, _list(doc, "static"), _list(doc, "blends"))
+    cash_rows = _cash_assumptions(doc, portfolios)
     return DecisionConfig(
         portfolios=portfolios,
         windows=_windows(_list(doc, "windows"), stress_cfg, end),
@@ -321,5 +365,6 @@ def load_decision_config(
         candidate_count=len(cands),
         candidates_sha256=cand_hash,
         sha256=hashlib.sha256(raw).hexdigest(),
-        cash_assumption=_cash_assumption(doc, {p.id for p in portfolios}),
+        cash_assumption=cash_rows[0] if cash_rows else None,
+        cash_assumptions=cash_rows,
     )
