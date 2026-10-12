@@ -45,8 +45,79 @@ def _split(share: float) -> str:
     return f"{round((1 - share) * 100)}/{round(share * 100)}"
 
 
+def _rows(report: dict) -> list[dict]:
+    """Every cash-assumption row (docs/methodology/true-cash-all-cores.md); a
+    missing `cash_assumptions` key counts as empty."""
+    rows: list[dict] = report.get("cash_assumptions") or []
+    return rows
+
+
+def _multi(report: dict) -> bool:
+    """Several assumption rows: the only case where the texts below change."""
+    return len(_rows(report)) > 1
+
+
+def _join(names: list[str]) -> str:
+    """'a', 'a and b', 'a, b and c'."""
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _span(ids: list[str]) -> str:
+    """'A to G' for several ids, the id itself for one."""
+    return ids[0] if len(ids) == 1 else f"{ids[0]} to {ids[-1]}"
+
+
+def _pairs(report: dict) -> list[str]:
+    return [r["pair"] for r in _rows(report) if r.get("pair")]
+
+
+def _multi_assumption_note(report: dict) -> list[str]:
+    rows = _rows(report)
+    first = rows[0]
+    n = len(report["portfolios"])
+    pairs = _pairs(report)
+    pair_ids = f" ({_span(pairs)})" if pairs else ""
+    return [
+        f"- {_span([r['id'] for r in rows])} are {len(rows)} assumption rows, not funds: for "
+        f"each core, {_pct(first['cash_share'])} cash earning each month's inflation plus "
+        f"{_pct(first['real_yield'])} a year, the long-run report's CASH +1% real assumption, "
+        f"shown next to that core's SHY pair{pair_ids} to answer the SHY caveat. "
+        f"They are comparisons {n + 1}-{n + len(rows)} but not among the {n} portfolios. "
+        f"Their cash legs and daily returns to {_split(first['cash_share'])} pay no trading "
+        f"cost, while each SHY pair pays {report['cost_bps']:g} bps per unit of turnover on "
+        "its rebalancing, a small difference in the assumption rows' favour."
+    ]
+
+
+def _shy_weight(portfolio: dict) -> float:
+    """The SHY weight a portfolio holds in every state; 0 when it differs by state."""
+    weights = {mix.get("SHY", 0.0) for mix in portfolio["states"].values()}
+    return weights.pop() if len(weights) == 1 else 0.0
+
+
+def _shy_notes(report: dict) -> list[str]:
+    """Rows whose base portfolio already holds SHY: the pair holds more SHY than
+    the added share, and the assumption row swaps only the added share."""
+    by_id = {p["id"]: p for p in report["portfolios"]}
+    out = []
+    for r in _rows(report):
+        base, pair = by_id.get(r["base"]), r.get("pair")
+        x = 0.0 if base is None else _shy_weight(base)
+        if x <= 0 or not pair:
+            continue
+        s = r["cash_share"]
+        out.append(
+            f"- {r['base']} already holds {round(x * 100, 1):g}% SHY, so {pair} holds "
+            f"{round(((1 - s) * x + s) * 100, 1):g}% SHY in all and {r['id']} swaps only the "
+            f"added {round(s * 100, 1):g}%."
+        )
+    return out
+
+
 def _assumption_note(report: dict) -> list[str]:
     """The cash-assumption row is an assumption, not a fund; nothing without it."""
+    if _multi(report):
+        return _multi_assumption_note(report)
     ca = _cash_row(report)
     if ca is None:
         return []
@@ -65,6 +136,17 @@ def _assumption_note(report: dict) -> list[str]:
 
 def _assumption_scope_note(report: dict) -> list[str]:
     """Why the row is only in the return and withdrawal tables; nothing without it."""
+    if _multi(report):
+        return [
+            f"- {_span([r['id'] for r in _rows(report)])} appear only in the research-period "
+            "return and withdrawal tables: the historical windows and the judgement-based "
+            "scenarios have no cash return to give them. In `dotcom_2000` SHY is already "
+            "replaced by cash at 0%, so each row would equal its SHY pair there; in "
+            "`gfc_2008` each SHY pair uses SHY's actual prices; the scenarios set SHY's "
+            "one-year return by judgement and set none for cash; the year-one table is "
+            "built from the scenarios.",
+            *_shy_notes(report),
+        ]
     ca = _cash_row(report)
     if ca is None:
         return []
@@ -90,11 +172,18 @@ def _sleeve_note(report: dict) -> list[str]:
     ids = [p["id"] for p in report["portfolios"]]
     sleeves = [i for i in ids if i.startswith(SLEEVE_PREFIX)]
     extra = [i for i in ids if i in BY_PRODUCT_IDS]
+    true_cash = ""
+    if _multi(report):
+        true_cash = (
+            f"; the {len(_pairs(report))} X80-CASH20 rows and the {len(_rows(report))} "
+            "assumption rows answer the true-cash question "
+            "(docs/methodology/true-cash-all-cores.md)"
+        )
     return [
         f"- of the {len(ids)} portfolios here, {len(extra)} are by-product rows, each a "
         f"sleeve held alone ({', '.join(extra)}); only the {len(sleeves)} A80 rows "
         f"({', '.join(sleeves)}) answer the defensive-sleeve question "
-        "(docs/methodology/defensive-sleeve.md)",
+        f"(docs/methodology/defensive-sleeve.md){true_cash}",
         "- CASH here is SHY, not true cash: SHY's near-zero 2009-2015 yields make the "
         "A80-CASH20 baseline look worse than cash at today's rates",
     ]
@@ -102,7 +191,8 @@ def _sleeve_note(report: dict) -> list[str]:
 
 def _header(report: dict) -> list[str]:
     prior = report["candidate_count"]
-    n = len(report["portfolios"]) + (0 if _cash_row(report) is None else 1)
+    extra_rows = len(_rows(report)) if _multi(report) else int(_cash_row(report) is not None)
+    n = len(report["portfolios"]) + extra_rows
     return [
         "# Decision helper: portfolios, scenarios and withdrawals",
         "",
@@ -124,6 +214,28 @@ def _header(report: dict) -> list[str]:
     ]
 
 
+def _switching_label(report: dict) -> str:
+    """The hand-written list, or with several assumption rows the computed one:
+    every portfolio shown in more than one state."""
+    if not _multi(report):
+        return "A, B, C, F and blends holding A"
+    return _join([p["id"] for p in report["portfolios"] if len(p["states"]) > 1])
+
+
+def _mostly_proxied(report: dict) -> str:
+    """The hand-written list, or with several assumption rows the portfolios
+    flagged indicative in `dotcom_2000` (when any are)."""
+    fixed = "G, G-EW, G-CASH and A-CASH"
+    if not _multi(report):
+        return fixed
+    flagged = [
+        r["portfolio"]
+        for r in report["windows"]
+        if r["window"] == "dotcom_2000" and r["indicative"] and not r["unavailable"]
+    ]
+    return _join(list(dict.fromkeys(flagged))) if flagged else fixed
+
+
 def _notes(report: dict) -> list[str]:
     return [
         "## Notes",
@@ -135,7 +247,7 @@ def _notes(report: dict) -> list[str]:
         f"unchanged: replay cells use the engine's default of {report['engine_cost_bps']:g} bps, "
         "frozen cells pay none. "
         "Scenario cells are instantaneous and carry no cost.",
-        "- Switching portfolios (A, B, C, F and blends holding A) are shown in both states, "
+        f"- Switching portfolios ({_switching_label(report)}) are shown in both states, "
         "risk-on and risk-off, because their current state would need sealed data; the worse "
         "is marked.",
         "- In the dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet "
@@ -218,8 +330,8 @@ def _window_section(report: dict) -> list[str]:
             "start is replaced by SPY (equity) or by cash (bonds, gold). A cell more than "
             f"{threshold:.0%} proxied is marked mostly proxied, indicative only. "
             "`dotcom_2000` starts before SHY, IEF and TLT (2002), RSP (2003) and GLD (2004): "
-            "CASH is entirely cash there (0% loss by construction) and G, G-EW, G-CASH and "
-            "A-CASH are mostly proxied.",
+            "CASH is entirely cash there (0% loss by construction) and "
+            f"{_mostly_proxied(report)} are mostly proxied.",
             *([DOTCOM_SLEEVE] if _has_sleeves(report) else []),
         ]
     )

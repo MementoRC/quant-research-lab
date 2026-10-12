@@ -300,6 +300,179 @@ def test_longrun_one_row_keeps_the_scalar_keys(seven):
     assert report["rows"] == many["rows"][: len(CORES)] + [many["rows"][len(CORES)]]
 
 
+# ---- report texts for several assumption rows (hand-built report dicts) ----
+
+SHY_G = {"SPY": 0.75, "SHY": 0.25}
+
+
+def _portfolios():
+    out = [{"id": "A", "label": "A", "states": {"risk_on": {"SPY": 1.0}, "risk_off": {"SHY": 1.0}}}]
+    out.append({"id": "G", "label": "G", "states": {"on": SHY_G}})
+    for x in "AG":
+        base = {"SPY": 1.0} if x == "A" else SHY_G
+        mix = {k: 0.8 * w for k, w in base.items()}
+        mix["SHY"] = mix.get("SHY", 0.0) + 0.2
+        states = {"risk_on": mix, "risk_off": mix} if x == "A" else {"on": mix}
+        out.append({"id": f"{x}80-CASH20", "label": x, "states": states})
+    out.append({"id": "A80-IEF20", "label": "i", "states": {"on": {"IEF": 1.0}}})
+    out.append({"id": "IEF", "label": "i", "states": {"on": {"IEF": 1.0}}})
+    return out
+
+
+def _rows_of(*cores):
+    return [
+        {
+            "id": f"{x}80-TCASH20",
+            "label": "l",
+            "base": x,
+            "cash_share": 0.2,
+            "real_yield": 0.01,
+            "pair": f"{x}80-CASH20",
+        }
+        for x in cores
+    ]
+
+
+def _report(rows, single=None):
+    flag = {"unavailable": "", "window": "dotcom_2000", "mode": "frozen"}
+    return {
+        "candidate_count": 7,
+        "portfolios": _portfolios(),
+        "data_end": "2018-12-31",
+        "decision_sha256": "a",
+        "candidates_sha256": "b",
+        "stress_sha256": "c",
+        "cost_bps": 5.0,
+        "engine_cost_bps": 5.0,
+        "cash_assumption": single,
+        "cash_assumptions": rows,
+        "windows": [
+            {**flag, "portfolio": "G", "indicative": True},
+            {**flag, "portfolio": "A", "indicative": False},
+            {**flag, "portfolio": "G80-CASH20", "indicative": True},
+        ],
+    }
+
+
+def test_decision_header_has_the_multi_row_bullet():
+    from qrl.decision_report import _header
+
+    text = "\n".join(_header(_report(_rows_of("A", "G"))))
+    assert "7 in the core comparison, 8 here (A-G again plus 1 new)" in text
+    assert (
+        "- A80-TCASH20 to G80-TCASH20 are 2 assumption rows, not funds: for each core, 20.0% "
+        "cash earning each month's inflation plus 1.0% a year, the long-run report's CASH +1% "
+        "real assumption, shown next to that core's SHY pair (A80-CASH20 to G80-CASH20) to "
+        "answer the SHY caveat. They are comparisons 7-8 but not among the 6 portfolios. "
+        "Their cash legs and daily returns to 80/20 pay no trading cost, while each SHY pair "
+        "pays 5 bps per unit of turnover on its rebalancing, a small difference in the "
+        "assumption rows' favour."
+    ) in text
+    assert "is an assumption row" not in text
+
+
+def test_decision_notes_name_pairs_generally_and_generate_lists():
+    from qrl.decision_report import _notes
+
+    text = "\n".join(_notes(_report(_rows_of("A", "G"))))
+    assert "each row would equal its SHY pair there" in text
+    assert "A80-CASH20 uses" not in text
+    assert "- Switching portfolios (A and A80-CASH20) are shown" in text
+    assert (
+        "- G already holds 25% SHY, so G80-CASH20 holds 40% SHY in all and G80-TCASH20 swaps "
+        "only the added 20%."
+    ) in text
+    assert text.count("already holds") == 1
+
+
+def test_decision_sleeve_note_adds_the_true_cash_question():
+    from qrl.decision_report import _sleeve_note
+
+    text = _sleeve_note(_report(_rows_of("A", "G")))[0]
+    assert text.endswith(
+        "(docs/methodology/defensive-sleeve.md); the 2 X80-CASH20 rows and the 2 assumption "
+        "rows answer the true-cash question (docs/methodology/true-cash-all-cores.md)"
+    )
+
+
+def test_decision_mostly_proxied_list_is_the_flagged_dotcom_rows():
+    from qrl.decision_report import _window_section
+
+    report = _report(_rows_of("A", "G"))
+    report["proxied_threshold"] = 0.25
+    for r in report["windows"]:
+        r.update(loss=0.1, proxied_share={})
+    assert "and G and G80-CASH20 are mostly proxied" in "\n".join(_window_section(report))
+
+
+def test_decision_texts_unchanged_for_none_or_one_row():
+    from qrl.decision_report import _header, _notes, _sleeve_note
+
+    one = _rows_of("A")
+    single = {k: one[0][k] for k in ("id", "label", "base", "cash_share", "real_yield")}
+    for rows, sing in [([], None), (one, single)]:
+        keyed = _report(rows, sing)
+        bare = {k: v for k, v in keyed.items() if k != "cash_assumptions"}
+        for fn in (_header, _notes, _sleeve_note):
+            assert fn(keyed) == fn(bare)
+    text = "\n".join(_header(_report(one, single)) + _notes(_report(one, single)))
+    assert "- A80-TCASH20 (l) is an assumption row, not a fund:" in text
+    assert "(A, B, C, F and blends holding A)" in text
+    assert "already holds" not in text
+
+
+def test_longrun_sleeve_and_assumption_notes_for_several_rows():
+    from qrl.longrun_report import _assumption_note, _sleeve_note
+
+    names = ["A", "A80-CASH20", "A80-IEF20", "IEF", "CASH", *[r["id"] for r in _rows_of("A", "G")]]
+    report = {
+        "rows": [{"portfolio": n} for n in names],
+        "cash_assumptions": [
+            {"id": r["id"], "base": r["base"], "share": 0.2, "pair": r["pair"]}
+            for r in _rows_of("A", "G")
+        ],
+        "cash_assumption_id": None,
+        "cash_real_yield": 0.01,
+        "cost_bps": 5.0,
+    }
+    assert _sleeve_note(report) == [
+        "- 7 rows per withdrawal rate, including the CASH +1% real (assumption) row, 2 "
+        "assumption rows (A80-TCASH20 to G80-TCASH20) and 1 by-product rows (IEF); only the "
+        "2 A80 rows answer the defensive-sleeve question (docs/methodology/defensive-sleeve.md);"
+        " the 2 X80-CASH20 rows and the 2 assumption rows answer the true-cash question "
+        "(docs/methodology/true-cash-all-cores.md)"
+    ]
+    (note,) = _assumption_note(report)
+    assert "(A80-TCASH20 with A80-CASH20, G80-TCASH20 with G80-CASH20)" in note
+    assert note.startswith("- A80-TCASH20 to G80-TCASH20: assumptions, not history.")
+
+
+def test_longrun_texts_unchanged_for_one_row_or_none():
+    from qrl.longrun_report import _assumption_note, _sleeve_note
+
+    names = ["A80-CASH20", "A80-IEF20", "CASH", "A80-TCASH20"]
+    base = {
+        "rows": [{"portfolio": n} for n in names],
+        "cash_assumption_id": "A80-TCASH20",
+        "cash_assumption_base": "A",
+        "cash_assumption_share": 0.2,
+        "cash_real_yield": 0.01,
+        "cost_bps": 5.0,
+    }
+    listed = {
+        **base,
+        "cash_assumptions": [{"id": "A80-TCASH20", "base": "A", "share": 0.2, "pair": None}],
+    }
+    for fn in (_sleeve_note, _assumption_note):
+        assert fn(listed) == fn(base)
+    assert _sleeve_note(base)[0].startswith(
+        "- 4 rows per withdrawal rate, including the CASH +1% real (assumption) row, the "
+        "A80-TCASH20 assumption row and 0 by-product rows ();"
+    )
+    assert "only the 2 A80 rows" in _sleeve_note(base)[0]
+    assert _assumption_note(base)[0].startswith("- A80-TCASH20: an assumption, not history.")
+
+
 def test_longrun_rows_ignore_data_after_the_research_end(seven):
     data, index = prices(), uneven_cpi()
     rng = np.random.default_rng(5)
