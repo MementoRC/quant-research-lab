@@ -1,6 +1,6 @@
 # Site safety: survivorship label and holdout cut-off on the public dashboard
 
-Status: spec written 2026-10-12, awaiting owner review.
+Status: spec written 2026-10-12, owner-approved 2026-10-12. Implemented on branch feature/site-safety.
 Source: the read-only audit of 2026-10-12 (workflow wf_78e2e1c3-596),
 findings 1 and 2, the only two rated medium. No other audit finding is in
 scope here.
@@ -38,9 +38,13 @@ added.
 
 The label must not depend on a file CI never builds.
 
-- `scripts/export_ledger.py` adds `universes` to `research.json`: one entry
-  per distinct `tests.universe` value in the ledger, with its test count.
-- `build_site.py` gains `_research_survivorship(research, ROOT)`. For each
+- `research.json` is unchanged. `build_site.py` reads the universes straight
+  from `research/ledger.sqlite`, read-only (`_ledger_universes`): one entry
+  per distinct `tests.universe` value, with its test count. If the research
+  funnel is available but the ledger is missing or unreadable, the result is
+  `{"biased": true, "universes": []}` (fail closed). With no `research.json`
+  there is no `survivorship` key.
+- `build_site.py` gains `_research_survivorship(universes, ROOT)`. For each
   universe name it finds the config that defines it (`config/universe.yaml`
   via `qrl.universe.load_universe`, `config/universe_pit.yaml` via
   `qrl.pit_universe.load_pit_universe`) and reads its
@@ -57,8 +61,9 @@ The label must not depend on a file CI never builds.
   `"survivorship_biased": true` on their entry in `strategies`, rendered as
   a badge beside the entry name. These entries came from the search, and
   every search universe so far is biased. The flag is set to false only
-  when the portfolio provenance names a run whose universes are all
-  configured as unbiased; otherwise it is true.
+  when the portfolio provenance names a ledger run and every tested universe
+  is configured unbiased (the ledger has no per-run universe list); otherwise
+  it is true.
 - The top-level `survivorship_biased` and `universe` keys keep their current
   meaning: dashboard-universe coverage from `universe_coverage.json`, which
   is `None` and absent without the file. That keeps
@@ -82,7 +87,8 @@ The label must not depend on a file CI never builds.
   `provenance.holdout_unsealed: true` in `config/portfolio.yaml` grants it
   only if `research/ledger.sqlite` has at least one `holdout_events` row.
   Otherwise the build fails with an error that names the mismatch, instead
-  of publishing.
+  of publishing. The cross-check runs only when the ledger file exists (it is
+  tracked in git, so real builds have it).
 - The holdout slice at `build_site.py:293` stays as the single
   `slice_period(..., unseal_holdout=True)` call, reached only when
   `r["allow_holdout"]` lets `"holdout"` into `names` (this keeps

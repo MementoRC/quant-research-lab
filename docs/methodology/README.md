@@ -32,7 +32,7 @@ document itself.
 - [true-cash-all-cores.md](true-cash-all-cores.md) — true cash and SHY 80/20
   rows for every core A-G (spec awaiting owner review).
 - [site-safety.md](site-safety.md) — Site safety: survivorship label and holdout
-  cut-off on the public dashboard (spec awaiting owner review).
+  cut-off on the public dashboard (owner-approved; implemented).
 
 ## Former paths
 
