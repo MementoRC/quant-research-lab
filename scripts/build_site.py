@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,7 +26,8 @@ from qrl.criteria import evaluate, load_criteria  # noqa: E402
 from qrl.data import load_ohlcv, load_prices, synthetic_ohlcv, synthetic_prices  # noqa: E402
 from qrl.engine import run_backtest  # noqa: E402
 from qrl.metrics import compute_metrics, drawdown  # noqa: E402
-from qrl.periods import PERIOD_NAMES, slice_period  # noqa: E402
+from qrl.periods import PERIOD_NAMES, period_bounds, slice_period  # noqa: E402
+from qrl.pit_universe import load_pit_universe  # noqa: E402
 from qrl.portfolio import combine_portfolio, load_portfolio_config  # noqa: E402
 from qrl.site_core import (  # noqa: E402
     build_core_comparison,
@@ -35,6 +37,7 @@ from qrl.site_core import (  # noqa: E402
     build_rsp_sleeve,
 )
 from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
+from qrl.universe import load_universe  # noqa: E402
 
 _ALL_SPECS = {**REGISTRY, **SLEEVE_REGISTRY}
 
@@ -56,11 +59,117 @@ def _round(x, nd=6):
     return None if x is None or pd.isna(x) else round(float(x), nd)
 
 
-def _research_funnel(data_dir: Path) -> dict:
+def _universe_flags(root: Path) -> dict[str, bool]:
+    """Map each configured universe name to its `survivorship_biased` flag.
+    A config that exists but fails to load counts as biased (fail closed)."""
+    sources = (
+        (root / "config" / "universe.yaml", load_universe),
+        (root / "config" / "universe_pit.yaml", lambda p: load_pit_universe(p)[0]),
+    )
+    flags: dict[str, bool] = {}
+    for path, loader in sources:
+        if not path.exists():
+            continue
+        name = (yaml.safe_load(path.read_text()) or {}).get("name")
+        if not name:
+            continue
+        try:
+            flags[name] = bool(loader(path)["survivorship_biased"])
+        except Exception:
+            flags[name] = True
+    return flags
+
+
+def _ledger_universes(ledger_path: Path) -> list[dict] | None:
+    """Each distinct `tests.universe` in the ledger with its test count, or
+    None if the ledger is missing or unreadable. Read-only: never creates or
+    migrates the ledger."""
+    if not ledger_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{ledger_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT universe, COUNT(*) FROM tests GROUP BY universe ORDER BY universe"
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    return [{"name": name, "tests": n} for name, n in rows]
+
+
+def _research_survivorship(universes: list[dict] | None, root: Path) -> dict:
+    """Whether the research record behind the funnel is survivorship-biased,
+    from the universes the ledger says were tested (see `_ledger_universes`),
+    not from a file CI never builds. Fails closed: a universe with no config
+    or a config that fails to load counts as biased, and so does a missing or
+    unreadable ledger (`universes` is None)."""
+    if universes is None:
+        return {"biased": True, "universes": []}
+    flags = _universe_flags(root)
+    shown = [
+        {
+            "name": u["name"],
+            "tests": u["tests"],
+            "survivorship_biased": flags.get(u["name"], True),
+        }
+        for u in universes
+    ]
+    return {"biased": any(u["survivorship_biased"] for u in shown), "universes": shown}
+
+
+def _search_origin_biased(provenance: dict, survivorship: dict | None) -> bool:
+    """A search-origin portfolio entry is biased unless its provenance names a
+    ledger run and every tested universe is configured unbiased."""
+    if provenance.get("ledger_run_id") is None or survivorship is None:
+        return True
+    return survivorship["biased"]
+
+
+def _visible_end(r: dict, criteria: dict, common_end: pd.Timestamp) -> pd.Timestamp:
+    """Last date an entry's figures may show: the whole common window when the
+    entry has holdout clearance, otherwise the end of the validation period."""
+    if r["allow_holdout"]:
+        return common_end
+    return min(common_end, period_bounds(criteria, "validation")[1])
+
+
+def _holdout_event_count(ledger_path: Path) -> int | None:
+    """Rows in the ledger's `holdout_events`, or None if there is no ledger
+    file. Read-only: never creates or migrates the ledger."""
+    if not ledger_path.exists():
+        return None
+    conn = sqlite3.connect(f"file:{ledger_path}?mode=ro", uri=True)
+    try:
+        return conn.execute("SELECT COUNT(*) FROM holdout_events").fetchone()[0]
+    except sqlite3.OperationalError:
+        return 0
+    finally:
+        conn.close()
+
+
+def _check_holdout_clearance(provenance: dict, ledger_path: Path) -> None:
+    """`holdout_unsealed: true` in the portfolio config only grants holdout
+    figures if the ledger recorded an unsealing. Raises on a mismatch rather
+    than publishing. Runs only when the ledger file exists (it is tracked in
+    git, so real builds have it)."""
+    if not provenance.get("holdout_unsealed"):
+        return
+    if _holdout_event_count(ledger_path) == 0:
+        raise RuntimeError(
+            "config/portfolio.yaml says holdout_unsealed: true, but the ledger "
+            f"({ledger_path}) has no holdout_events row. Run qrl.holdout.unseal or "
+            "set holdout_unsealed back to false; refusing to publish holdout figures."
+        )
+
+
+def _research_funnel(data_dir: Path, root: Path | None = None) -> dict:
     """Read `research.json` (milestone 2.3's ledger export, normally
     alongside `results.json` in `site/data/`) if present, and shape its
     funnel counts + total attempt count for the dashboard. Never runs a
-    search itself -- Actions must never do that."""
+    search itself -- Actions must never do that. With `root`, also adds the
+    research record's survivorship label (`_research_survivorship`)."""
     path = data_dir / "research.json"
     if not path.exists():
         return {"available": False, "total_attempts": None, "stages": []}
@@ -75,11 +184,17 @@ def _research_funnel(data_dir: Path) -> dict:
     stages = [
         {"key": key, "label": label, "count": counts.get(key)} for key, label in _FUNNEL_STAGES
     ]
-    return {
+    funnel_payload = {
         "available": True,
         "total_attempts": data.get("total_attempts"),
         "stages": stages,
     }
+    if root is not None:
+        ledger_path = root / "research" / "ledger.sqlite"
+        funnel_payload["survivorship"] = _research_survivorship(
+            _ledger_universes(ledger_path), root
+        )
+    return funnel_payload
 
 
 def _sleeve_extra_fields(sleeve_members: list[dict]) -> set[str]:
@@ -194,6 +309,7 @@ def _portfolio_entries(
             "fn": core["fn"],
             "params": core["params"],
             "allow_holdout": core_allow_holdout,
+            "search_origin": not core_is_baseline,
         },
         {
             "id": "portfolio_combined",
@@ -202,6 +318,7 @@ def _portfolio_entries(
             "fn": "portfolio",
             "params": {},
             "allow_holdout": combined_allow_holdout,
+            "search_origin": not core_is_baseline or bool(sleeve_members),
         },
     ]
 
@@ -261,6 +378,7 @@ def main() -> None:
         target = spec.weights(close[cols], **r["params"])
         results[r["id"]] = run_backtest(open_[cols], close[cols], target, cost_bps=cost_bps)
 
+    _check_holdout_clearance(portfolio_cfg["provenance"], ROOT / "research" / "ledger.sqlite")
     portfolio_descriptors, portfolio_results, sleeve_holdings, idle_cash_pct = _portfolio_entries(
         portfolio_cfg,
         capital_split,
@@ -284,17 +402,37 @@ def main() -> None:
             res.executed.loc[common_start:common_end],
         )
 
+    data_dir = Path(args.out).parent
+    research_funnel = _research_funnel(data_dir, ROOT)
+
     period_metrics = {}
     for r in runs:
         ret, turn, ex = window(results[r["id"]])
-        pm = {"full": compute_metrics(ret, turn, ex)}
+        # "Full" stops at the validation end for an entry without holdout
+        # clearance, so its 2023+ performance is never published.
+        visible_end = _visible_end(r, criteria, common_end)
+        pm = {
+            "full": compute_metrics(
+                ret.loc[:visible_end], turn.loc[:visible_end], ex.loc[:visible_end]
+            )
+        }
+        if not r["allow_holdout"]:
+            pm["full"]["through"] = visible_end.strftime("%Y-%m-%d")
         names = PERIOD_NAMES if r["allow_holdout"] else ("research", "validation")
         for name in names:
+            # Only reached with "holdout" in `names` when r["allow_holdout"] is
+            # true: fixed baselines and benchmarks were never searched or tuned
+            # (see `runs` above), so they may show holdout without
+            # qrl.holdout.unseal. Searched entries get it only via the
+            # ledger-checked holdout_unsealed provenance.
             sliced = slice_period(ret, criteria, name, unseal_holdout=True)
             if len(sliced) > 20:
                 pm[name] = compute_metrics(sliced, turn, ex)
         period_metrics[r["id"]] = pm
 
+    search_biased = _search_origin_biased(
+        portfolio_cfg["provenance"], research_funnel.get("survivorship")
+    )
     bench_id = f"bh_{criteria['pass']['beat_benchmark'].lower()}"
     out_strats = []
     for r in runs:
@@ -310,25 +448,26 @@ def main() -> None:
         last = target.iloc[-1]
         changed = (target != target.shift(1)).any(axis=1)
         since = changed[changed].index[-1] if changed.iloc[1:].any() else target.index[0]
-        out_strats.append(
-            {
-                "id": r["id"],
-                "name": r["name"],
-                "kind": r["kind"],
-                "fn": r["fn"],
-                "params": r["params"],
-                "metrics": {
-                    k: {kk: (_round(vv) if isinstance(vv, float) else vv) for kk, vv in v.items()}
-                    for k, v in pm.items()
-                },
-                "checks": checks,
-                "current": {
-                    "decided_on": target.index[-1].strftime("%Y-%m-%d"),
-                    "weights": {k: _round(v, 4) for k, v in last.items() if v > 0},
-                    "since": since.strftime("%Y-%m-%d"),
-                },
-            }
-        )
+        entry = {
+            "id": r["id"],
+            "name": r["name"],
+            "kind": r["kind"],
+            "fn": r["fn"],
+            "params": r["params"],
+            "metrics": {
+                k: {kk: (_round(vv) if isinstance(vv, float) else vv) for kk, vv in v.items()}
+                for k, v in pm.items()
+            },
+            "checks": checks,
+            "current": {
+                "decided_on": target.index[-1].strftime("%Y-%m-%d"),
+                "weights": {k: _round(v, 4) for k, v in last.items() if v > 0},
+                "since": since.strftime("%Y-%m-%d"),
+            },
+        }
+        if r.get("search_origin"):
+            entry["survivorship_biased"] = search_biased
+        out_strats.append(entry)
 
     # Weekly series keep the JSON small; drawdown keeps each week's worst point.
     series = {"dates": None, "equity": {}, "drawdown": {}}
@@ -336,12 +475,14 @@ def main() -> None:
         ret, _, _ = window(results[r["id"]])
         eq = (1 + ret).cumprod().resample("W-FRI").last()
         dd = drawdown(ret).resample("W-FRI").min()
+        # Shared dates; past its visible end an entry's values are null, which
+        # Chart.js draws as a gap.
+        if not r["allow_holdout"]:
+            beyond = eq.index > _visible_end(r, criteria, common_end)
+            eq, dd = eq.mask(beyond), dd.mask(beyond)
         series["dates"] = [d.strftime("%Y-%m-%d") for d in eq.index]
         series["equity"][r["id"]] = [_round(v, 4) for v in eq]
         series["drawdown"][r["id"]] = [_round(v, 4) for v in dd]
-
-    data_dir = Path(args.out).parent
-    research_funnel = _research_funnel(data_dir)
 
     payload = {
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),

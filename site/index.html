@@ -58,6 +58,8 @@
     padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 2rem; max-width: 46rem;
   }
   .notice[hidden] { display: none; }
+  .badge { background: var(--warn-bg); color: var(--warn-ink); padding: 0.0625rem 0.4rem; border-radius: 4px; font-size: 0.8125rem; white-space: nowrap; }
+  .cutoff { color: var(--ink-soft); font-size: 0.8125rem; white-space: nowrap; }
 
   header.hero { margin-bottom: 2.5rem; }
   .hero .site-name { font-size: 0.9375rem; color: var(--ink-soft); margin: 0 0 1.5rem; }
@@ -186,6 +188,15 @@
     return `At the next open, hold <strong>${parts.join(", ")}</strong>.`;
   }
 
+  // The notice shows for the dashboard universe's flag OR the research record's.
+  const researchSurvivorship = (data) => (data.research_funnel && data.research_funnel.survivorship) || null;
+  const survivorshipBiased = (data) => Boolean(data.survivorship_biased || (researchSurvivorship(data) && researchSurvivorship(data).biased));
+  function survivorshipUniverses(data) {
+    const s = researchSurvivorship(data);
+    const names = s ? s.universes.filter((u) => u.survivorship_biased).map((u) => `<code>${esc(u.name)}</code>`) : [];
+    return names.length ? ` The research record behind this page was tested on: ${names.join(", ")}.` : "";
+  }
+
   function render(data) {
     const strategies = data.strategies;
     const primary = strategies.find((s) => s.kind === "strategy") || strategies[0];
@@ -194,8 +205,8 @@
       <div class="notice" id="synthetic-notice" ${data.data_source === "synthetic" ? "" : "hidden"}>
         These results use randomly generated demo prices, not market data. Run the build without <code>--synthetic</code> to see real results.
       </div>
-      <div class="notice" id="survivorship-notice" ${data.survivorship_biased ? "" : "hidden"}>
-        This universe is <strong>survivorship-biased</strong>: free data only shows tickers that still trade today. Stocks that were delisted, acquired, or went bankrupt during the research period are silently absent, which can inflate backtested returns.
+      <div class="notice" id="survivorship-notice" ${survivorshipBiased(data) ? "" : "hidden"}>
+        This universe is <strong>survivorship-biased</strong>: free data only shows tickers that still trade today. Stocks that were delisted, acquired, or went bankrupt during the research period are silently absent, which can inflate backtested returns.${survivorshipUniverses(data)}
       </div>
 
       <header class="hero">
@@ -431,7 +442,7 @@
       if (!m) return "";
       const neg = (x) => (x != null && x < 0 ? ' class="neg"' : "");
       return `<tr class="${s.kind === "strategy" ? "is-strategy" : ""}">
-        <td>${esc(s.name)}</td>
+        <td>${esc(s.name)}${s.survivorship_biased ? ' <span class="badge">survivorship-biased</span>' : ""}${m.through ? ` <span class="cutoff">Full history (to ${m.through})</span>` : ""}</td>
         <td${neg(m.cagr)}>${pct(m.cagr)}</td>
         <td>${num(m.sharpe)}</td>
         <td class="neg">${pct(-m.max_drawdown)}</td>
