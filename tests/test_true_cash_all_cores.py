@@ -32,6 +32,7 @@ from qrl.decision import (
     withdrawal_rows,
 )
 from qrl.decision_config import CashAssumption, load_decision_config
+from qrl.decision_report import _join
 from qrl.decision_withdraw import monthly_withdrawals, path_metrics, withdrawal_path
 from qrl.longrun import monthly_returns, run_longrun
 from qrl.metrics import compute_metrics
@@ -417,7 +418,9 @@ def test_decision_texts_unchanged_for_none_or_one_row():
             assert fn(keyed) == fn(bare)
     text = "\n".join(_header(_report(one, single)) + _notes(_report(one, single)))
     assert "- A80-TCASH20 (l) is an assumption row, not a fund:" in text
-    assert "(A, B, C, F and blends holding A)" in text
+    switching = [p["id"] for p in _portfolios() if len(p["states"]) > 1]
+    assert switching  # the fixture must exercise the note
+    assert f"- Switching portfolios ({_join(switching)}) are shown" in text
     assert "already holds" not in text
 
 

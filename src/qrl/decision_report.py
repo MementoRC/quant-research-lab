@@ -215,25 +215,30 @@ def _header(report: dict) -> list[str]:
 
 
 def _switching_label(report: dict) -> str:
-    """The hand-written list, or with several assumption rows the computed one:
-    every portfolio shown in more than one state."""
-    if not _multi(report):
-        return "A, B, C, F and blends holding A"
-    return _join([p["id"] for p in report["portfolios"] if len(p["states"]) > 1])
+    """Every portfolio shown in more than one state; '' when there is none."""
+    names = [p["id"] for p in report["portfolios"] if len(p["states"]) > 1]
+    return _join(names) if names else ""
 
 
 def _mostly_proxied(report: dict) -> str:
-    """The hand-written list, or with several assumption rows the portfolios
-    flagged indicative in `dotcom_2000` (when any are)."""
-    fixed = "G, G-EW, G-CASH and A-CASH"
-    if not _multi(report):
-        return fixed
+    """The portfolios flagged indicative in `dotcom_2000`; '' when there is none."""
     flagged = [
         r["portfolio"]
         for r in report["windows"]
         if r["window"] == "dotcom_2000" and r["indicative"] and not r["unavailable"]
     ]
-    return _join(list(dict.fromkeys(flagged))) if flagged else fixed
+    return _join(list(dict.fromkeys(flagged))) if flagged else ""
+
+
+def _switching_note(report: dict) -> list[str]:
+    label = _switching_label(report)
+    if not label:
+        return []
+    return [
+        f"- Switching portfolios ({label}) are shown in both states, "
+        "risk-on and risk-off, because their current state would need sealed data; the worse "
+        "is marked."
+    ]
 
 
 def _notes(report: dict) -> list[str]:
@@ -247,9 +252,7 @@ def _notes(report: dict) -> list[str]:
         f"unchanged: replay cells use the engine's default of {report['engine_cost_bps']:g} bps, "
         "frozen cells pay none. "
         "Scenario cells are instantaneous and carry no cost.",
-        f"- Switching portfolios ({_switching_label(report)}) are shown in both states, "
-        "risk-on and risk-off, because their current state would need sealed data; the worse "
-        "is marked.",
+        *_switching_note(report),
         "- In the dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet "
         "trade), so those cells are indicative only.",
         "- Known gap: no portfolio holds an asset that gains from a falling dollar other "
@@ -313,6 +316,7 @@ def _window_flag(row: dict) -> str:
 
 def _window_section(report: dict) -> list[str]:
     threshold = report["proxied_threshold"]
+    proxied = _mostly_proxied(report)
     lines = [
         "## Historical windows",
         "",
@@ -330,8 +334,8 @@ def _window_section(report: dict) -> list[str]:
             "start is replaced by SPY (equity) or by cash (bonds, gold). A cell more than "
             f"{threshold:.0%} proxied is marked mostly proxied, indicative only. "
             "`dotcom_2000` starts before SHY, IEF and TLT (2002), RSP (2003) and GLD (2004): "
-            "CASH is entirely cash there (0% loss by construction) and "
-            f"{_mostly_proxied(report)} are mostly proxied.",
+            "CASH is entirely cash there (0% loss by construction)"
+            + (f" and {proxied} are mostly proxied." if proxied else "."),
             *([DOTCOM_SLEEVE] if _has_sleeves(report) else []),
         ]
     )

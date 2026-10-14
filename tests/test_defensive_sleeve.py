@@ -27,7 +27,7 @@ from test_decision_report import _hand_report
 from qrl import decision
 from qrl.decision import portfolio_returns, return_rows, run_decision
 from qrl.decision_config import load_decision_config, portfolio_states
-from qrl.decision_report import _header, render_markdown
+from qrl.decision_report import _header, _notes, render_markdown
 from qrl.longrun import CASH_ASSUMPTION, load_longrun_config
 from qrl.longrun_report import render_markdown as render_longrun
 from qrl.metrics import compute_metrics
@@ -240,14 +240,62 @@ def _with_a80():
 def test_dotcom_note_tells_that_the_bond_sleeves_are_identical_there():
     md = render_markdown(_with_a80())
     assert md.count(DOTCOM_SLEEVE) == 1
-    assert md.count("mostly proxied. IEF, TLT and BONDS are, like CASH,") == 1
+    assert md.count("(0% loss by construction). IEF, TLT and BONDS are, like CASH,") == 1
 
 
 def test_dotcom_sleeve_sentence_is_absent_without_a80_rows():
     md = render_markdown(_hand_report())
     assert "A80-" not in md
     assert "cannot tell the bond sleeves apart" not in md
-    assert md.count("G-CASH and A-CASH are mostly proxied.") == 1
+    assert "are mostly proxied" not in md
+
+
+def _window_row(portfolio: str, window: str, indicative: bool, unavailable=None) -> dict:
+    return {
+        "portfolio": portfolio,
+        "window": window,
+        "mode": "frozen",
+        "loss": 0.1,
+        "proxied_share": {"equity": 0.0, "gold": 0.0, "bonds": 0.0},
+        "indicative": indicative,
+        "unavailable": unavailable,
+    }
+
+
+def test_mostly_proxied_sentence_names_exactly_the_flagged_dotcom_portfolios():
+    windows = [
+        _window_row("P", "dotcom_2000", True),
+        _window_row("Q", "dotcom_2000", False),
+        _window_row("R", "dotcom_2000", True, unavailable="no data"),
+        _window_row("S", "w1", True),
+        _window_row("T", "dotcom_2000", True),
+        _window_row("P", "dotcom_2000", True),
+    ]
+    md = render_markdown(_hand_report(windows=windows))
+    assert "(0% loss by construction) and P and T are mostly proxied." in md
+    assert "G-CASH" not in md
+
+
+def test_mostly_proxied_sentence_is_absent_without_flagged_dotcom_rows():
+    windows = [_window_row("Q", "dotcom_2000", False), _window_row("S", "w1", True)]
+    assert "are mostly proxied" not in render_markdown(_hand_report(windows=windows))
+
+
+def _stated(pid: str, n_states: int) -> dict:
+    states = {"risk_on": {"SPY": 1.0}, "risk_off": {"SHY": 1.0}}
+    return {"id": pid, "label": pid, "states": dict(list(states.items())[:n_states])}
+
+
+def test_switching_note_names_exactly_the_portfolios_with_several_states():
+    portfolios = [_stated("X", 2), _stated("Y", 1), _stated("Z", 2)]
+    text = "\n".join(_notes(_hand_report(portfolios=portfolios)))
+    assert "- Switching portfolios (X and Z) are shown in both states" in text
+    assert "A, B, C, F" not in text
+
+
+def test_switching_note_is_absent_without_multi_state_portfolios():
+    text = "\n".join(_notes(_hand_report(portfolios=[_stated("Y", 1)])))
+    assert "Switching portfolios (" not in text
 
 
 def test_shy_baseline_note_is_shown_only_with_a80_rows():
