@@ -69,9 +69,9 @@ def _multi_assumption_note(r: dict, rows: list[dict]) -> list[str]:
         f"{_pct(1 - share)} of its own core plus {_pct(share)} cash earning each month's "
         f"inflation plus {_pct(r['cash_real_yield'])} a year, rebalanced daily; every real "
         "yield is checked equal to the CASH +1% real row's. The cash legs and the daily "
-        f"returns to {_split(share)} pay no trading cost, while each row's SHY pair{pair_text} "
-        f"pays {r['cost_bps']:g} bps per unit traded on its rebalancing, a small difference "
-        "in the assumption rows' favour."
+        f"returns to {_split(share)} pay no trading cost, and neither do their SHY "
+        f"pairs{pair_text}: the engine charges only target-to-target turnover, so "
+        "rebalancing a constant mix is free in both rows."
     ]
 
 
@@ -89,8 +89,9 @@ def _assumption_note(r: dict) -> list[str]:
         f"{r['cash_assumption_base']} plus {_pct(share)} cash earning each month's inflation "
         f"plus {_pct(r['cash_real_yield'])} a year, rebalanced daily; its real yield is "
         "checked equal to the CASH +1% real row's. The cash leg and the daily return to "
-        f"{_split(share)} pay no trading cost, while A80-CASH20 pays {r['cost_bps']:g} bps "
-        "per unit traded on its rebalancing, a small difference in the assumption row's favour."
+        f"{_split(share)} pay no trading cost, and neither does A80-CASH20: the engine "
+        "charges only target-to-target turnover, so rebalancing a constant mix is free in "
+        "both rows."
     ]
 
 
@@ -143,6 +144,8 @@ def _header(r: dict) -> list[str]:
         "per unit traded.",
         f"- {CASH_ASSUMPTION}: an assumption, not history. It earns each month's inflation plus {_pct(r['cash_real_yield'])} a year.",
         *_assumption_note(r),
+        "- The engine never charges for drift, so the cost of real periodic rebalancing is "
+        "slightly understated for every blend.",
         "- A path is empty once its value is effectively zero (below one billionth of the start).",
         "- All figures are percentages of the starting value or of paths.",
         "",

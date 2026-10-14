@@ -84,8 +84,8 @@ def _multi_assumption_note(report: dict) -> list[str]:
         f"shown next to that core's SHY pair{pair_ids} to answer the SHY caveat. "
         f"They are comparisons {n + 1}-{n + len(rows)} but not among the {n} portfolios. "
         f"Their cash legs and daily returns to {_split(first['cash_share'])} pay no trading "
-        f"cost, while each SHY pair pays {report['cost_bps']:g} bps per unit of turnover on "
-        "its rebalancing, a small difference in the assumption rows' favour."
+        "cost, and neither do their SHY pairs: the engine charges only target-to-target "
+        "turnover, so rebalancing a constant mix is free in both rows."
     ]
 
 
@@ -129,8 +129,8 @@ def _assumption_note(report: dict) -> list[str]:
         "shown to answer the SHY caveat above. "
         f"It is comparison {n + 1} but not one of the {n} portfolios. "
         f"Its cash leg and its daily return to {_split(ca['cash_share'])} pay no trading cost, "
-        f"while A80-CASH20 pays {report['cost_bps']:g} bps per unit of turnover on its "
-        "rebalancing, a small difference in the assumption row's favour."
+        "and neither does A80-CASH20: the engine charges only target-to-target turnover, "
+        "so rebalancing a constant mix is free in both rows."
     ]
 
 
@@ -253,6 +253,8 @@ def _notes(report: dict) -> list[str]:
         "frozen cells pay none. "
         "Scenario cells are instantaneous and carry no cost.",
         *_switching_note(report),
+        "- The engine never charges for drift, so the cost of real periodic rebalancing is "
+        "slightly understated for every blend.",
         "- In the dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet "
         "trade), so those cells are indicative only.",
         "- Known gap: no portfolio holds an asset that gains from a falling dollar other "

@@ -365,11 +365,22 @@ def test_decision_header_has_the_multi_row_bullet():
         "cash earning each month's inflation plus 1.0% a year, the long-run report's CASH +1% "
         "real assumption, shown next to that core's SHY pair (A80-CASH20 to G80-CASH20) to "
         "answer the SHY caveat. They are comparisons 7-8 but not among the 6 portfolios. "
-        "Their cash legs and daily returns to 80/20 pay no trading cost, while each SHY pair "
-        "pays 5 bps per unit of turnover on its rebalancing, a small difference in the "
-        "assumption rows' favour."
+        "Their cash legs and daily returns to 80/20 pay no trading cost, and neither do their "
+        "SHY pairs: the engine charges only target-to-target turnover, so rebalancing a "
+        "constant mix is free in both rows."
     ) in text
+    assert "pays 5 bps" not in text
     assert "is an assumption row" not in text
+
+
+def test_decision_multi_notes_carry_the_drift_note():
+    from qrl.decision_report import _notes
+
+    notes = _notes(_report(_rows_of("A", "G")))
+    assert (
+        "- The engine never charges for drift, so the cost of real periodic rebalancing is "
+        "slightly understated for every blend."
+    ) in notes
 
 
 def test_decision_notes_name_pairs_generally_and_generate_lists():
@@ -446,8 +457,32 @@ def test_longrun_sleeve_and_assumption_notes_for_several_rows():
         "(docs/methodology/true-cash-all-cores.md)"
     ]
     (note,) = _assumption_note(report)
+    assert "pays 5 bps" not in note
+    assert "and neither do their SHY pairs (A80-TCASH20 with A80-CASH20" in note
     assert "(A80-TCASH20 with A80-CASH20, G80-TCASH20 with G80-CASH20)" in note
+    assert "rebalancing a constant mix is free in both rows." in note
     assert note.startswith("- A80-TCASH20 to G80-TCASH20: assumptions, not history.")
+
+
+def test_longrun_multi_row_report_has_no_cost_claim_and_the_drift_note():
+    from test_true_cash import _longrun_hand
+
+    from qrl.longrun_report import render_markdown
+
+    rows = _rows_of("A", "G")
+    names = ["A", "A80-CASH20", "A80-IEF20", "IEF", "CASH", *[r["id"] for r in rows]]
+    keys = {
+        "cash_assumptions": [
+            {"id": r["id"], "base": r["base"], "share": 0.2, "pair": r["pair"]} for r in rows
+        ],
+        "cash_assumption_id": None,
+    }
+    lines = render_markdown(_longrun_hand(names, **keys)).splitlines()
+    assert "pays 5 bps" not in "\n".join(lines)
+    assert (
+        "- The engine never charges for drift, so the cost of real periodic rebalancing is "
+        "slightly understated for every blend."
+    ) in lines
 
 
 def test_longrun_texts_unchanged_for_one_row_or_none():

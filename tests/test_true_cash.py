@@ -437,8 +437,12 @@ ASSUMPTION_BULLET = (
     "fund: 20.0% cash earning each month's inflation plus 1.0% a year, the long-run report's "
     "CASH +1% real assumption, shown to answer the SHY caveat above. It is comparison 22 but "
     "not one of the 21 portfolios. Its cash leg and its daily return to 80/20 pay no trading "
-    "cost, while A80-CASH20 pays 5 bps per unit of turnover on its rebalancing, a small "
-    "difference in the assumption row's favour."
+    "cost, and neither does A80-CASH20: the engine charges only target-to-target turnover, "
+    "so rebalancing a constant mix is free in both rows."
+)
+DRIFT_NOTE = (
+    "- The engine never charges for drift, so the cost of real periodic rebalancing is "
+    "slightly understated for every blend."
 )
 SCOPE_NOTE = (
     "- A80-TCASH20 appears only in the research-period return and withdrawal tables: the "
@@ -459,6 +463,7 @@ def test_decision_header_counts_the_row_and_says_it_is_an_assumption():
     lines = _header(_sleeve_report(cash_assumption=CA))
     assert any("7 in the core comparison, 22 here (A-G again plus 15 new)" in ln for ln in lines)
     assert ASSUMPTION_BULLET in lines
+    assert "pays 5 bps" not in "\n".join(lines)
     shy = next(i for i, ln in enumerate(lines) if ln.startswith("- CASH here is SHY"))
     assert lines.index(ASSUMPTION_BULLET) == shy + 1
 
@@ -553,8 +558,8 @@ LONGRUN_NOTE = (
     "- A80-TCASH20: an assumption, not history. 80.0% A plus 20.0% cash earning each month's "
     "inflation plus 1.0% a year, rebalanced daily; its real yield is checked equal to the "
     "CASH +1% real row's. The cash leg and the daily return to 80/20 pay no trading cost, "
-    "while A80-CASH20 pays 5 bps per unit traded on its rebalancing, a small difference in "
-    "the assumption row's favour."
+    "and neither does A80-CASH20: the engine charges only target-to-target turnover, so "
+    "rebalancing a constant mix is free in both rows."
 )
 
 
@@ -562,10 +567,24 @@ def test_longrun_header_names_the_assumption_row_and_does_not_count_it_as_a80():
     lines = render_longrun(_longrun_hand([*NAMES_22, "A80-TCASH20"], **TCASH_KEYS)).splitlines()
     assert LONGRUN_SLEEVE_23 in lines
     assert LONGRUN_NOTE in lines
+    assert "pays 5 bps" not in "\n".join(lines)
     assert (
         lines.index(LONGRUN_NOTE)
         == next(i for i, ln in enumerate(lines) if ln.startswith(f"- {CASH_ASSUMPTION}:")) + 1
     )
+
+
+def test_decision_single_row_has_no_cost_claim_and_the_drift_note():
+    text = "\n".join(_header(_sleeve_report(cash_assumption=CA)))
+    notes = _notes(_sleeve_report(cash_assumption=CA))
+    assert "pays 5 bps" not in text + "\n".join(notes)
+    assert DRIFT_NOTE in notes
+
+
+def test_longrun_single_row_has_no_cost_claim_and_the_drift_note():
+    lines = render_longrun(_longrun_hand([*NAMES_22, "A80-TCASH20"], **TCASH_KEYS)).splitlines()
+    assert "pays 5 bps" not in "\n".join(lines)
+    assert DRIFT_NOTE in lines
 
 
 def test_longrun_report_without_the_key_is_unchanged():
