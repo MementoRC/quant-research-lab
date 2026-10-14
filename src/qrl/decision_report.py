@@ -71,6 +71,23 @@ def _pairs(report: dict) -> list[str]:
     return [r["pair"] for r in _rows(report) if r.get("pair")]
 
 
+def deflation_sentence(report: dict) -> str:
+    """The true-cash deflation disclosure from `report["cash_nominal_loss"]`
+    (`qrl.true_cash.nominal_loss_stats`), with its leading space; '' when the
+    report carries no such figures."""
+    s = report.get("cash_nominal_loss")
+    if not s:
+        return ""
+    head = "It follows unadjusted CPI, so it "
+    if s["n"] == 0:
+        return f" {head}would lose money in a deflation month: 0 of {s['N']} months here."
+    return (
+        f" {head}loses money in deflation months: {s['n']} of {s['N']} months here, "
+        f"worst {round(s['worst'] * 100, 1):.1f}% from {s['start']} to {s['end']}. "
+        "A 0% floor would make true cash look better in the crash windows."
+    )
+
+
 def _multi_assumption_note(report: dict) -> list[str]:
     rows = _rows(report)
     first = rows[0]
@@ -85,7 +102,7 @@ def _multi_assumption_note(report: dict) -> list[str]:
         f"They are comparisons {n + 1}-{n + len(rows)} but not among the {n} portfolios. "
         f"Their cash legs and daily returns to {_split(first['cash_share'])} pay no trading "
         "cost, and neither do their SHY pairs: the engine charges only target-to-target "
-        "turnover, so rebalancing a constant mix is free in both rows."
+        f"turnover, so rebalancing a constant mix is free in both rows.{deflation_sentence(report)}"
     ]
 
 
@@ -130,7 +147,7 @@ def _assumption_note(report: dict) -> list[str]:
         f"It is comparison {n + 1} but not one of the {n} portfolios. "
         f"Its cash leg and its daily return to {_split(ca['cash_share'])} pay no trading cost, "
         "and neither does A80-CASH20: the engine charges only target-to-target turnover, "
-        "so rebalancing a constant mix is free in both rows."
+        f"so rebalancing a constant mix is free in both rows.{deflation_sentence(report)}"
     ]
 
 

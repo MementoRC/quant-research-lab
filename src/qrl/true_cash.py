@@ -47,6 +47,35 @@ def cash_leg_returns(
     return pd.Series(by_month.reindex(months).to_numpy(), index=days, dtype=float)
 
 
+def nominal_loss_stats(series: pd.Series) -> dict:
+    """Months in which the cash leg lost money in nominal terms. `series` holds
+    returns, daily (DatetimeIndex, compounded to calendar months) or monthly
+    (PeriodIndex). `n` months are negative of `N`; `worst` is the largest
+    peak-to-trough nominal decline (positive fraction) of the cumulative
+    monthly value, the starting value 1.0 counting as a peak. `start` is the
+    first month of that decline (the month after its peak), `end` the trough
+    month (YYYY-MM). No negative month gives worst 0.0 and start/end None."""
+    if isinstance(series.index, pd.DatetimeIndex):
+        series = (1.0 + series).groupby(series.index.to_period("M")).prod() - 1.0
+    values = series.to_numpy(dtype=float)
+    months = [str(p) for p in series.index]
+    worst, start, end = 0.0, None, None
+    value, peak, first = 1.0, 1.0, 0
+    for i, v in enumerate(values):
+        value *= 1.0 + v
+        if value >= peak:
+            peak, first = value, i + 1
+        elif 1.0 - value / peak > worst:
+            worst, start, end = 1.0 - value / peak, months[first], months[i]
+    return {
+        "n": int((values < 0).sum()),
+        "N": len(values),
+        "worst": worst,
+        "start": start,
+        "end": end,
+    }
+
+
 def mix_returns(base: pd.Series, cash: pd.Series, share: float) -> pd.Series:
     """(1 - share) x base + share x cash, day by day: the two legs rebalanced
     to their shares every day, the rebalancing at no cost (spec, disclosed)."""

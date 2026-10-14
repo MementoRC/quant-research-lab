@@ -22,6 +22,7 @@ from .decision import all_assumption_returns, cash_rows, data_end, portfolio_ret
 from .decision_config import DecisionConfig
 from .decision_withdraw import monthly_inflation
 from .periods import period_bounds
+from .true_cash import nominal_loss_stats
 
 DEPLETED = 1e-9  # of the starting value: at or below, the path is empty (spec "Withdrawals")
 CHECKPOINT_YEARS = (20, 25, 30)
@@ -287,6 +288,9 @@ def run_longrun(
         "horizon_years": lcfg.horizon_years,
         "real_floor": lcfg.real_floor,
         "cash_real_yield": lcfg.cash_real_yield,
+        "cash_nominal_loss": nominal_loss_stats(
+            pd.Series(cash_assumption_returns(inflation, lcfg.cash_real_yield), index=months)
+        ),
         "rates": lcfg.rates,
         "longrun_sha256": lcfg.sha256,
         "decision_sha256": dcfg.sha256,

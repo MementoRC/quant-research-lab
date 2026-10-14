@@ -23,7 +23,7 @@ from .periods import period_bounds
 from .portfolio import combine_portfolio
 from .strategies import REGISTRY
 from .stress import Cell, PortfolioDef, StressConfig, run_stress
-from .true_cash import cash_leg_returns, mix_returns
+from .true_cash import cash_leg_returns, mix_returns, nominal_loss_stats
 
 FULL = {"core": 1.0, "sleeve": 0.0}  # 100% of capital, empty sleeve (as benchmark_metrics)
 _NO_CAP = 1.0  # cells carry losses only; this report compares, it tests no cap
@@ -451,7 +451,23 @@ def run_decision(
         "returns": return_rows(cfg, data, criteria, cpi),
         "cash_assumption": _cash_fields(rows[0]) if len(rows) == 1 else None,
         "cash_assumptions": [{**_cash_fields(ca), "pair": ca.pair} for ca in rows],
+        "cash_nominal_loss": _cash_nominal_loss(cfg, data, cpi, criteria),
     }
+
+
+def _cash_nominal_loss(
+    cfg: DecisionConfig, data: dict[str, pd.DataFrame], cpi: pd.Series, criteria: dict
+) -> dict | None:
+    """`nominal_loss_stats` of the cash leg over the research period to the data
+    end, as the assumption rows use it; None without a cash-assumption row."""
+    rows = cash_rows(cfg)
+    if not rows:
+        return None
+    end = data_end(criteria)
+    trading = pd.DatetimeIndex(data["close"].loc[:end].index)
+    days = trading[trading >= research_start(trading, criteria)]
+    leg = cash_leg_returns(days, trading, cpi.loc[:end], rows[0].real_yield)
+    return nominal_loss_stats(leg)
 
 
 def _cash_fields(ca: CashAssumption) -> dict:
