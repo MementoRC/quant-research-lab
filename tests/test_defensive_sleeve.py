@@ -199,7 +199,7 @@ def _returns() -> list[dict]:
 def test_return_section_renders_cagr_drawdown_and_gap_to_a():
     lines = render_markdown(_hand_report(returns=_returns())).splitlines()
     assert RETURN_HEAD in lines
-    assert "| Portfolio | CAGR | Max drawdown | CAGR given up vs A |" in lines
+    assert "| Portfolio | CAGR | Max drawdown (from start) | CAGR given up vs A |" in lines
     assert "| A | 12.0% | 25.6% | 0.0 pp |" in lines
     assert "| A80-CASH20 | 10.0% | 20.0% | 2.0 pp |" in lines
     assert "| RSP | 12.5% | 50.0% | -0.5 pp |" in lines

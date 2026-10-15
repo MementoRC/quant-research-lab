@@ -25,7 +25,7 @@ def _result_lines(m: dict) -> list[str]:
     return [
         "Research period 2005-01-01 to 2018-12-31, costs from criteria.yaml.",
         "",
-        "| portfolio | CAGR | Sharpe | max drawdown |",
+        "| portfolio | CAGR | Sharpe | max drawdown (criteria rule) |",
         "|---|---|---|---|",
         _row("core alone (100%)", m, "core_"),
         _row("core 80% + RSP 20%", m, "combined_"),

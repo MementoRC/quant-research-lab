@@ -153,7 +153,7 @@ _SEEN = (
 _ROWS = (
     ("sharpe", "Sharpe", "{:.3f}"),
     ("cagr", "CAGR", "{:.2%}"),
-    ("max_drawdown", "Max drawdown", "{:.2%}"),
+    ("max_drawdown", "Max drawdown (criteria rule)", "{:.2%}"),
     ("volatility", "Volatility", "{:.2%}"),
 )
 

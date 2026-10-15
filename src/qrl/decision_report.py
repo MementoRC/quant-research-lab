@@ -280,6 +280,9 @@ def _notes(report: dict) -> list[str]:
         "is not separated from sales.",
         "- All figures are percentages: of capital for losses, of the starting value for "
         "withdrawal paths.",
+        "- Drawdowns here count the starting value as a peak. The criteria and the research "
+        "dashboard use `qrl.metrics`, which does not, so their figures can be lower by up to "
+        "about a point.",
         *_assumption_scope_note(report),
         "",
     ]
@@ -312,7 +315,7 @@ def _return_section(report: dict) -> list[str]:
         "the row's, in percentage points (pp); negative means the row earned more than A, "
         "n/a means A is not in the report.",
         "",
-        "| Portfolio | CAGR | Max drawdown | CAGR given up vs A |",
+        "| Portfolio | CAGR | Max drawdown (from start) | CAGR given up vs A |",
         "|---|---|---|---|",
     ]
     for r in rows:
@@ -339,7 +342,7 @@ def _window_section(report: dict) -> list[str]:
     lines = [
         "## Historical windows",
         "",
-        "| portfolio | window | mode | worst drawdown | proxied (per class) | flag |",
+        "| portfolio | window | mode | worst drawdown (from start) | proxied (per class) | flag |",
         "|---|---|---|---|---|---|",
     ]
     for r in report["windows"]:
@@ -422,7 +425,7 @@ def _withdrawal_section(report: dict) -> list[str]:
         lines += [
             f"### Withdrawal rate {_pct(rate)} per year",
             "",
-            f"| portfolio | real ending value (start {first}) | lowest value | max drawdown | "
+            f"| portfolio | real ending value (start {first}) | lowest value | max drawdown (from start) | "
             "longest below a prior peak | below peak at end | depleted | "
             "worst start year (real ending value) |",
             "|---|---|---|---|---|---|---|---|",

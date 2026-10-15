@@ -22,7 +22,7 @@ from .metrics import compute_metrics
 from .periods import period_bounds
 from .portfolio import combine_portfolio
 from .strategies import REGISTRY
-from .stress import Cell, PortfolioDef, StressConfig, run_stress
+from .stress import Cell, PortfolioDef, StressConfig, run_stress, window_drawdown
 from .true_cash import cash_leg_returns, mix_returns, nominal_loss_stats
 
 FULL = {"core": 1.0, "sleeve": 0.0}  # 100% of capital, empty sleeve (as benchmark_metrics)
@@ -352,8 +352,10 @@ def return_rows(
     docs/methodology/defensive-sleeve.md), then the cash-assumption row if
     the config has one (docs/methodology/true-cash-sleeve.md; it needs
     `cpi`): bought at the first research trading day, held to the data end
-    with no withdrawals, paying criteria cost_bps. CAGR and max drawdown
-    (positive) from `qrl.metrics.compute_metrics`. `lost_return` is A's CAGR
+    with no withdrawals, paying criteria cost_bps. CAGR from
+    `qrl.metrics.compute_metrics`; max drawdown (positive) from
+    `qrl.stress.window_drawdown`, which counts the start as a peak (spec:
+    docs/methodology/report-wording.md, item 4). `lost_return` is A's CAGR
     minus the row's, in CAGR units (0.01 = one percentage point); None
     without portfolio A. Price and CPI frames are cut at the data end first."""
     end = data_end(criteria)
@@ -372,7 +374,7 @@ def return_rows(
         {
             "portfolio": pid,
             "cagr": m["cagr"],
-            "max_drawdown": m["max_drawdown"],
+            "max_drawdown": window_drawdown(series[pid]),
             "lost_return": None if base is None else base - m["cagr"],
         }
         for pid, m in metrics.items()
