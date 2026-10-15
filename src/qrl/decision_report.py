@@ -71,6 +71,23 @@ def _pairs(report: dict) -> list[str]:
     return [r["pair"] for r in _rows(report) if r.get("pair")]
 
 
+def deflation_sentence(report: dict) -> str:
+    """The true-cash deflation disclosure from `report["cash_nominal_loss"]`
+    (`qrl.true_cash.nominal_loss_stats`), with its leading space; '' when the
+    report carries no such figures."""
+    s = report.get("cash_nominal_loss")
+    if not s:
+        return ""
+    head = "It follows unadjusted CPI, so it "
+    if s["n"] == 0:
+        return f" {head}would lose money in a deflation month: 0 of {s['N']} months here."
+    return (
+        f" {head}loses money in deflation months: {s['n']} of {s['N']} months here, "
+        f"worst {round(s['worst'] * 100, 1):.1f}% from {s['start']} to {s['end']}. "
+        "A 0% floor would make true cash look better in the crash windows."
+    )
+
+
 def _multi_assumption_note(report: dict) -> list[str]:
     rows = _rows(report)
     first = rows[0]
@@ -84,8 +101,8 @@ def _multi_assumption_note(report: dict) -> list[str]:
         f"shown next to that core's SHY pair{pair_ids} to answer the SHY caveat. "
         f"They are comparisons {n + 1}-{n + len(rows)} but not among the {n} portfolios. "
         f"Their cash legs and daily returns to {_split(first['cash_share'])} pay no trading "
-        f"cost, while each SHY pair pays {report['cost_bps']:g} bps per unit of turnover on "
-        "its rebalancing, a small difference in the assumption rows' favour."
+        "cost, and neither do their SHY pairs: the engine charges only target-to-target "
+        f"turnover, so rebalancing a constant mix is free in both rows.{deflation_sentence(report)}"
     ]
 
 
@@ -129,8 +146,8 @@ def _assumption_note(report: dict) -> list[str]:
         "shown to answer the SHY caveat above. "
         f"It is comparison {n + 1} but not one of the {n} portfolios. "
         f"Its cash leg and its daily return to {_split(ca['cash_share'])} pay no trading cost, "
-        f"while A80-CASH20 pays {report['cost_bps']:g} bps per unit of turnover on its "
-        "rebalancing, a small difference in the assumption row's favour."
+        "and neither does A80-CASH20: the engine charges only target-to-target turnover, "
+        f"so rebalancing a constant mix is free in both rows.{deflation_sentence(report)}"
     ]
 
 
@@ -215,25 +232,30 @@ def _header(report: dict) -> list[str]:
 
 
 def _switching_label(report: dict) -> str:
-    """The hand-written list, or with several assumption rows the computed one:
-    every portfolio shown in more than one state."""
-    if not _multi(report):
-        return "A, B, C, F and blends holding A"
-    return _join([p["id"] for p in report["portfolios"] if len(p["states"]) > 1])
+    """Every portfolio shown in more than one state; '' when there is none."""
+    names = [p["id"] for p in report["portfolios"] if len(p["states"]) > 1]
+    return _join(names) if names else ""
 
 
 def _mostly_proxied(report: dict) -> str:
-    """The hand-written list, or with several assumption rows the portfolios
-    flagged indicative in `dotcom_2000` (when any are)."""
-    fixed = "G, G-EW, G-CASH and A-CASH"
-    if not _multi(report):
-        return fixed
+    """The portfolios flagged indicative in `dotcom_2000`; '' when there is none."""
     flagged = [
         r["portfolio"]
         for r in report["windows"]
         if r["window"] == "dotcom_2000" and r["indicative"] and not r["unavailable"]
     ]
-    return _join(list(dict.fromkeys(flagged))) if flagged else fixed
+    return _join(list(dict.fromkeys(flagged))) if flagged else ""
+
+
+def _switching_note(report: dict) -> list[str]:
+    label = _switching_label(report)
+    if not label:
+        return []
+    return [
+        f"- Switching portfolios ({label}) are shown in both states, "
+        "risk-on and risk-off, because their current state would need sealed data; the worse "
+        "is marked."
+    ]
 
 
 def _notes(report: dict) -> list[str]:
@@ -247,9 +269,9 @@ def _notes(report: dict) -> list[str]:
         f"unchanged: replay cells use the engine's default of {report['engine_cost_bps']:g} bps, "
         "frozen cells pay none. "
         "Scenario cells are instantaneous and carry no cost.",
-        f"- Switching portfolios ({_switching_label(report)}) are shown in both states, "
-        "risk-on and risk-off, because their current state would need sealed data; the worse "
-        "is marked.",
+        *_switching_note(report),
+        "- The engine never charges for drift, so the cost of real periodic rebalancing is "
+        "slightly understated for every blend.",
         "- In the dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet "
         "trade), so those cells are indicative only.",
         "- Known gap: no portfolio holds an asset that gains from a falling dollar other "
@@ -258,6 +280,9 @@ def _notes(report: dict) -> list[str]:
         "is not separated from sales.",
         "- All figures are percentages: of capital for losses, of the starting value for "
         "withdrawal paths.",
+        "- Drawdowns here count the starting value as a peak. The criteria and the research "
+        "dashboard use `qrl.metrics`, which does not, so their figures can be lower by up to "
+        "about a point.",
         *_assumption_scope_note(report),
         "",
     ]
@@ -290,7 +315,7 @@ def _return_section(report: dict) -> list[str]:
         "the row's, in percentage points (pp); negative means the row earned more than A, "
         "n/a means A is not in the report.",
         "",
-        "| Portfolio | CAGR | Max drawdown | CAGR given up vs A |",
+        "| Portfolio | CAGR | Max drawdown (from start) | CAGR given up vs A |",
         "|---|---|---|---|",
     ]
     for r in rows:
@@ -313,10 +338,11 @@ def _window_flag(row: dict) -> str:
 
 def _window_section(report: dict) -> list[str]:
     threshold = report["proxied_threshold"]
+    proxied = _mostly_proxied(report)
     lines = [
         "## Historical windows",
         "",
-        "| portfolio | window | mode | worst drawdown | proxied (per class) | flag |",
+        "| portfolio | window | mode | worst drawdown (from start) | proxied (per class) | flag |",
         "|---|---|---|---|---|---|",
     ]
     for r in report["windows"]:
@@ -330,8 +356,8 @@ def _window_section(report: dict) -> list[str]:
             "start is replaced by SPY (equity) or by cash (bonds, gold). A cell more than "
             f"{threshold:.0%} proxied is marked mostly proxied, indicative only. "
             "`dotcom_2000` starts before SHY, IEF and TLT (2002), RSP (2003) and GLD (2004): "
-            "CASH is entirely cash there (0% loss by construction) and "
-            f"{_mostly_proxied(report)} are mostly proxied.",
+            "CASH is entirely cash there (0% loss by construction)"
+            + (f" and {proxied} are mostly proxied." if proxied else "."),
             *([DOTCOM_SLEEVE] if _has_sleeves(report) else []),
         ]
     )
@@ -396,23 +422,26 @@ def _withdrawal_section(report: dict) -> list[str]:
         "",
     ]
     for rate in report["rates"]:
+        rows = [r for r in report["withdrawals"] if r["rate"] == rate]
+        h = rows[0]["horizon_years"] if rows else ""
         lines += [
             f"### Withdrawal rate {_pct(rate)} per year",
             "",
-            f"| portfolio | real ending value (start {first}) | lowest value | max drawdown | "
+            f"| portfolio | real ending value (start {first}) | lowest value | max drawdown (from start) | "
             "longest below a prior peak | below peak at end | depleted | "
-            "worst start year (real ending value) |",
-            "|---|---|---|---|---|---|---|---|",
+            f"worst start year to {report['data_end']} (real ending value; horizons differ) | "
+            f"worst {h}-year start (real value after {h} years) |",
+            "|---|---|---|---|---|---|---|---|---|",
         ]
-        for row in report["withdrawals"]:
-            if row["rate"] != rate:
-                continue
+        for row in rows:
             m = row["first"]
+            wy = row["worst_year"]
             lines.append(
                 f"| {row['portfolio']} | {_pct(m['end_real'])} | {_pct(m['lowest'])} | "
                 f"{_pct(m['max_drawdown'])} | {_below_peak(m)} | "
                 f"{'yes' if m['below_peak_at_end'] else 'no'} | {m['depleted'] or 'no'} | "
-                f"{row['worst_year']} ({_pct(row['worst_end_real'])}) |"
+                f"{wy}, {row['horizons'][wy]} y ({_pct(row['worst_end_real'])}) | "
+                f"{row['worst5_year']} ({_pct(row['worst5_end_real'])}) |"
             )
         lines.append("")
     return lines

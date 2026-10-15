@@ -1,6 +1,6 @@
 # True-cash sleeve: 80% A + 20% cash at an assumed +1% real
 
-Status: spec written 2026-10-11, owner-approved design and spec 2026-10-11. Run 2026-10-11 (branch feature/true-cash-sleeve): results in research/decision.md and research/longrun.md.
+Status: spec written 2026-10-11, owner-approved design and spec 2026-10-11. Run 2026-10-11 (branch feature/true-cash-sleeve): results in research/decision.md and research/longrun.md. Revised 2026-10-14 (report wording): see report-wording.md.
 Extends [defensive-sleeve.md](defensive-sleeve.md), [decision-helper.md](decision-helper.md)
 and [longrun.md](longrun.md).
 
@@ -11,7 +11,9 @@ SHY, and that SHY's near-zero 2009-2015 yields make it look worse than cash
 at today's rates. How much does that one fact matter? This spec adds one
 row, A80-TCASH20: 80% A (`core_trend`, QQQ/GLD, 200-day) plus 20% true cash
 earning each month's inflation plus 1% a year. It is the same assumption as
-the long-run report's existing "CASH +1% real (assumption)" row.
+the long-run report's existing "CASH +1% real (assumption)" row. It follows
+unadjusted CPI (CPIAUCNS) with no floor, so it loses money in nominal terms in
+deflation months; the reports give the count and the worst decline.
 
 ## An assumption row, not a fund, and not a test
 
@@ -158,10 +160,11 @@ The row:
   of turnover), same refusals.
 - This equals 80% A and 20% cash rebalanced back to 80/20 every day, the
   same daily rebalancing every other portfolio in the report has.
-- Disclosed differences from A80-CASH20: the cash leg pays no trading cost,
-  and the daily trades that bring the two legs back to 80/20 pay no cost
-  either. A80-CASH20 runs through the engine and pays 5 bps on its daily
-  drift rebalancing. The difference is small but favours the assumption row.
+- Trading cost, same in both rows: the true-cash row and A80-CASH20 both pay
+  no trading cost for the rebalancing, because the engine charges only
+  target-to-target turnover, so rebalancing a constant mix is free in both
+  rows. Drift is never charged, so real periodic rebalancing costs are
+  slightly understated.
 - Check on the inflation figures: for a path from the first trading day of
   January Y to 2018-12-31, the cash leg grows by exactly CPI(Nov 2018) /
   CPI(Nov Y-1) x 1.01^(2019 - Y). The decision helper's own real deflator
@@ -270,10 +273,11 @@ key, and its rendered text stays byte-for-byte as today.
   A + 20% cash at +1% real (assumption)) is an assumption row, not a fund:
   20.0% cash earning each month's inflation plus 1.0% a year, the long-run
   report's CASH +1% real assumption, shown to answer the SHY caveat above.
-  It is comparison 22 but not one of the 21 portfolios. Its cash leg and
-  its daily return to 80/20 pay no trading cost, while A80-CASH20 pays 5 bps
-  per unit of turnover on its rebalancing, a small difference in the
-  assumption row's favour."
+  It is comparison 22 but not one of the 21 portfolios. Both it and
+  A80-CASH20 pay no trading cost for the rebalancing, because the engine
+  charges only target-to-target turnover, so rebalancing a constant mix is
+  free in both rows; drift is never charged, so real periodic rebalancing
+  costs are slightly understated."
   Template: with N = `len(report["portfolios"])` (computed, never
   hard-coded), the id, label, cash share and real yield come from
   `report["cash_assumption"]` (share and yield via `_pct`), "comparison 22"
@@ -300,10 +304,11 @@ Long-run report (`longrun_report.py`):
 - One new note, present only with the row. For the shipped config it
   renders as: "- A80-TCASH20: an assumption, not history. 80.0% A plus 20.0%
   cash earning each month's inflation plus 1.0% a year, rebalanced daily;
-  its real yield is checked equal to the CASH +1% real row's. The cash leg
-  and the daily return to 80/20 pay no trading cost, while A80-CASH20 pays
-  5 bps per unit traded on its rebalancing, a small difference in the
-  assumption row's favour."
+  its real yield is checked equal to the CASH +1% real row's. Both it and
+  A80-CASH20 pay no trading cost for the rebalancing, because the engine
+  charges only target-to-target turnover, so rebalancing a constant mix is
+  free in both rows; drift is never charged, so real periodic rebalancing
+  costs are slightly understated."
   Template: the id is `r["cash_assumption_id"]`; "80.0%" is
   `_pct(1 - r["cash_assumption_share"])` and "A" is
   `r["cash_assumption_base"]`; "20.0%" is `_pct(r["cash_assumption_share"])`;

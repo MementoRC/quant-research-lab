@@ -329,7 +329,7 @@ def _benchmark_section(rows: list[dict] | None) -> list[str]:
     return [
         "## Benchmark (not a candidate; not counted in the trial count)",
         "",
-        "| id | rule | CAGR | Sharpe | max drawdown | turnover/yr | breaches |",
+        "| id | rule | CAGR | Sharpe | max drawdown (criteria rule) | turnover/yr | breaches |",
         "|---|---|---|---|---|---|---|",
         *(_research_row(r) for r in rows),
         "",
@@ -361,7 +361,7 @@ def render_markdown(report: dict) -> str:
         "",
         "## Research period",
         "",
-        "| id | rule | CAGR | Sharpe | max drawdown | turnover/yr | breaches |",
+        "| id | rule | CAGR | Sharpe | max drawdown (criteria rule) | turnover/yr | breaches |",
         "|---|---|---|---|---|---|---|",
         *(_research_row(c) for c in report["candidates"]),
         "",

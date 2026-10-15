@@ -1,6 +1,6 @@
 # True cash for every core: 80% core + 20% cash, SHY and +1% real
 
-Status: spec written 2026-10-12, owner-approved design and spec 2026-10-12.
+Status: spec written 2026-10-12, owner-approved design and spec 2026-10-12. Revised 2026-10-14 (report wording): see report-wording.md.
 Owner choices
 (2026-10-12): every core B-G, each with a SHY pair, 20% share, +1% real.
 Extends [true-cash-sleeve.md](true-cash-sleeve.md) and
@@ -13,7 +13,9 @@ core kept comparable. This spec adds, for each core X in B-G:
 
 - X80-CASH20, a real portfolio: 80% X + 20% CASH (SHY), like A80-CASH20.
 - X80-TCASH20, an assumption row: 80% X + 20% cash earning each month's
-  inflation plus 1% a year, exactly as A80-TCASH20.
+  inflation plus 1% a year, exactly as A80-TCASH20. It follows unadjusted CPI
+  (CPIAUCNS) with no floor, so it loses money in nominal terms in deflation
+  months; the reports give the count and the worst decline.
 
 So each of the seven cores gets the same three rows: X, X80-CASH20 and
 X80-TCASH20.
@@ -128,9 +130,11 @@ With more than one row:
   earning each month's inflation plus 1.0% a year, the long-run report's CASH
   +1% real assumption, shown next to that core's SHY pair (A80-CASH20 to
   G80-CASH20) to answer the SHY caveat. They are comparisons 28-34 but not
-  among the 27 portfolios. Their cash legs and daily returns to 80/20 pay no
-  trading cost, while each SHY pair pays 5 bps per unit of turnover on its
-  rebalancing, a small difference in the assumption rows' favour."
+  among the 27 portfolios. Both they and each SHY pair pay no
+  trading cost for the rebalancing, because the engine charges only
+  target-to-target turnover, so rebalancing a constant mix is free in both
+  rows; drift is never charged, so real periodic rebalancing costs are
+  slightly understated."
 - The Notes scope bullet names the pairs generally ("would equal its SHY
   pair in dotcom_2000") instead of A80-CASH20.
 - A note for G: G already holds 25% SHY, so G80-CASH20 holds 40% SHY in all

@@ -22,8 +22,8 @@ from .metrics import compute_metrics
 from .periods import period_bounds
 from .portfolio import combine_portfolio
 from .strategies import REGISTRY
-from .stress import Cell, PortfolioDef, StressConfig, run_stress
-from .true_cash import cash_leg_returns, mix_returns
+from .stress import Cell, PortfolioDef, StressConfig, run_stress, window_drawdown
+from .true_cash import cash_leg_returns, mix_returns, nominal_loss_stats
 
 FULL = {"core": 1.0, "sleeve": 0.0}  # 100% of capital, empty sleeve (as benchmark_metrics)
 _NO_CAP = 1.0  # cells carry losses only; this report compares, it tests no cap
@@ -280,16 +280,30 @@ def _withdrawal_rows_for(
     """One row per withdrawal rate for row `pid`: the first start year's path
     metrics, the worst start year by real ending value, and every start
     year's metrics. `paths` maps start year to daily returns; `cpi` is
-    already cut at the data end."""
+    already cut at the data end. Also the equal-horizon worst case (spec:
+    docs/methodology/report-wording.md, section 6): the horizon H is the last
+    path's end year minus the last start year plus one, every path is cut to
+    its first H years, and `worst5_*` is the lowest real value after H years."""
+    end_years = {y: pd.DatetimeIndex(r.index)[-1].year for y, r in paths.items()}
+    horizon = end_years[max(paths)] - max(paths) + 1
+    cut = {y: _first_years(r, horizon) for y, r in paths.items()}
     rows: list[dict] = []
     for rate in cfg.rates:
-        per_year: dict[int, dict] = {}
-        for year, returns in paths.items():
-            last = pd.DatetimeIndex(returns.index)[-1]
-            monthly = monthly_withdrawals(rate, year, last.year, cpi)
-            per_year[year] = path_metrics(withdrawal_path(returns, monthly), cpi)
+        per_year = {
+            y: path_metrics(
+                withdrawal_path(r, monthly_withdrawals(rate, y, end_years[y], cpi)), cpi
+            )
+            for y, r in paths.items()
+        }
+        at_horizon = {
+            y: path_metrics(
+                withdrawal_path(r, monthly_withdrawals(rate, y, y + horizon - 1, cpi)), cpi
+            )["end_real"]
+            for y, r in cut.items()
+        }
         first = min(per_year)
         worst_real, worst_year = min((m["end_real"], y) for y, m in per_year.items())
+        worst5_real, worst5_year = min((v, y) for y, v in at_horizon.items())
         rows.append(
             {
                 "portfolio": pid,
@@ -298,10 +312,22 @@ def _withdrawal_rows_for(
                 "first": per_year[first],
                 "worst_year": worst_year,
                 "worst_end_real": worst_real,
+                "horizons": {y: end_years[y] - y + 1 for y in paths},
+                "horizon_years": horizon,
+                "worst5_year": worst5_year,
+                "worst5_end_real": worst5_real,
                 "per_year": per_year,
             }
         )
     return rows
+
+
+def _first_years(returns: pd.Series, years: int) -> pd.Series:
+    """The path's returns for its first `years` calendar years. Paths start on the
+    first trading day of a January, so this is start to start + `years` years,
+    exclusive, without spilling a few days into the next January."""
+    index = pd.DatetimeIndex(returns.index)
+    return returns[index.year < index[0].year + years]
 
 
 def withdrawal_rows(
@@ -352,8 +378,10 @@ def return_rows(
     docs/methodology/defensive-sleeve.md), then the cash-assumption row if
     the config has one (docs/methodology/true-cash-sleeve.md; it needs
     `cpi`): bought at the first research trading day, held to the data end
-    with no withdrawals, paying criteria cost_bps. CAGR and max drawdown
-    (positive) from `qrl.metrics.compute_metrics`. `lost_return` is A's CAGR
+    with no withdrawals, paying criteria cost_bps. CAGR from
+    `qrl.metrics.compute_metrics`; max drawdown (positive) from
+    `qrl.stress.window_drawdown`, which counts the start as a peak (spec:
+    docs/methodology/report-wording.md, item 4). `lost_return` is A's CAGR
     minus the row's, in CAGR units (0.01 = one percentage point); None
     without portfolio A. Price and CPI frames are cut at the data end first."""
     end = data_end(criteria)
@@ -372,7 +400,7 @@ def return_rows(
         {
             "portfolio": pid,
             "cagr": m["cagr"],
-            "max_drawdown": m["max_drawdown"],
+            "max_drawdown": window_drawdown(series[pid]),
             "lost_return": None if base is None else base - m["cagr"],
         }
         for pid, m in metrics.items()
@@ -451,7 +479,23 @@ def run_decision(
         "returns": return_rows(cfg, data, criteria, cpi),
         "cash_assumption": _cash_fields(rows[0]) if len(rows) == 1 else None,
         "cash_assumptions": [{**_cash_fields(ca), "pair": ca.pair} for ca in rows],
+        "cash_nominal_loss": _cash_nominal_loss(cfg, data, cpi, criteria),
     }
+
+
+def _cash_nominal_loss(
+    cfg: DecisionConfig, data: dict[str, pd.DataFrame], cpi: pd.Series, criteria: dict
+) -> dict | None:
+    """`nominal_loss_stats` of the cash leg over the research period to the data
+    end, as the assumption rows use it; None without a cash-assumption row."""
+    rows = cash_rows(cfg)
+    if not rows:
+        return None
+    end = data_end(criteria)
+    trading = pd.DatetimeIndex(data["close"].loc[:end].index)
+    days = trading[trading >= research_start(trading, criteria)]
+    leg = cash_leg_returns(days, trading, cpi.loc[:end], rows[0].real_yield)
+    return nominal_loss_stats(leg)
 
 
 def _cash_fields(ca: CashAssumption) -> dict:

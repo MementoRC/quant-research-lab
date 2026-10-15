@@ -1,7 +1,7 @@
 # Decision helper: portfolios, scenarios and withdrawals
 
 Status: implemented 2026-10-06 (`pixi run decision`, writes
-`research/decision.md`). Owner-approved design.
+`research/decision.md`). Owner-approved design. Revised 2026-10-14 (report wording): see report-wording.md.
 
 ## Purpose
 
@@ -128,7 +128,13 @@ other than gold. The report states this.
   - longest time below a prior peak, in months, on the value path (what
     the owner would see on a statement); a drawdown unrecovered at
     2018-12-31 is reported as "at least N months, not recovered"
-  - worst start year, by real ending value
+  - worst start year, by real ending value. This compares paths of
+    different length (all end on the same date, so later starts are
+    shorter). The report shows each path's horizon, plus a second column
+    with the worst start over equal-length paths (horizon = the longest
+    every start year allows, derived from the data; 5 years today).
+  - All drawdowns in the decision report count the starting value as a
+    peak (from start); the criteria use `qrl.metrics`, which does not.
 - Year-one scenario hit: for each judgement-based scenario, value after
   one year = (1 + scenario return) minus the year's withdrawals at that
   rate, nominal and real.
