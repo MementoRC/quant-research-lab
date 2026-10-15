@@ -422,23 +422,26 @@ def _withdrawal_section(report: dict) -> list[str]:
         "",
     ]
     for rate in report["rates"]:
+        rows = [r for r in report["withdrawals"] if r["rate"] == rate]
+        h = rows[0]["horizon_years"] if rows else ""
         lines += [
             f"### Withdrawal rate {_pct(rate)} per year",
             "",
             f"| portfolio | real ending value (start {first}) | lowest value | max drawdown (from start) | "
             "longest below a prior peak | below peak at end | depleted | "
-            "worst start year (real ending value) |",
-            "|---|---|---|---|---|---|---|---|",
+            f"worst start year to {report['data_end']} (real ending value; horizons differ) | "
+            f"worst {h}-year start (real value after {h} years) |",
+            "|---|---|---|---|---|---|---|---|---|",
         ]
-        for row in report["withdrawals"]:
-            if row["rate"] != rate:
-                continue
+        for row in rows:
             m = row["first"]
+            wy = row["worst_year"]
             lines.append(
                 f"| {row['portfolio']} | {_pct(m['end_real'])} | {_pct(m['lowest'])} | "
                 f"{_pct(m['max_drawdown'])} | {_below_peak(m)} | "
                 f"{'yes' if m['below_peak_at_end'] else 'no'} | {m['depleted'] or 'no'} | "
-                f"{row['worst_year']} ({_pct(row['worst_end_real'])}) |"
+                f"{wy}, {row['horizons'][wy]} y ({_pct(row['worst_end_real'])}) | "
+                f"{row['worst5_year']} ({_pct(row['worst5_end_real'])}) |"
             )
         lines.append("")
     return lines

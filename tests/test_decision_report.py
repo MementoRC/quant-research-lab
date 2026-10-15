@@ -94,6 +94,10 @@ def _hand_report(**over) -> dict:
                 "first": _metrics(),
                 "worst_year": 2006,
                 "worst_end_real": 0.8,
+                "horizons": {2005: 14, 2006: 13},
+                "horizon_years": 13,
+                "worst5_year": 2006,
+                "worst5_end_real": 0.85,
                 "per_year": {},
             }
         ],
@@ -189,7 +193,10 @@ def test_decision_report_hand_built_cells_render_exactly():
     assert "| X | shock | risk_on | 14.6% | 19.0% | worse |" in lines
     assert "| X | shock | risk_off | -1.0% | 4.0% |  |" in lines
     withdrawal = next(ln for ln in lines if ln.startswith("| X | 90.0% |"))
-    assert withdrawal == "| X | 90.0% | 50.0% | 14.6% | 7 months | no | no | 2006 (80.0%) |"
+    assert (
+        withdrawal
+        == "| X | 90.0% | 50.0% | 14.6% | 7 months | no | no | 2006, 13 y (80.0%) | 2006 (85.0%) |"
+    )
     assert "| X (risk_on) | 81.4% / 77.5% |" in lines
 
 
@@ -261,7 +268,10 @@ def test_decision_report_below_peak_at_end_and_depletion_columns():
     rep["withdrawals"][0]["first"] = _metrics(below_peak_at_end=True, depleted="2011-03")
     md = render_markdown(rep)
     assert "below peak at end" in md
-    assert "| X | 90.0% | 50.0% | 14.6% | 7 months | yes | 2011-03 | 2006 (80.0%) |" in md
+    assert (
+        "| X | 90.0% | 50.0% | 14.6% | 7 months | yes | 2011-03 | 2006, 13 y (80.0%) | 2006 (85.0%) |"
+        in md
+    )
 
 
 def test_decision_report_negative_year_one_is_shown_and_marked_depleted():

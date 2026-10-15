@@ -280,16 +280,30 @@ def _withdrawal_rows_for(
     """One row per withdrawal rate for row `pid`: the first start year's path
     metrics, the worst start year by real ending value, and every start
     year's metrics. `paths` maps start year to daily returns; `cpi` is
-    already cut at the data end."""
+    already cut at the data end. Also the equal-horizon worst case (spec:
+    docs/methodology/report-wording.md, section 6): the horizon H is the last
+    path's end year minus the last start year plus one, every path is cut to
+    its first H years, and `worst5_*` is the lowest real value after H years."""
+    end_years = {y: pd.DatetimeIndex(r.index)[-1].year for y, r in paths.items()}
+    horizon = end_years[max(paths)] - max(paths) + 1
+    cut = {y: _first_years(r, horizon) for y, r in paths.items()}
     rows: list[dict] = []
     for rate in cfg.rates:
-        per_year: dict[int, dict] = {}
-        for year, returns in paths.items():
-            last = pd.DatetimeIndex(returns.index)[-1]
-            monthly = monthly_withdrawals(rate, year, last.year, cpi)
-            per_year[year] = path_metrics(withdrawal_path(returns, monthly), cpi)
+        per_year = {
+            y: path_metrics(
+                withdrawal_path(r, monthly_withdrawals(rate, y, end_years[y], cpi)), cpi
+            )
+            for y, r in paths.items()
+        }
+        at_horizon = {
+            y: path_metrics(
+                withdrawal_path(r, monthly_withdrawals(rate, y, y + horizon - 1, cpi)), cpi
+            )["end_real"]
+            for y, r in cut.items()
+        }
         first = min(per_year)
         worst_real, worst_year = min((m["end_real"], y) for y, m in per_year.items())
+        worst5_real, worst5_year = min((v, y) for y, v in at_horizon.items())
         rows.append(
             {
                 "portfolio": pid,
@@ -298,10 +312,22 @@ def _withdrawal_rows_for(
                 "first": per_year[first],
                 "worst_year": worst_year,
                 "worst_end_real": worst_real,
+                "horizons": {y: end_years[y] - y + 1 for y in paths},
+                "horizon_years": horizon,
+                "worst5_year": worst5_year,
+                "worst5_end_real": worst5_real,
                 "per_year": per_year,
             }
         )
     return rows
+
+
+def _first_years(returns: pd.Series, years: int) -> pd.Series:
+    """The path's returns for its first `years` calendar years. Paths start on the
+    first trading day of a January, so this is start to start + `years` years,
+    exclusive, without spilling a few days into the next January."""
+    index = pd.DatetimeIndex(returns.index)
+    return returns[index.year < index[0].year + years]
 
 
 def withdrawal_rows(
