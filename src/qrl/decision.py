@@ -232,16 +232,14 @@ def assumption_returns(
     inflation plus real_yield. `data` and `cpi` must already be cut at the
     data end. None without a cash_assumption; raises ValueError if its base
     is not among the portfolios."""
-    ca = cfg.cash_assumption
-    if ca is None:
-        return None
-    return _row_returns(ca, cfg, data, cpi, start, cost_bps)
+    rows = cash_rows(cfg)
+    return _row_returns(rows[0], cfg, data, cpi, start, cost_bps) if rows else None
 
 
 def cash_rows(cfg: DecisionConfig) -> tuple[CashAssumption, ...]:
     """The cash-assumption rows in A-G order (spec:
-    docs/methodology/true-cash-all-cores.md); none when `cash_assumption` is None."""
-    return cfg.cash_assumptions if cfg.cash_assumption is not None else ()
+    docs/methodology/true-cash-all-cores.md); empty without any."""
+    return cfg.cash_assumptions
 
 
 def _row_returns(
@@ -494,6 +492,8 @@ def _cash_nominal_loss(
     end = data_end(criteria)
     trading = pd.DatetimeIndex(data["close"].loc[:end].index)
     days = trading[trading >= research_start(trading, criteria)]
+    if len({r.real_yield for r in rows}) > 1:
+        raise ValueError("cash_assumption rows have different real_yield values")
     leg = cash_leg_returns(days, trading, cpi.loc[:end], rows[0].real_yield)
     return nominal_loss_stats(leg)
 
