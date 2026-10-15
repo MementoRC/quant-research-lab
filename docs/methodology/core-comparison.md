@@ -1,6 +1,6 @@
 # Core comparison — design
 
-Date: 2026-10-03. Status: approved in conversation (owner, 2026-10-03), pending written-spec review.
+Date: 2026-10-03. Status: approved in conversation (owner, 2026-10-03). Implemented; results in `research/core_compare.md`.
 
 ## Purpose
 

@@ -1,7 +1,7 @@
 # Report wording: cost, drawdown, true cash, start years, PLAN summary, proxied note
 
 Status: spec written 2026-10-13; owner decisions taken 2026-10-13 (listed at
-the end). Awaiting implementation.
+the end). Implemented in PR #60 (1d66ca3).
 Source: the read-only audit of 2026-10-12 (workflow wf_78e2e1c3-596),
 findings 3, 4, 5, 6, 7 and 14, all rated low. Each was re-checked against
 HEAD 805daae (after PR #58) and still holds. Two corrections to the audit
