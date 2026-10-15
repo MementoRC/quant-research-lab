@@ -31,6 +31,8 @@ none of this is stored):
 - Candidates validated in earlier invocations are "already_validated".
 - DSR trial set = every run row with created_at <= the candidate's validation
   event (ledger.trial_sharpes at that moment; 0.0 when `sharpe` is absent).
+  The informational program-wide DSR uses every test of every standalone run
+  with created_at <= that same event (audit finding 8); it is never a gate.
 - Concurrent writers to the same run during an invocation would break the
   contiguity assumption; it is reported as "unknown"/integrity diffs, never
   guessed.
@@ -296,6 +298,26 @@ def _trial_sharpes(rows: list[Row], at: datetime) -> list[float]:
     return [float(r.metrics.get("sharpe", 0.0)) for r in rows if r.created_at <= at]
 
 
+def load_program_sharpes(conn: sqlite3.Connection) -> list[tuple[datetime, float]]:
+    """(created_at, sharpe) of every test in every standalone run (the runs whose
+    pass rule uses the `sharpe` key), in test_id order; 0.0 when `sharpe` is absent."""
+    cur = conn.execute(
+        "SELECT t.created_at, t.metrics_json FROM tests t JOIN runs r USING (run_id) "
+        "WHERE r.pass_rule IS NULL OR r.pass_rule = 'standalone' ORDER BY t.test_id"
+    )
+    return [
+        (
+            datetime.fromisoformat(r["created_at"]),
+            float(json.loads(r["metrics_json"]).get("sharpe", 0.0)),
+        )
+        for r in cur.fetchall()
+    ]
+
+
+def _program_sharpes(program: list[tuple[datetime, float]], at: datetime) -> list[float]:
+    return [sr for created, sr in program if created <= at]
+
+
 def finalize(
     plans: list[Planned],
     rows: list[Row],
@@ -305,6 +327,7 @@ def finalize(
     data: SearchData | None,
     criteria: dict,
     bench: dict | None,
+    program: list[tuple[datetime, float]] | None = None,
 ) -> Replay:
     funnel: dict = dict.fromkeys(FUNNEL_KEYS, 0)
     funnel["survivors"] = len(plans)
@@ -347,6 +370,7 @@ def finalize(
                 data,
                 criteria,
                 bench,
+                program,
             )
     if out.corr_unknown or not backtest:
         for key in ("passed_correlation", "accepted"):
@@ -367,6 +391,7 @@ def _finish_validated(
     data: SearchData | None,
     criteria: dict,
     bench: dict | None,
+    program: list[tuple[datetime, float]] | None = None,
 ) -> bool:
     """DSR + correlation for a candidate that reached validation. Returns the
     updated `corr_reliable` flag."""
@@ -399,6 +424,10 @@ def _finish_validated(
     trials = _trial_sharpes(rows, event.created_at)
     dsr = deflated_sharpe_ratio(sharpe, trials, n_obs, skew, kurt)
     c.update(dsr=dsr, threshold=cfg["min_deflated_sharpe"], trials=len(trials), n_obs=n_obs)
+    if program is not None:
+        program_srs = _program_sharpes(program, event.created_at)
+        c["program_dsr"] = deflated_sharpe_ratio(sharpe, program_srs, n_obs, skew, kurt)
+        c["program_trials"] = len(program_srs)
     if dsr < cfg["min_deflated_sharpe"]:
         c["stage"] = "deflated_sharpe"
         c["reason"] = f"deflated Sharpe {dsr:.3f} < required {cfg['min_deflated_sharpe']}"
@@ -436,6 +465,7 @@ def rebuild(
     criteria: dict,
     bench: dict | None,
     invocation_gap: float,
+    program: list[tuple[datetime, float]] | None = None,
 ) -> list[dict]:
     """One result per invocation: funnel, candidates, integrity, neighbour ids."""
     key_pos: dict[str, list[int]] = {}
@@ -446,7 +476,14 @@ def rebuild(
     for cluster in cluster_events(events, invocation_gap):
         n_before, plans = choose_start(rows, key_pos, cluster, prior, cfg, spaces)
         replay = finalize(
-            plans, rows, cfg, backtest=backtest, data=data, criteria=criteria, bench=bench
+            plans,
+            rows,
+            cfg,
+            backtest=backtest,
+            data=data,
+            criteria=criteria,
+            bench=bench,
+            program=program,
         )
         stored = {e.test_id for e in cluster}
         reached = _reached(plans)
@@ -485,6 +522,11 @@ def _print_candidates(candidates: list[dict]) -> None:
                 f"      DSR {c['dsr']:.3f} (threshold {c['threshold']}, trials {c['trials']}, "
                 f"n_obs {c['n_obs']}) [{c['tag']}]"
             )
+            if "program_dsr" in c:
+                line += (
+                    f"  program-wide DSR {c['program_dsr']:.3f} (trials {c['program_trials']}, "
+                    "informational)"
+                )
             if c.get("correlation") is not None:
                 line += f"  max corr {c['correlation']:.2f}"
             print(line)
@@ -604,6 +646,7 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
             return 2
         rows = load_rows(conn, args.run)
         events = load_events(conn, args.run)
+        program = load_program_sharpes(conn)
         notes = conn.execute(
             "SELECT batch_no, text, created_at FROM notes WHERE run_id = ? ORDER BY note_id",
             (args.run,),
@@ -631,6 +674,7 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
         criteria=criteria,
         bench=bench,
         invocation_gap=args.invocation_gap,
+        program=program,
     )
     for i, res in enumerate(results, 1):
         _print_invocation(i, res, config_hash)

@@ -180,6 +180,13 @@ CREATE TABLE IF NOT EXISTS overlay_events (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_overlay_events_one_holdout
     ON overlay_events(kind) WHERE kind = 'holdout';
+
+CREATE TABLE IF NOT EXISTS config_pins (
+    name TEXT PRIMARY KEY,
+    sha256 TEXT NOT NULL,
+    pinned_at TEXT NOT NULL,
+    source TEXT NOT NULL
+);
 """
 
 # Read queries exist in two complete, literal forms (all rows / filtered by a
@@ -235,6 +242,30 @@ _SELECT_OVERLAY_EVENTS_BY_KIND = (
     "SELECT event_id, kind, overlay_sha256, status, passed, result_json, reason, "
     "git_commit, created_at, error FROM overlay_events WHERE kind = ? ORDER BY event_id"
 )
+
+_SELECT_PROGRAM_METRICS_COMBINED = (
+    "SELECT t.metrics_json FROM tests t JOIN runs r USING (run_id) "
+    "WHERE r.pass_rule IN (?, ?) AND t.created_at <= ? ORDER BY t.test_id"
+)
+_SELECT_PROGRAM_METRICS_STANDALONE = (
+    "SELECT t.metrics_json FROM tests t JOIN runs r USING (run_id) "
+    "WHERE (r.pass_rule IS NULL OR r.pass_rule = 'standalone') "
+    "AND t.created_at <= ? ORDER BY t.test_id"
+)
+
+# Validate placeholder counts at import time to catch schema/constant drift
+_placeholder_count_combined = _SELECT_PROGRAM_METRICS_COMBINED.count("?")
+_placeholder_count_standalone = _SELECT_PROGRAM_METRICS_STANDALONE.count("?")
+if _placeholder_count_combined != len(COMBINED_PASS_RULES) + 1:
+    raise RuntimeError(
+        f"_SELECT_PROGRAM_METRICS_COMBINED placeholder count ({_placeholder_count_combined}) "
+        f"must match len(COMBINED_PASS_RULES) + 1 ({len(COMBINED_PASS_RULES) + 1})"
+    )
+if _placeholder_count_standalone != 1:
+    raise RuntimeError(
+        f"_SELECT_PROGRAM_METRICS_STANDALONE placeholder count ({_placeholder_count_standalone}) "
+        f"must be 1"
+    )
 
 
 class LedgerError(RuntimeError):
@@ -850,3 +881,41 @@ class Ledger:
         (milestones 2.3-2.5). Combined-rule runs pass `key="improvement_sharpe"`."""
         rows = self._conn.execute(_SELECT_METRICS_BY_RUN, (run_id,)).fetchall()
         return [float(json.loads(row["metrics_json"]).get(key, 0.0)) for row in rows]
+
+    def program_trial_sharpes(self, key: str, *, up_to: str) -> list[float]:
+        """One Sharpe per test in EVERY run whose pass rule uses `key`
+        (`"improvement_sharpe"`: combined and combined-null runs, factor runs
+        included; any other key: standalone runs), recorded at or before the
+        ISO timestamp `up_to`, in test_id order. Missing `key` reads 0.0, like
+        `trial_sharpes`. Informational program-wide trial set only."""
+        if key == "improvement_sharpe":
+            rows = self._conn.execute(
+                _SELECT_PROGRAM_METRICS_COMBINED,
+                (*COMBINED_PASS_RULES, up_to),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                _SELECT_PROGRAM_METRICS_STANDALONE,
+                (up_to,),
+            ).fetchall()
+        return [float(json.loads(row["metrics_json"]).get(key, 0.0)) for row in rows]
+
+    def pin_config(self, name: str, sha256: str, source: str) -> None:
+        """Record the pinned hash of a locked config file, once. Refuses to
+        overwrite an existing pin (a changed rule needs a new track, not a re-pin)."""
+        try:
+            self._conn.execute(
+                "INSERT INTO config_pins (name, sha256, pinned_at, source) VALUES (?, ?, ?, ?)",
+                (name, sha256, _utcnow(), source),
+            )
+        except sqlite3.IntegrityError as err:
+            raise LedgerError(
+                f"config {name!r} is already pinned; pins are never overwritten"
+            ) from err
+        self._conn.commit()
+
+    def config_pin(self, name: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT name, sha256, pinned_at, source FROM config_pins WHERE name = ?", (name,)
+        ).fetchone()
+        return None if row is None else dict(row)
