@@ -544,34 +544,37 @@ def test_shipped_config_loads():
 
 
 @pytest.mark.parametrize(
-    "changes",
+    ("changes", "message"),
     [
-        {"version": 2},
-        {"interest_coverage_min": "x"},
-        {"interest_coverage_min": 0},
-        {"net_debt_to_fcf_max": -1},
-        {"maturities_to_liquidity_max": True},
-        {"altman_z_min": 0},
-        {"piotroski_max_weak": 0},
-        {"rate_rise_max_pp": 0},
-        {"breach_to_fragile": 0},
-        {"breach_to_fragile": 7},
-        {"breach_to_fragile": 1.5},
-        {"min_available_for_sound": 0},
-        {"min_available_for_sound": 7},
-        {"not_applicable_sic": [[6000]]},
-        {"not_applicable_sic": [[6799, 6000]]},
-        {"not_applicable_sic": [["a", "b"]]},
-        {"not_applicable_sic": "6000-6799"},
-        {"not_applicable_tickers": ["X", "X"]},
-        {"not_applicable_tickers": ["X", "x"]},
-        {"not_applicable_tickers": [1]},
-        {"not_applicable_tickers": "X"},
-        {"surprise": 1},
+        ({"version": 2}, r"unsupported version 2"),
+        ({"interest_coverage_min": "x"}, r"interest_coverage_min must be a number > 0"),
+        ({"interest_coverage_min": 0}, r"interest_coverage_min must be a number > 0"),
+        ({"net_debt_to_fcf_max": -1}, r"net_debt_to_fcf_max must be a number > 0"),
+        ({"maturities_to_liquidity_max": True}, r"maturities_to_liquidity_max must be a number"),
+        ({"altman_z_min": 0}, r"altman_z_min must be a number > 0"),
+        ({"piotroski_max_weak": 0}, r"piotroski_max_weak must be a number > 0"),
+        ({"rate_rise_max_pp": 0}, r"rate_rise_max_pp must be a number > 0"),
+        ({"breach_to_fragile": 0}, r"breach_to_fragile must be an integer in 1\.\.6"),
+        ({"breach_to_fragile": 7}, r"breach_to_fragile must be an integer in 1\.\.6"),
+        ({"breach_to_fragile": 1.5}, r"breach_to_fragile must be an integer in 1\.\.6"),
+        ({"min_available_for_sound": 0}, r"min_available_for_sound must be an integer in 1\.\.6"),
+        ({"min_available_for_sound": 7}, r"min_available_for_sound must be an integer in 1\.\.6"),
+        ({"not_applicable_sic": [[6000]]}, r"malformed or inverted SIC range"),
+        ({"not_applicable_sic": [[6799, 6000]]}, r"malformed or inverted SIC range"),
+        ({"not_applicable_sic": [["a", "b"]]}, r"malformed or inverted SIC range"),
+        (
+            {"not_applicable_sic": "6000-6799"},
+            r"not_applicable_sic must be a list of \[low, high\]",
+        ),
+        ({"not_applicable_tickers": ["X", "X"]}, r"duplicate not_applicable_tickers"),
+        ({"not_applicable_tickers": ["X", "x"]}, r"duplicate not_applicable_tickers"),
+        ({"not_applicable_tickers": [1]}, r"not_applicable_tickers must be a list of strings"),
+        ({"not_applicable_tickers": "X"}, r"not_applicable_tickers must be a list of strings"),
+        ({"surprise": 1}, r"unknown keys \['surprise'\]"),
     ],
 )
-def test_config_rejections(tmp_path, changes):
-    with pytest.raises(ValueError, match=r"."):
+def test_config_rejections(tmp_path, changes, message):
+    with pytest.raises(ValueError, match=message):
         fr.load_fragility_config(_write_cfg(tmp_path, **changes))
 
 
