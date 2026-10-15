@@ -69,7 +69,7 @@ are noted under 3 and 7. No other audit finding is in scope here.
      D 5.0 vs 4.5, E 3.3 vs 2.9, F 1.8 vs 1.6, G 0.6 vs 0.6. True cash
      runs out less often for A-F and ties on G. (The audit says "every
      row"; G is a tie.) Typical real value at year 30 is lower for every
-     80/20 row, so that half of the sentence is right.
+     cash row (X80-CASH20, X80-TCASH20), but not for the A80-TLT20 and A80-RSP20 sleeve rows, so that half of the sentence is right only for the cash rows.
 
    For an owner who needs income, depletion is the figure that matters
    most, and the summary omits it.
@@ -172,14 +172,12 @@ figure read from the regenerated reports at edit time:
 (SHY) or {t1}-{t2} (true cash) for {a}-{b} points of CAGR against the same
 core. True cash beats SHY by about 0.2 points of CAGR. At 4% withdrawals,
 X80-TCASH20 runs out of money by year 30 less often than its 100% core
-for A-F (A: 12.3% vs 14.8%) and ties on G (0.6%), but every 80/20 row
-ends year 30 with a lower typical real value. Lowest drawdown of any
+for A-F (A: 12.3% vs 14.8%) and ties on G (0.6%), but every X80-CASH20 and X80-TCASH20 row
+ends year 30 with a lower typical real value than its core (the A80 bond and RSP sleeve rows do not: A80-TLT20 181.0% and A80-RSP20 200.4% against A's 156.4% at 4%). Lowest drawdown of any
 core-based row: G80-TCASH20, {g}%."
 
 The drawdown figures change with section 4 (today 3.0-8.2 and 3.4-7.6).
-`{a}-{b}` is each row's CAGR given up against its own core; the current
-"0.7-1.1" was not confirmed (`decision.md:106-112` shows 0.4-1.7, but
-against A, a different comparison).
+Measured against each row's own core in the regenerated report, the CAGR given up is 0.7-1.1 points for the SHY rows (so PLAN.md's figure was right for them) and 0.5-0.9 for the true-cash rows; true cash beats SHY by 0.2 points for every core.
 
 ### 14. Computed lists only
 

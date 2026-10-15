@@ -12,7 +12,7 @@ Diagnostic of the pre-registered cores; it selects nothing. Spec: docs/methodolo
 
 ## Research period
 
-| id | rule | CAGR | Sharpe | max drawdown | turnover/yr | breaches |
+| id | rule | CAGR | Sharpe | max drawdown (criteria rule) | turnover/yr | breaches |
 |---|---|---|---|---|---|---|
 | A | current: QQQ/GLD 200d trend | 6.1% | 0.47 | 25.6% | 12.70 | 5 |
 | B | SPY/GLD 200d trend | 6.0% | 0.52 | 30.5% | 10.64 | 5 |
@@ -24,7 +24,7 @@ Diagnostic of the pre-registered cores; it selects nothing. Spec: docs/methodolo
 
 ## Benchmark (not a candidate; not counted in the trial count)
 
-| id | rule | CAGR | Sharpe | max drawdown | turnover/yr | breaches |
+| id | rule | CAGR | Sharpe | max drawdown (criteria rule) | turnover/yr | breaches |
 |---|---|---|---|---|---|---|
 | QQQ@split | QQQ buy-and-hold at core share (rest cash) | 9.1% | 0.62 | 45.1% | 0.00 | 1 |
 | QQQ@100 | QQQ buy-and-hold, 100% | 11.1% | 0.62 | 53.4% | 0.00 | 1 |

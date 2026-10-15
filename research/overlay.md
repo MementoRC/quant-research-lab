@@ -18,7 +18,7 @@ Window 2005-01-03 to 2018-12-31. Verdict: **PASS**.
 |---|---|---|
 | Sharpe | 1.054 | 0.956 |
 | CAGR | 6.41% | 6.56% |
-| Max drawdown | 10.36% | 14.11% |
+| Max drawdown (criteria rule) | 10.36% | 14.11% |
 | Volatility | 6.06% | 6.90% |
 
 | rule | value | threshold | passed |
@@ -44,7 +44,7 @@ Window 2019-01-02 to 2022-12-30. Verdict: **FAIL**.
 |---|---|---|
 | Sharpe | 0.710 | 0.691 |
 | CAGR | 4.91% | 5.61% |
-| Max drawdown | 15.11% | 18.53% |
+| Max drawdown (criteria rule) | 15.11% | 18.53% |
 | Volatility | 7.10% | 8.42% |
 
 | rule | value | threshold | passed |

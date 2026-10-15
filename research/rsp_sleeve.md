@@ -11,7 +11,7 @@ One fixed candidate (buy-and-hold RSP), no search. Spec: docs/methodology/rsp-sl
 
 Research period 2005-01-01 to 2018-12-31, costs from criteria.yaml.
 
-| portfolio | CAGR | Sharpe | max drawdown |
+| portfolio | CAGR | Sharpe | max drawdown (criteria rule) |
 |---|---|---|---|
 | core alone (100%) | 7.3% | 0.48 | 29.9% |
 | core 80% + RSP 20% | 7.8% | 0.53 | 29.8% |
