@@ -232,7 +232,7 @@ def test_run_decision_lists_every_row_and_nulls_the_single_key(seven):
 
 def test_one_row_output_matches_its_slice_of_the_seven_row_output(seven):
     first = seven.cash_assumptions[0]
-    one = replace(seven, cash_assumptions=(first,), cash_assumption=first)
+    one = replace(seven, cash_assumptions=(first,))
     many = run_decision(seven, prices(), uneven_cpi(), criteria(), "cd" * 32)
     single = run_decision(one, prices(), uneven_cpi(), criteria(), "cd" * 32)
     assert single["cash_assumption"] == {
@@ -290,7 +290,7 @@ def test_longrun_adds_every_row_last_in_order_with_the_list_key(seven):
 
 def test_longrun_one_row_keeps_the_scalar_keys(seven):
     first = seven.cash_assumptions[0]
-    one = replace(seven, cash_assumptions=(first,), cash_assumption=first)
+    one = replace(seven, cash_assumptions=(first,))
     report = run_longrun(_lcfg(), one, prices(), uneven_cpi(), criteria())
     assert [r["portfolio"] for r in report["rows"]] == [*CORES, "A80-TCASH20"]
     assert report["cash_assumption_id"] == "A80-TCASH20"

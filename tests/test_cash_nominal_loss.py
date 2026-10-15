@@ -146,3 +146,49 @@ def test_run_longrun_stats_come_from_the_monthly_cash_leg(tsmall):  # noqa: F811
     report = run_longrun(_lcfg(), tsmall, prices(), uneven_cpi(), criteria())
     assert report["cash_nominal_loss"]["N"] == 168
     assert report["cash_nominal_loss"]["n"] == 0  # the synthetic CPI only rises
+
+
+def test_single_row_text_follows_the_rows_real_yield():
+    two = dict(CA, real_yield=0.02)
+    text = "\n".join(_header(_sleeve_report(cash_assumption=two)))
+    assert "plus 2.0% a year, the long-run report's CASH +2% real assumption" in text
+    assert "CASH +1% real" not in text
+    one = "\n".join(_header(_sleeve_report(cash_assumption=CA)))
+    assert "plus 1.0% a year, the long-run report's CASH +1% real assumption" in one
+
+
+def test_multi_row_text_follows_the_first_rows_real_yield():
+    rows = [dict(r, real_yield=0.025) for r in _rows_of("A", "G")]
+    text = "\n".join(_header(_report(rows, None)))
+    assert "CASH +2.5% real assumption" in text
+    assert "CASH +1% real" not in text
+
+
+def test_cash_rows_returns_the_non_empty_tuple_and_the_derived_first_row(tsmall):  # noqa: F811
+    from dataclasses import replace
+
+    from qrl.decision import cash_rows
+
+    ca = tsmall.cash_assumptions[0]
+    cfg = replace(tsmall, cash_assumptions=(ca, replace(ca, id="B80-TCASH20", base="B")))
+    assert cash_rows(cfg) == cfg.cash_assumptions
+    assert len(cash_rows(cfg)) == 2
+    assert cfg.cash_assumption == ca
+    assert cash_rows(replace(cfg, cash_assumptions=())) == ()
+    assert replace(cfg, cash_assumptions=()).cash_assumption is None
+
+
+def test_unequal_row_yields_are_refused_by_the_nominal_loss_path(tsmall):  # noqa: F811
+    from dataclasses import replace
+
+    from decision_helpers import criteria, prices
+    from test_true_cash import uneven_cpi
+
+    from qrl.decision import _cash_nominal_loss
+
+    ca = tsmall.cash_assumptions[0]
+    bad = replace(tsmall, cash_assumptions=(ca, replace(ca, id="X", real_yield=0.02)))
+    with pytest.raises(ValueError, match="different real_yield"):
+        _cash_nominal_loss(bad, prices(), uneven_cpi(), criteria())
+    same = replace(tsmall, cash_assumptions=(ca, replace(ca, id="X")))
+    assert _cash_nominal_loss(same, prices(), uneven_cpi(), criteria())["N"] == 168

@@ -34,7 +34,7 @@ def _lcfg() -> LongrunConfig:
 def _run(dcfg, data=None, index=None) -> dict:
     return run_longrun(
         _lcfg(),
-        dcfg,
+        replace(dcfg, rates=RATES),  # run_longrun requires equal withdrawal rates
         prices() if data is None else data,
         cpi() if index is None else index,
         criteria(),
@@ -113,7 +113,7 @@ def test_run_longrun_refuses_paths_not_horizon_years_times_twelve_months_long(tm
     dcfg = load(tmp_path)
     lcfg = replace(_lcfg(), block_months=7)  # 360 // 7 blocks of 7 = 357 months
     with pytest.raises(ValueError, match="357 months"):
-        run_longrun(lcfg, dcfg, prices(), cpi(), criteria())
+        run_longrun(lcfg, replace(dcfg, rates=RATES), prices(), cpi(), criteria())
 
 
 def _scaled(frame, mask, rng):

@@ -1,6 +1,6 @@
 # Stress-scenario module — design
 
-Date: 2026-10-03. Status: approved in conversation, pending written-spec review.
+Date: 2026-10-03. Status: approved in conversation. Implemented (`pixi run stress`, `scripts/stress.py`); it writes `reports/stress.json` (gitignored), so there is no `research/` file.
 
 ## Purpose
 

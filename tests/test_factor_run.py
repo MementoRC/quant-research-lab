@@ -180,7 +180,7 @@ def test_load_factor_run_rejects_bad_configs(tmp_path):
         ({"null_baseline": "all_tickers"}, "null_baseline"),
         ({"families": ["value_ey", "trend_pullback"]}, "families"),
         ({"universe_membership_sha256": "0" * 64}, "does not"),
-        ({"research_start": "not-a-date"}, ""),
+        ({"research_start": "not-a-date"}, "research_start .* is not a date"),
     ):
         cfg = yaml.safe_load(path.read_text())
         bad = tmp_path / "bad.yaml"

@@ -51,6 +51,7 @@ from qrl.longrun import (
     LongrunConfig,
     block_starts,
     check_cash_assumption,
+    check_withdrawal_rates,
     load_longrun_config,
     month_indices,
     monthly_returns,
@@ -214,6 +215,66 @@ def test_longrun_main_refuses_a_cash_yield_mismatch_before_loading_data(
     assert not out.exists()
 
 
+def test_check_withdrawal_rates_refuses_unequal_lists(tmp_path):
+    dcfg = load(tmp_path, GOOD_TCASH)
+    same = replace(_lcfg(), rates=list(dcfg.rates))
+    check_withdrawal_rates(same, dcfg)  # equal: no refusal
+    for rates in ([0.04], [0.05, 0.04, 0.033, 0.02], [*dcfg.rates, 0.06]):
+        with pytest.raises(ValueError, match="withdrawal_rates") as err:
+            check_withdrawal_rates(replace(same, rates=rates), dcfg)
+        assert str(dcfg.rates) in str(err.value)
+        assert str(rates) in str(err.value)
+
+
+def test_run_longrun_refuses_unequal_rates_before_reading_any_data(tmp_path):
+    lcfg = replace(_lcfg(), rates=[0.04])
+    with pytest.raises(ValueError, match="withdrawal_rates"):
+        run_longrun(lcfg, load(tmp_path, GOOD_TCASH), {}, pd.Series(dtype=float), criteria())
+
+
+def test_longrun_main_refuses_unequal_rates_before_loading_data(tmp_path, monkeypatch, capsys):
+    cli = _longrun_cli()
+
+    def no_access(*args, **kwargs):
+        raise AssertionError("data must not be loaded before the rates are checked")
+
+    monkeypatch.setattr(cli, "load_ohlcv", no_access)
+    monkeypatch.setattr(cli, "load_macro", no_access)
+    decision = write(tmp_path, GOOD_TCASH)
+    pinned = tmp_path / "longrun.yaml"
+    sha = hashlib.sha256(decision.read_bytes()).hexdigest()
+    pinned.write_text(LONGRUN_YAML.format(sha=sha, real_yield=0.01))  # rates [0.04] != decision's
+    out = tmp_path / "longrun.md"
+    argv = ["--config", str(decision), "--longrun-config", str(pinned), "--out-md", str(out)]
+    assert cli.main(argv) == 1
+    printed = capsys.readouterr().out
+    assert printed.startswith("refused: ")
+    assert "withdrawal_rates" in printed
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("real_yield", ["0.0501", "-0.0501", ".nan", ".inf"])
+def test_load_longrun_config_refuses_an_out_of_bound_cash_real_yield(tmp_path, real_yield):
+    pinned = tmp_path / "longrun.yaml"
+    pinned.write_text(LONGRUN_YAML.format(sha="s", real_yield=real_yield))
+    with pytest.raises(ValueError, match="cash_real_yield"):
+        load_longrun_config(pinned, "s")
+
+
+@pytest.mark.parametrize("real_yield", ["0.05", "-0.05", "0"])
+def test_load_longrun_config_accepts_cash_real_yield_within_bounds(tmp_path, real_yield):
+    pinned = tmp_path / "longrun.yaml"
+    pinned.write_text(LONGRUN_YAML.format(sha="s", real_yield=real_yield))
+    assert load_longrun_config(pinned, "s").cash_real_yield == float(real_yield)
+
+
+def test_shipped_longrun_config_passes_both_checks():
+    dcfg = _shipped()
+    lcfg = load_longrun_config(ROOT / "config" / "longrun.yaml", dcfg.sha256)
+    check_cash_assumption(lcfg, dcfg)
+    check_withdrawal_rates(lcfg, dcfg)
+
+
 FIRST = pd.Timestamp("2005-01-03")  # first synthetic trading day on/after 2005-01-01
 
 
@@ -349,7 +410,7 @@ def test_assumption_row_is_the_base_mixed_daily_with_the_cash_leg(tsmall):
 
 def test_assumption_returns_none_without_a_cash_assumption_and_refuse_without_its_base(tsmall):
     cut, known = _cut(), uneven_cpi().loc[:END]
-    assert assumption_returns(replace(tsmall, cash_assumption=None), cut, known, FIRST, 5.0) is None
+    assert assumption_returns(replace(tsmall, cash_assumptions=()), cut, known, FIRST, 5.0) is None
     no_base = replace(tsmall, portfolios=tsmall.portfolios[1:])
     with pytest.raises(ValueError, match="not among the portfolios"):
         assumption_returns(no_base, cut, known, FIRST, 5.0)
@@ -385,7 +446,7 @@ def test_withdrawal_rows_add_the_assumption_row_last_for_every_start_year(tsmall
         r = assumption_returns(tsmall, cut, known, day, 5.0)
         monthly = monthly_withdrawals(0.04, year, 2018, known)
         assert row["per_year"][year] == path_metrics(withdrawal_path(r, monthly), known)
-    without = withdrawal_rows(replace(tsmall, cash_assumption=None), prices(), index, criteria())
+    without = withdrawal_rows(replace(tsmall, cash_assumptions=()), prices(), index, criteria())
     assert without == rows[:-1]
 
 
@@ -610,7 +671,7 @@ def test_run_longrun_adds_the_assumption_row_last_on_the_same_draws(tsmall):
 
 def test_run_longrun_without_the_key_has_no_row_and_none_keys(tsmall):
     report = run_longrun(
-        _lcfg(), replace(tsmall, cash_assumption=None), prices(), uneven_cpi(), criteria()
+        _lcfg(), replace(tsmall, cash_assumptions=()), prices(), uneven_cpi(), criteria()
     )
     assert [r["portfolio"] for r in report["rows"]] == ["A", "A80-CASH20"]
     assert {k: report[k] for k in TCASH_KEYS} == dict.fromkeys(TCASH_KEYS)

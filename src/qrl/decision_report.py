@@ -22,6 +22,11 @@ def _pct(x: float | None) -> str:
     return f"{round(x, 3) + 0.0:.1%}"  # round first, then + 0.0 turns -0.0 into 0.0
 
 
+def _signed(x: float) -> str:
+    """A real yield as a signed whole-or-decimal percentage: 0.01 -> '+1%'."""
+    return f"{x * 100:+g}%"
+
+
 def _pp(x: float | None) -> str:
     """A CAGR difference (0.01 = one percentage point) in percentage points."""
     if x is None:
@@ -97,7 +102,8 @@ def _multi_assumption_note(report: dict) -> list[str]:
     return [
         f"- {_span([r['id'] for r in rows])} are {len(rows)} assumption rows, not funds: for "
         f"each core, {_pct(first['cash_share'])} cash earning each month's inflation plus "
-        f"{_pct(first['real_yield'])} a year, the long-run report's CASH +1% real assumption, "
+        f"{_pct(first['real_yield'])} a year, the long-run report's CASH {_signed(first['real_yield'])} "
+        "real assumption, "
         f"shown next to that core's SHY pair{pair_ids} to answer the SHY caveat. "
         f"They are comparisons {n + 1}-{n + len(rows)} but not among the {n} portfolios. "
         f"Their cash legs and daily returns to {_split(first['cash_share'])} pay no trading "
@@ -142,7 +148,8 @@ def _assumption_note(report: dict) -> list[str]:
     return [
         f"- {ca['id']} ({ca['label']}) is an assumption row, not a fund: "
         f"{_pct(ca['cash_share'])} cash earning each month's inflation plus "
-        f"{_pct(ca['real_yield'])} a year, the long-run report's CASH +1% real assumption, "
+        f"{_pct(ca['real_yield'])} a year, the long-run report's CASH {_signed(ca['real_yield'])} "
+        "real assumption, "
         "shown to answer the SHY caveat above. "
         f"It is comparison {n + 1} but not one of the {n} portfolios. "
         f"Its cash leg and its daily return to {_split(ca['cash_share'])} pay no trading cost, "

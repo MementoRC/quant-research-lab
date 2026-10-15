@@ -102,6 +102,12 @@ def _print_candidates(candidates: list[dict]) -> None:
         stage = c["stage"]
         detail = "" if stage == "accepted" else f" -- {c['reason']}"
         print(f"  test {c['test_id']:<6} {c['family']:<16} {stage}{detail}")
+        if "program_deflated_sharpe" in c:
+            print(
+                f"      deflated Sharpe {c['deflated_sharpe']:.3f} (per run, pass statistic); "
+                f"program-wide {c['program_deflated_sharpe']:.3f} "
+                f"over {c['program_trial_count']} trials (informational)"
+            )
 
 
 def _candidate_tickers(tests: list[dict]) -> set[str]:

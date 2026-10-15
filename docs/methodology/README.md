@@ -30,7 +30,7 @@ document itself.
   the core plus 20% cash at +1% real, showing how much SHY's near-zero
   2009-2015 yields weigh on the cash-sleeve baseline.
 - [true-cash-all-cores.md](true-cash-all-cores.md) — true cash and SHY 80/20
-  rows for every core A-G (spec awaiting owner review).
+  rows for every core A-G (owner-approved 2026-10-12; implemented and run 2026-10-12).
 - [site-safety.md](site-safety.md) — Site safety: survivorship label and holdout
   cut-off on the public dashboard (owner-approved; implemented).
 

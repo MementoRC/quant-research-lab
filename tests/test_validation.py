@@ -315,6 +315,113 @@ def test_validate_survivors_backfills_past_a_failed_top_ranked_candidate(tmp_pat
 
 
 # ---------------------------------------------------------------------------
+# Program-wide deflated Sharpe (audit finding 8): informational, never a gate.
+# ---------------------------------------------------------------------------
+
+
+def _record(ledger, run_id, criteria_hash, lookback, metrics, **kw):
+    return ledger.record_test(
+        run_id,
+        criteria_hash,
+        "core_trend",
+        {"lookback": lookback, "risk_off": "GLD"},
+        "qqq_gld",
+        metrics,
+        True,
+        None,
+        **kw,
+    )
+
+
+def test_program_trial_sharpes_pool_key_and_cutoff(tmp_path):
+    with Ledger(tmp_path / "l.sqlite") as ledger:
+        run_a = ledger.start_run("h", "A", "standalone a")
+        run_b = ledger.start_run("h", "A", "standalone b", pass_rule="standalone")
+        run_c = ledger.start_run(
+            "h", "A", "combined", pass_rule="combined", combined_config_hash="c"
+        )
+        run_d = ledger.start_run(
+            "h", "A", "null", pass_rule="combined_null", combined_config_hash="c"
+        )
+        comb = {"combined_config_hash": "c"}
+        _record(ledger, run_a, "h", 10, {"sharpe": 1.0})
+        _record(ledger, run_c, "h", 20, {"sharpe": 9.0, "improvement_sharpe": 0.5}, **comb)
+        _record(ledger, run_b, "h", 30, {"trades": 1})  # no sharpe -> 0.0
+        _record(ledger, run_d, "h", 40, {"sharpe": 8.0, "improvement_sharpe": 0.25}, **comb)
+        _record(ledger, run_a, "h", 50, {"sharpe": 2.0})
+        far_future = "9999-01-01T00:00:00+00:00"
+        assert ledger.program_trial_sharpes("sharpe", up_to=far_future) == [1.0, 0.0, 2.0]
+        assert ledger.program_trial_sharpes("improvement_sharpe", up_to=far_future) == [0.5, 0.25]
+        # rows after the cut-off are excluded
+        ledger._conn.execute(
+            "UPDATE tests SET created_at = '2030-01-01T00:00:00+00:00' WHERE metrics_json LIKE '%2.0%'"
+        )
+        ledger._conn.commit()
+        before = ledger.program_trial_sharpes("sharpe", up_to="2029-01-01T00:00:00+00:00")
+        assert before == [1.0, 0.0]
+
+
+def _accepted_entry(ledger, run_id, criteria_hash, validation_hash, min_dsr, data, criteria, bench):
+    cfg, _ = load_validation_config(ROOT / "config" / "validation.yaml")
+    cfg = {**cfg, "min_deflated_sharpe": min_dsr, "max_correlation": 1.0}
+    return validate_survivors(
+        ledger,
+        run_id,
+        data,
+        criteria,
+        cfg,
+        validation_hash,
+        criteria_hash=criteria_hash,
+        universe_name="qqq_gld",
+        spaces={},
+        benchmark_metrics=bench,
+    )
+
+
+def test_program_wide_dsr_is_informational_and_pass_fail_unchanged(tmp_path):
+    criteria, criteria_hash = load_criteria(ROOT / "config" / "criteria.yaml")
+    _, validation_hash = load_validation_config(ROOT / "config" / "validation.yaml")
+    data = SearchData.load(["QQQ", "GLD", "SPY"], synthetic=True)
+    bench = compute_benchmark_metrics(data, criteria)
+    params = {"lookback": 200, "risk_off": "GLD"}
+    outcome = evaluate_candidate("core_trend", params, data, criteria, bench)
+
+    def _seed(ledger, noisy_other_run: bool) -> int:
+        run_id = ledger.start_run(criteria_hash, "A", "program dsr")
+        ledger.record_test(
+            run_id, criteria_hash, "core_trend", params, "qqq_gld", outcome["metrics"], True, None
+        )
+        if noisy_other_run:
+            other = ledger.start_run(criteria_hash, "A", "other standalone run")
+            for i, sr in enumerate([-3.0, 4.0, -2.0, 5.0, -4.0, 3.0] * 5):
+                _record(ledger, other, criteria_hash, 300 + i, {"sharpe": sr})
+        return run_id
+
+    with Ledger(tmp_path / "alone.sqlite") as ledger:
+        run_id = _seed(ledger, False)
+        report = _accepted_entry(
+            ledger, run_id, criteria_hash, validation_hash, 0.0, data, criteria, bench
+        )
+        (entry,) = report["accepted"]
+        per_run = entry["deflated_sharpe"]
+        # Alone in the ledger the program pool is the run's own trial list.
+        assert entry["program_trial_count"] == len(ledger.trial_sharpes(run_id))
+        assert entry["program_deflated_sharpe"] == pytest.approx(per_run)
+
+    with Ledger(tmp_path / "program.sqlite") as ledger:
+        run_id = _seed(ledger, True)
+        # threshold exactly at the per-run DSR: accepted although the program-wide DSR is lower
+        report = _accepted_entry(
+            ledger, run_id, criteria_hash, validation_hash, per_run - 1e-9, data, criteria, bench
+        )
+        (entry,) = report["accepted"]
+        assert entry["deflated_sharpe"] == pytest.approx(per_run)
+        assert entry["program_trial_count"] == 1 + 30
+        assert entry["program_deflated_sharpe"] < per_run
+        assert not report["rejected"]
+
+
+# ---------------------------------------------------------------------------
 # The holdout stays sealed: no unseal_holdout=True anywhere in the new code,
 # including comments and docstrings.
 # ---------------------------------------------------------------------------

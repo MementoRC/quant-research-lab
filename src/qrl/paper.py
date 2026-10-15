@@ -37,6 +37,40 @@ def load_paper_config(path: str | Path) -> tuple[dict, str]:
     return yaml.safe_load(raw), hashlib.sha256(raw).hexdigest()
 
 
+PAPER_PIN_NAME = "paper.yaml"
+
+
+def check_paper_pin(ledger: Ledger, sha256: str) -> None:
+    """Refuse to run the track unless `config/paper.yaml` matches the hash pinned
+    in the ledger (audit finding 9). Raises LedgerError if unpinned or changed."""
+    pin = ledger.config_pin(PAPER_PIN_NAME)
+    if pin is None:
+        raise LedgerError(
+            "config/paper.yaml is not pinned in the ledger; "
+            "run scripts/paper_track.py --pin once first"
+        )
+    if pin["sha256"] != sha256:
+        raise LedgerError(
+            f"config/paper.yaml hash {sha256} != pinned {pin['sha256']} "
+            f"(pinned from {pin['source']}). A changed paper rule needs a dated "
+            "PLAN.md amendment and a new track, not an edit."
+        )
+
+
+def pin_paper_config(
+    ledger: Ledger, working_sha256: str, commit: str, committed_sha256: str
+) -> None:
+    """One-off back-fill: pin the working file's hash, but only if it equals the
+    hash of the file at its pre-registration `commit`. Refuses otherwise, and
+    refuses when a pin already exists (`Ledger.pin_config`)."""
+    if working_sha256 != committed_sha256:
+        raise LedgerError(
+            f"working config/paper.yaml hash {working_sha256} != hash at "
+            f"pre-registration commit {commit} ({committed_sha256}); not pinning"
+        )
+    ledger.pin_config(PAPER_PIN_NAME, working_sha256, commit)
+
+
 def load_candidate(ledger: Ledger, entry: dict) -> dict:
     """Rebuild one candidate from its ledger row: family, params, and the
     research-period max drawdown. Raises if the row or family does not match."""

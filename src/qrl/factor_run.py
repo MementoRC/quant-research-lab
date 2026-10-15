@@ -87,7 +87,10 @@ def load_factor_run(path: str | Path = FACTOR_CONFIG_PATH) -> FactorRun:
         raise ValueError(
             f"{path}: families must be a non-empty subset of {sorted(FACTOR_FAMILIES)}."
         )
-    pd.Timestamp(cfg["research_start"])  # raises ValueError if not a date
+    try:
+        pd.Timestamp(cfg["research_start"])
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"{path}: research_start {cfg['research_start']!r} is not a date") from exc
     meta, membership = load_pit_universe(_resolve(cfg["universe"], yaml_path))
     if meta["membership_sha256"] != cfg["universe_membership_sha256"]:
         raise ValueError(

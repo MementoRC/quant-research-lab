@@ -6,7 +6,12 @@ PRIVATE report to `reports/paper_track.json` (gitignored; target weights are
 embedded, so never wire this into `site/`). All logic lives in `qrl.paper`;
 this script does IO and formatting only. Exit 0 unless an error occurs.
 
+The run refuses unless `config/paper.yaml`'s sha256 matches the pin in the
+ledger (`config_pins`); `--pin` records that pin once, from the file's
+pre-registration commit (refuses if the working file differs from it).
+
 Usage:
+    python scripts/paper_track.py --pin
     python scripts/paper_track.py
     python scripts/paper_track.py --out reports/paper_track.json
 """
@@ -14,7 +19,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,8 +32,13 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from qrl.criteria import load_criteria  # noqa: E402
 from qrl.data import load_ohlcv  # noqa: E402
-from qrl.ledger import DEFAULT_LEDGER_PATH, Ledger  # noqa: E402
-from qrl.paper import load_paper_config, run_paper_track  # noqa: E402
+from qrl.ledger import DEFAULT_LEDGER_PATH, Ledger, LedgerError  # noqa: E402
+from qrl.paper import (  # noqa: E402
+    check_paper_pin,
+    load_paper_config,
+    pin_paper_config,
+    run_paper_track,
+)
 
 
 def _pct(value: float | None) -> str:
@@ -56,17 +68,66 @@ def _print_table(results: list[dict]) -> None:
             print(f"  target weights: {top}")
 
 
+def _git(*args: str) -> str:
+    return subprocess.run(  # noqa: S603
+        ["git", *args],  # noqa: S607
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+
+def _committed_config(path: Path) -> tuple[str, str]:
+    """(pre-registration commit, sha256 of the file at that commit): the oldest
+    commit that touched `path`, read via `git show`."""
+    rel = path.resolve().relative_to(ROOT).as_posix()
+    commits = _git("log", "--format=%H", "--", rel).split()
+    if not commits:
+        raise LedgerError(f"no git commit found for {rel}")
+    commit = commits[-1]
+    blob = subprocess.run(  # noqa: S603
+        ["git", "show", f"{commit}:{rel}"],  # noqa: S607
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+    return commit, hashlib.sha256(blob).hexdigest()
+
+
+def _pin(config: str, ledger_path: str) -> int:
+    _, cfg_hash = load_paper_config(config)
+    try:
+        commit, committed_hash = _committed_config(Path(config))
+        with Ledger(ledger_path) as ledger:
+            pin_paper_config(ledger, cfg_hash, commit, committed_hash)
+    except LedgerError as err:
+        print(str(err), file=sys.stderr)
+        return 2
+    print(f"Pinned config/paper.yaml sha256 {cfg_hash} (commit {commit})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--pin", action="store_true", help="one-off: pin paper.yaml's hash")
     ap.add_argument("--config", default=str(ROOT / "config" / "paper.yaml"))
     ap.add_argument("--criteria", default=str(ROOT / "config" / "criteria.yaml"))
     ap.add_argument("--ledger", default=str(ROOT / DEFAULT_LEDGER_PATH))
     ap.add_argument("--out", default=str(ROOT / "reports" / "paper_track.json"))
     args = ap.parse_args(argv)
 
+    if args.pin:
+        return _pin(args.config, args.ledger)
+
     cfg, cfg_hash = load_paper_config(args.config)
     criteria, _ = load_criteria(args.criteria)
     with Ledger(args.ledger) as ledger:
+        try:
+            check_paper_pin(ledger, cfg_hash)
+        except LedgerError as err:
+            print(str(err), file=sys.stderr)
+            return 2
         results = run_paper_track(
             cfg,
             ledger,

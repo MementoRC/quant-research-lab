@@ -88,8 +88,12 @@ class DecisionConfig:
     candidate_count: int
     candidates_sha256: str
     sha256: str
-    cash_assumption: CashAssumption | None = None
     cash_assumptions: tuple[CashAssumption, ...] = ()
+
+    @property
+    def cash_assumption(self) -> CashAssumption | None:
+        """The first cash-assumption row, or None (derived from `cash_assumptions`)."""
+        return self.cash_assumptions[0] if self.cash_assumptions else None
 
 
 def portfolio_states(p: Portfolio) -> dict[str, dict[str, float]]:
@@ -365,6 +369,5 @@ def load_decision_config(
         candidate_count=len(cands),
         candidates_sha256=cand_hash,
         sha256=hashlib.sha256(raw).hexdigest(),
-        cash_assumption=cash_rows[0] if cash_rows else None,
         cash_assumptions=cash_rows,
     )

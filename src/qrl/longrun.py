@@ -19,7 +19,7 @@ import pandas as pd
 import yaml
 
 from .decision import all_assumption_returns, cash_rows, data_end, portfolio_returns
-from .decision_config import DecisionConfig
+from .decision_config import MAX_REAL_YIELD, DecisionConfig
 from .decision_withdraw import monthly_inflation
 from .periods import period_bounds
 from .true_cash import nominal_loss_stats
@@ -75,6 +75,11 @@ def load_longrun_config(path: str | Path, decision_sha256: str) -> LongrunConfig
             f"longrun.yaml: horizon of {months} months is not a whole number of "
             f"{doc['block_months']}-month blocks"
         )
+    cash_yield = float(doc["cash_real_yield"])
+    if not abs(cash_yield) <= MAX_REAL_YIELD:  # also refuses NaN
+        raise ValueError(
+            f"longrun.yaml: cash_real_yield {cash_yield} must satisfy |y| <= {MAX_REAL_YIELD}"
+        )
     return LongrunConfig(
         seed=int(doc["seed"]),
         n_paths=int(doc["n_paths"]),
@@ -82,7 +87,7 @@ def load_longrun_config(path: str | Path, decision_sha256: str) -> LongrunConfig
         horizon_years=int(doc["horizon_years"]),
         real_floor=float(doc["real_floor"]),
         rates=[float(r) for r in doc["withdrawal_rates"]],
-        cash_real_yield=float(doc["cash_real_yield"]),
+        cash_real_yield=cash_yield,
         sha256=hashlib.sha256(raw).hexdigest(),
     )
 
@@ -96,6 +101,16 @@ def check_cash_assumption(lcfg: LongrunConfig, dcfg: DecisionConfig) -> None:
                 f"decision.yaml cash_assumption {ca.id} real_yield {ca.real_yield} differs from "
                 f"longrun.yaml cash_real_yield {lcfg.cash_real_yield}"
             )
+
+
+def check_withdrawal_rates(lcfg: LongrunConfig, dcfg: DecisionConfig) -> None:
+    """Spec docs/methodology/audit-remaining.md section 17: longrun.yaml's
+    withdrawal_rates must equal decision.yaml's (same values, same order)."""
+    if lcfg.rates != dcfg.rates:
+        raise ValueError(
+            f"decision.yaml withdrawal_rates {dcfg.rates} differ from "
+            f"longrun.yaml withdrawal_rates {lcfg.rates}"
+        )
 
 
 def monthly_returns(daily: pd.Series) -> pd.Series:
@@ -230,6 +245,7 @@ def run_longrun(
     Price and CPI frames are cut at the research end first. Raises
     ValueError on any refusal (spec "Refusals")."""
     check_cash_assumption(lcfg, dcfg)
+    check_withdrawal_rates(lcfg, dcfg)
     end = data_end(criteria)
     begin, _ = period_bounds(criteria, "research")
     if begin is None:

@@ -226,6 +226,54 @@ def test_cli_is_read_only_and_reports(tmp_path, env, capsys):
     assert path.stat().st_mtime_ns == before_mtime
 
 
+def test_rebuild_line_carries_both_dsr_figures(tmp_path, env, capsys):
+    path = tmp_path / "ledger.sqlite"
+    open_cfg = {**env["cfg"], "min_deflated_sharpe": 0.0, "max_correlation": 1.0}
+    with Ledger(path) as ledger:
+        run_id = _seed_run(ledger, env)
+        other = ledger.start_run(env["criteria_hash"], "A", "other standalone run")
+        for lookback in (60, 70):
+            ledger.record_test(
+                other, env["criteria_hash"], FAMILY, {"lookback": lookback, "risk_off": "TLT"},
+                env["universe"]["name"], {"sharpe": -2.0 * lookback / 60}, False, "sharpe",
+            )  # fmt: skip
+        report = _validate(ledger, run_id, {**env, "cfg": open_cfg}, "cfg_open")
+        later = ledger.start_run(env["criteria_hash"], "A", "run created after validation")
+        ledger.record_test(
+            later, env["criteria_hash"], FAMILY, {"lookback": 80, "risk_off": "TLT"},
+            env["universe"]["name"], {"sharpe": 7.0}, False, "sharpe",
+        )  # fmt: skip
+    assert report["accepted"]
+
+    conn = rv.connect_ro(path)
+    try:
+        rows = rv.load_rows(conn, run_id)
+        events = rv.load_events(conn, run_id)
+        program = rv.load_program_sharpes(conn)
+    finally:
+        conn.close()
+    (res,) = rv.rebuild(
+        rows, events, open_cfg, SEARCHABLE_SPACES, backtest=True, data=env["data"],
+        criteria=env["criteria"], bench=env["bench"], invocation_gap=900.0, program=program,
+    )  # fmt: skip
+    real = {e["test_id"]: e for e in report["accepted"]}
+    checked = 0
+    for c in res["candidates"]:
+        if c["stage"] != "accepted":
+            continue
+        entry = real[c["test_id"]]
+        assert c["dsr"] == pytest.approx(entry["deflated_sharpe"])
+        assert c["trials"] + 2 == c["program_trials"] == entry["program_trial_count"]
+        assert c["program_dsr"] == pytest.approx(entry["program_deflated_sharpe"])
+        checked += 1
+    assert checked == len(real)
+
+    rv._print_candidates(res["candidates"])
+    out = capsys.readouterr().out
+    assert "DSR " in out
+    assert "program-wide DSR" in out
+
+
 def test_data_source_mismatch_refuses_backtest(tmp_path, env, capsys):
     path = tmp_path / "ledger.sqlite"
     with Ledger(path) as ledger:

@@ -16,7 +16,11 @@ Four checks, applied to top research survivors in rank order:
   resulting error).
 - `deflated_sharpe_ratio`: Bailey & Lopez de Prado's multiple-testing
   correction, using the run's total test count and trial Sharpe
-  distribution from the ledger.
+  distribution from the ledger. This per-run figure is the ONLY pass/fail
+  statistic. Accepted entries also carry `program_deflated_sharpe` and
+  `program_trial_count`: the same observed Sharpe deflated against every test
+  of every run with the same Sharpe key up to that moment
+  (`Ledger.program_trial_sharpes`). Informational; never read by a gate.
 - `correlation_filter`: drop a candidate whose validation-period daily
   returns correlate too highly with an already-accepted, stronger survivor.
 
@@ -47,6 +51,7 @@ from __future__ import annotations
 import hashlib
 import math
 import statistics
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -488,12 +493,19 @@ def validate_survivors(
             )
             continue
 
+        cutoff = datetime.now(UTC).isoformat()  # same source as the ledger's created_at
         trial_srs = ledger.trial_sharpes(run_id, key=sharpe_key)
         skew = float(daily_returns.skew())
         # pandas' .kurtosis() is EXCESS kurtosis (normal = 0); the deflated
         # Sharpe formula wants regular kurtosis (normal = 3).
         kurtosis = float(daily_returns.kurtosis()) + 3.0
         dsr = deflated_sharpe_ratio(val_sharpe, trial_srs, len(daily_returns), skew, kurtosis)
+        # Informational only (audit finding 8): same inputs, program-wide trial
+        # set. The pass/fail test below reads `dsr` alone.
+        program_srs = ledger.program_trial_sharpes(sharpe_key, up_to=cutoff)
+        program_dsr = deflated_sharpe_ratio(
+            val_sharpe, program_srs, len(daily_returns), skew, kurtosis
+        )
         if dsr < min_dsr:
             _reject(
                 rejected,
@@ -525,6 +537,8 @@ def validate_survivors(
             "params": params,
             "validation_sharpe": val_sharpe,
             "deflated_sharpe": dsr,
+            "program_deflated_sharpe": program_dsr,
+            "program_trial_count": len(program_srs),
         }
         if is_combined:
             entry["validation_sharpe"] = val_outcome["metrics"].get("sharpe")

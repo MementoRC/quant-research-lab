@@ -1,6 +1,6 @@
 # Core shortlist reveal — design
 
-Date: 2026-10-04. Status: approved in conversation (owner, 2026-10-04), pending written-spec review.
+Date: 2026-10-04. Status: approved in conversation (owner, 2026-10-04). Implemented; results in `research/core_reveal.md`.
 
 ## Purpose
 

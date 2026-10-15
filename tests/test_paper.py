@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,7 @@ from qrl.data import synthetic_ohlcv
 from qrl.ledger import Ledger, LedgerError
 from qrl.paper import (
     candidate_weights,
+    check_paper_pin,
     find_kill,
     forward_returns,
     forward_weights,
@@ -160,3 +162,137 @@ def test_end_to_end_forward_and_waiting(tmp_path, data):
     )
     assert waiting["status"] == "waiting for first forward day"
     assert "cumulative_return" not in waiting
+
+
+# --- paper.yaml pin (audit finding 9) ------------------------------------------
+
+SHA_A = "a" * 64
+SHA_B = "b" * 64
+
+
+def _paper_track_module():
+    spec = importlib.util.spec_from_file_location(
+        "paper_track_cli", ROOT / "scripts" / "paper_track.py"
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_pin_round_trip_and_second_pin_refused(tmp_path):
+    with Ledger(tmp_path / "l.sqlite") as ledger:
+        assert ledger.config_pin("paper.yaml") is None
+        ledger.pin_config("paper.yaml", SHA_A, "abc123")
+        pin = ledger.config_pin("paper.yaml")
+        assert pin is not None
+        assert pin["sha256"] == SHA_A
+        assert pin["source"] == "abc123"
+        assert pin["pinned_at"]
+        with pytest.raises(LedgerError, match="already pinned"):
+            ledger.pin_config("paper.yaml", SHA_B, "def456")
+        assert ledger.config_pin("paper.yaml")["sha256"] == SHA_A
+
+
+def test_pin_table_added_to_an_existing_ledger(tmp_path):
+    path = tmp_path / "old.sqlite"
+    Ledger(path).close()
+    import sqlite3
+
+    conn = sqlite3.connect(path)
+    conn.execute("DROP TABLE config_pins")
+    conn.commit()
+    conn.close()
+    with Ledger(path) as ledger:  # reopening creates the table, no data lost
+        ledger.pin_config("paper.yaml", SHA_A, "abc123")
+        assert ledger.config_pin("paper.yaml") is not None
+
+
+def test_check_paper_pin_unpinned_and_mismatch(tmp_path):
+    with Ledger(tmp_path / "l.sqlite") as ledger:
+        with pytest.raises(LedgerError, match="--pin"):
+            check_paper_pin(ledger, SHA_A)
+        ledger.pin_config("paper.yaml", SHA_A, "abc123")
+        check_paper_pin(ledger, SHA_A)
+        with pytest.raises(LedgerError) as err:
+            check_paper_pin(ledger, SHA_B)
+        assert SHA_A in str(err.value)
+        assert SHA_B in str(err.value)
+        assert "PLAN.md" in str(err.value)
+
+
+def _cli_args(tmp_path, cfg_path) -> list[str]:
+    return [
+        "--config",
+        str(cfg_path),
+        "--ledger",
+        str(tmp_path / "l.sqlite"),
+        "--out",
+        str(tmp_path / "out.json"),
+    ]
+
+
+def test_paper_track_main_refuses_unpinned_and_mismatched_before_loading_data(
+    tmp_path, monkeypatch, capsys
+):
+    cli = _paper_track_module()
+    cfg_path = tmp_path / "paper.yaml"
+    cfg_path.write_bytes((ROOT / "config" / "paper.yaml").read_bytes())
+
+    def _boom(*_a, **_k):
+        raise AssertionError("data must not be loaded")
+
+    monkeypatch.setattr(cli, "load_ohlcv", _boom)
+    monkeypatch.setattr(cli, "run_paper_track", _boom)
+
+    assert cli.main(_cli_args(tmp_path, cfg_path)) == 2
+    assert "not pinned" in capsys.readouterr().err
+
+    with Ledger(tmp_path / "l.sqlite") as ledger:
+        ledger.pin_config("paper.yaml", SHA_A, "abc123")
+    assert cli.main(_cli_args(tmp_path, cfg_path)) == 2
+    err = capsys.readouterr().err
+    assert SHA_A in err
+    assert load_paper_config(cfg_path)[1] in err
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_paper_track_main_runs_when_pinned(tmp_path, monkeypatch):
+    cli = _paper_track_module()
+    cfg_path = tmp_path / "paper.yaml"
+    cfg_path.write_bytes((ROOT / "config" / "paper.yaml").read_bytes())
+    with Ledger(tmp_path / "l.sqlite") as ledger:
+        ledger.pin_config("paper.yaml", load_paper_config(cfg_path)[1], "abc123")
+    monkeypatch.setattr(cli, "run_paper_track", lambda *_a, **_k: [])
+    assert cli.main(_cli_args(tmp_path, cfg_path)) == 0
+    assert (tmp_path / "out.json").exists()
+
+
+def test_pin_flag_records_hash_from_commit(tmp_path, monkeypatch, capsys):
+    cli = _paper_track_module()
+    cfg_path = tmp_path / "paper.yaml"
+    cfg_path.write_bytes((ROOT / "config" / "paper.yaml").read_bytes())
+    sha = load_paper_config(cfg_path)[1]
+    monkeypatch.setattr(cli, "_committed_config", lambda _p: ("c0ffee", sha))
+    assert cli.main([*_cli_args(tmp_path, cfg_path), "--pin"]) == 0
+    with Ledger(tmp_path / "l.sqlite") as ledger:
+        pin = ledger.config_pin("paper.yaml")
+    assert pin is not None
+    assert (pin["sha256"], pin["source"]) == (sha, "c0ffee")
+    # a second --pin is refused
+    assert cli.main([*_cli_args(tmp_path, cfg_path), "--pin"]) == 2
+    assert "already pinned" in capsys.readouterr().err
+
+
+def test_pin_flag_refuses_when_working_file_differs_from_commit(tmp_path, monkeypatch, capsys):
+    cli = _paper_track_module()
+    cfg_path = tmp_path / "paper.yaml"
+    cfg_path.write_bytes((ROOT / "config" / "paper.yaml").read_bytes())
+    monkeypatch.setattr(cli, "_committed_config", lambda _p: ("c0ffee", SHA_B))
+    assert cli.main([*_cli_args(tmp_path, cfg_path), "--pin"]) == 2
+    err = capsys.readouterr().err
+    assert SHA_B in err
+    assert load_paper_config(cfg_path)[1] in err
+    with Ledger(tmp_path / "l.sqlite") as ledger:
+        assert ledger.config_pin("paper.yaml") is None

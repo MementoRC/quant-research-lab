@@ -1,4 +1,5 @@
 import hashlib
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -392,6 +393,7 @@ def test_render_real_run_has_one_row_per_portfolio_per_rate(tmp_path):
         cash_real_yield=0.01,
         sha256="ab" * 32,
     )
+    dcfg = replace(dcfg, rates=lcfg.rates)  # run_longrun requires equal withdrawal rates
     report = run_longrun(lcfg, dcfg, helper_prices(), helper_cpi(), helper_criteria())
     text = render_markdown(report)
     names = [p.id for p in dcfg.portfolios] + [CASH_ASSUMPTION]

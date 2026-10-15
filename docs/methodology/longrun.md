@@ -1,7 +1,7 @@
 # Long-run withdrawals: 30-year resampled paths
 
-Status: implemented, report fd87fd8f (`pixi run longrun`, writes
-`research/longrun.md`). Spec written 2026-10-07, amended 2026-10-08.
+Status: implemented (`pixi run longrun`, writes `research/longrun.md`; the
+current report is the commit 1d66ca3). Spec written 2026-10-07, amended 2026-10-08.
 Owner-approved design 2026-10-07. Extends
 [decision-helper.md](decision-helper.md).
 
@@ -15,8 +15,9 @@ nothing and recommends nothing.
 ## Data
 
 - Only data up to 2018-12-31 (the end of the research period) is read; validation and holdout stay sealed. CPI from before 2005 may be read for the January 2005 inflation figure.
-- The same 12 portfolios as the decision helper (A-G, CASH, G-EW, AG,
-  G-CASH, A-CASH), built by the decision helper's existing code
+- The same portfolios as the decision helper (12 when written: A-G, CASH,
+  G-EW, AG, G-CASH, A-CASH; 34 after the defensive-sleeve and true-cash
+  amendments, plus the CASH +1% real row: 35 rows per rate), built by the decision helper's existing code
   (`decision.portfolio_returns` on `decision_config.load_decision_config`
   portfolios) at 5 bps per unit turnover. Research period only, nothing
   after 2018-12-31.
@@ -101,6 +102,24 @@ inflation decade. Output is in percentages only; no dollar amounts anywhere.
 It changes only through a dated amendment comment. `decision.yaml` is not
 edited.
 
+`withdrawal_rates` must equal `decision.yaml`'s list (`check_withdrawal_rates`)
+and `cash_real_yield` must satisfy |y| <= 0.05, the decision helper's bound
+(`decision_config.MAX_REAL_YIELD`); both are refused before any data is read
+(spec: [audit-remaining.md](audit-remaining.md) section 17).
+
+### Differences from the decision helper
+
+These are deliberate and are not unified, because unifying any row would
+change reported numbers.
+
+| | Decision helper | Long run |
+|---|---|---|
+| Withdrawal timing | first trading day of each month | each simulated month |
+| Order | month's return, then withdrawal (`decision_withdraw.py:80-82`) | withdrawal, then return (`longrun.py:167`) |
+| Step-up | each January by CPI year-on-year | every 12 months by the path's own inflation |
+| Depleted at | value <= 0 (`decision_withdraw.py:83`) | value <= 1e-9 (`longrun.py:27, 168`) |
+| Stale CPI | up to 45 days old allowed (`decision_withdraw.py:17-26`); cash leg needs exact month-ends (`true_cash.py:18-29`, kept deliberately, `true-cash-sleeve.md:140-152`) | same 45-day rule (`longrun.py:275`) |
+
 ## Implementation
 
 | file | role |
@@ -119,6 +138,7 @@ run reads, and never edits, `engine.py`, `metrics.py`, `periods.py` and
 
 - `longrun.yaml` cannot be loaded or is missing a key (its sha256 is recorded in every report; after the first report it changes only through a dated amendment comment)
 - `decision.yaml` sha256 does not match `decision_sha256`
+- `withdrawal_rates` differ from `decision.yaml`'s, or |`cash_real_yield`| > 0.05
 - any data after 2018-12-31 would be used
 - a month has no usable CPI
 - any return is NaN
