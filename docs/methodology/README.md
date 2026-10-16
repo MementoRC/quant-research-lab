@@ -31,6 +31,9 @@ document itself.
   2009-2015 yields weigh on the cash-sleeve baseline.
 - [true-cash-all-cores.md](true-cash-all-cores.md) — true cash and SHY 80/20
   rows for every core A-G (owner-approved 2026-10-12; implemented and run 2026-10-12).
+- [withdrawal-edge-cases.md](withdrawal-edge-cases.md) — one withdrawal order
+  and one depletion threshold for the decision helper and the long run; also
+  the RSP sleeve written-spec review (spec written 2026-10-15).
 - [site-safety.md](site-safety.md) — Site safety: survivorship label and holdout
   cut-off on the public dashboard (owner-approved; implemented).
 
