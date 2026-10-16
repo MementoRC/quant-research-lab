@@ -421,7 +421,7 @@ def _withdrawal_section(report: dict) -> list[str]:
         f"Paths start on the first trading day of each January {first}-{max(years)} and end "
         f"{report['data_end']}. Values are percentages of the starting value. The monthly "
         "withdrawal (annual rate / 12 of the starting value) is taken on the first trading "
-        "day of each month, after that day's return, proportionally from all holdings, with "
+        "day of each month, before that day's return, proportionally from all holdings, with "
         "no extra trading cost. It changes each January by the year-over-year change of "
         "CPIAUCNS usable on 1 January (month M is usable from the last day of month M+1). "
         "Real values are deflated by the same CPI. Lowest value, max drawdown, longest "

@@ -20,11 +20,10 @@ import yaml
 
 from .decision import all_assumption_returns, cash_rows, data_end, portfolio_returns
 from .decision_config import MAX_REAL_YIELD, DecisionConfig
-from .decision_withdraw import monthly_inflation
+from .decision_withdraw import DEPLETED, monthly_inflation
 from .periods import period_bounds
 from .true_cash import nominal_loss_stats
 
-DEPLETED = 1e-9  # of the starting value: at or below, the path is empty (spec "Withdrawals")
 CHECKPOINT_YEARS = (20, 25, 30)
 _KEYS = (
     "version",

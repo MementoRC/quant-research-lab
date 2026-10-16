@@ -15,6 +15,7 @@ import pandas as pd
 
 CPI_SERIES = "CPIAUCNS"
 MAX_CPI_AGE = pd.Timedelta(days=45)  # monthly series: an older latest value means a gap
+DEPLETED = 1e-9  # of the starting value: at or below, the path is empty (spec "Withdrawals")
 
 
 def usable_cpi(cpi: pd.Series, on: pd.Timestamp) -> float:
@@ -63,9 +64,11 @@ class WithdrawalPath:
 
 def withdrawal_path(returns: pd.Series, monthly: dict[int, float]) -> WithdrawalPath:
     """V(t) = V(t-1) x (1 + r(t)) from 1.0 before the first day. On the first
-    trading day of each month, after that day's return, that year's monthly
+    trading day of each month, before that day's return, that year's monthly
     withdrawal is subtracted (proportionally from all holdings, no extra
-    cost). At or below 0 the portfolio is depleted and stays at 0."""
+    cost). At or below DEPLETED, after the withdrawal or after the day's
+    return, the portfolio is depleted that month and stays at 0; a value
+    emptied by the withdrawal gets no return."""
     idx = pd.DatetimeIndex(returns.index)
     rets = returns.to_numpy(dtype=float)
     out = np.empty(len(rets))
@@ -77,10 +80,11 @@ def withdrawal_path(returns: pd.Series, monthly: dict[int, float]) -> Withdrawal
             raise ValueError(f"NaN return on {ts.date()}")
         month = (ts.year, ts.month)
         if value > 0:
-            value *= 1.0 + rets[i]
             if month != prev:
                 value -= monthly[ts.year]
-            if value <= 0:
+            if value > DEPLETED:
+                value *= 1.0 + rets[i]
+            if value <= DEPLETED:
                 value, depleted = 0.0, f"{ts:%Y-%m}"
         prev = month
         out[i] = value

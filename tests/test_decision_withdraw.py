@@ -23,16 +23,37 @@ def test_withdrawal_path_closed_form_constant_return():
     g, w = 0.01, 0.004
     path = withdrawal_path(pd.Series(g, index=MONTH_STARTS), {2005: w, 2006: w})
     n = np.arange(1, len(MONTH_STARTS) + 1)
-    expected = (1 + g) ** n - w * ((1 + g) ** n - 1) / g  # V_n = V_{n-1}(1+g) - w, V_0 = 1
+    # V_n = (V_{n-1} - w)(1 + g), V_0 = 1
+    expected = (1 + g) ** n - w * (1 + g) * ((1 + g) ** n - 1) / g
     np.testing.assert_allclose(path.values.to_numpy(), expected)
     assert path.depleted is None
 
 
-def test_withdrawal_comes_after_the_days_return():
-    # Hand value: (1 + 0.10) - 0.05 = 1.05. Withdrawing first would give
-    # (1 - 0.05) x 1.10 = 1.045.
+def test_withdrawal_comes_before_the_days_return():
+    # Hand value: (1 - 0.05) x (1 + 0.10) = 1.045. Applying the return first
+    # would give (1 + 0.10) - 0.05 = 1.05.
     path = withdrawal_path(pd.Series([0.10], index=pd.to_datetime(["2005-01-03"])), {2005: 0.05})
-    assert path.values.iloc[0] == pytest.approx(1.05)
+    assert path.values.iloc[0] == pytest.approx(1.045)
+
+
+def test_first_day_withdrawal_that_empties_the_account_applies_no_return():
+    idx = pd.to_datetime(["2005-01-03", "2005-01-04"])
+    path = withdrawal_path(pd.Series([0.10, 0.10], index=idx), {2005: 1.0})
+    assert path.depleted == "2005-01"
+    assert (path.values.to_numpy() == 0.0).all()
+
+
+def test_residue_within_the_depletion_threshold_is_depleted():
+    idx = pd.to_datetime(["2005-01-03"])
+    path = withdrawal_path(pd.Series([0.0], index=idx), {2005: 1.0 - 5e-10})
+    assert path.depleted == "2005-01"
+    assert path.values.iloc[0] == 0.0
+
+
+def test_depletion_threshold_is_shared_with_the_long_run():
+    from qrl import decision_withdraw, longrun
+
+    assert longrun.DEPLETED is decision_withdraw.DEPLETED
 
 
 def test_withdrawal_only_on_first_trading_day_of_month():

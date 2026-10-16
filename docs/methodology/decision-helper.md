@@ -106,10 +106,14 @@ other than gold. The report states this.
   of NaN from the start date on; the run refuses otherwise. A NaN is never
   silently turned into cash.
 - Value path: V(t) = V(t-1) x (1 + r(t)). On the first trading day of each
-  month, after that day's return, the monthly withdrawal is subtracted,
+  month, before that day's return, the monthly withdrawal is subtracted,
   taken proportionally from all holdings, with no extra trading cost (a
-  stated simplification). If V reaches 0 the portfolio is depleted: value
-  stays 0 and the depletion month is reported.
+  stated simplification). If V is at or below 1e-9 of the starting value
+  (after the withdrawal, or after the day's return) the portfolio is
+  depleted: no return is applied to a value emptied by the withdrawal, value
+  stays 0 and the depletion month is reported. The order and the threshold
+  match the long run (amendment 2026-10-15,
+  [withdrawal-edge-cases.md](withdrawal-edge-cases.md)).
 - The withdrawal is the annual rate / 12 times the starting value, raised
   each January by the year-over-year change in the latest CPI usable on
   1 January under the publication lag below.
