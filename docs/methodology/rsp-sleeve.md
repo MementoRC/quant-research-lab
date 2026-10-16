@@ -1,8 +1,12 @@
 # RSP sleeve: a fixed equal-weight S&P 500 sleeve
 
 Status: spec written 2026-10-09, owner-approved design 2026-10-09. Tooling
-implemented and run: run 7 (one attempt), research period 2005-2018 passed; results in
-`research/rsp_sleeve.md` (cdcb7d9). The written-spec review is still outstanding. Related: PLAN.md section 2.5 (amendments 2026-10-01 and 2026-10-02).
+implemented and run: run 7 (one attempt) passed the research period
+2005-2018, then failed validation 2019-2022 on deflated Sharpe (0.495 <
+0.95); accepted 0; not adopted. Results in `research/rsp_sleeve.md`
+(cdcb7d9). Written spec reviewed 2026-10-15 (see
+[withdrawal-edge-cases.md](withdrawal-edge-cases.md) owner decisions).
+Related: PLAN.md section 2.5 (amendments 2026-10-01 and 2026-10-02).
 
 ## Question
 
@@ -64,8 +68,8 @@ rank_by: improvement_sharpe
    `_validate_seed`, even though `buy_and_hold` is not in `SEARCHABLE_SPACES`.
    It stays out of `SEARCHABLE_SPACES` (that dict feeds `propose_batch`).
    Storage: the flag lives in the run's `seed_description`, next to the
-   families. `_encode_seed_description` (`scripts/search.py` ~:97) today dumps
-   JSON `{"description", "families"}` and `_decode_seed_description` (~:101)
+   families. `_encode_seed_description` (`scripts/search.py`) dumps
+   JSON `{"description", "families"}` and `_decode_seed_description`
    reads it back, falling back to `(raw, [])` for non-JSON text. A fixed run
    adds a `"fixed"` key holding a marker plus the declared family and its
    params (`buy_and_hold`, `{"ticker":"RSP"}`); a separate `_decode_fixed`
@@ -93,11 +97,12 @@ rank_by: improvement_sharpe
    a new dated amendment approved by the owner, never a silent rerun.
 7. Only if it passes, `validate` once on 2019-2022, with `--combined-config
    config/combined_fixed.yaml`. `scripts/validate.py`
-   builds `needed` (~:153-158) before any candidate is selected, from the
-   universe, defaults, benchmarks and core. So the extra tickers come from the
-   run's recorded tests that passed: for each such test in
-   `ledger.list_tests(run)`, add `qrl.search._spec_for(family).tickers(params)`
-   to `needed`, and skip a test that `_spec_for` or `.tickers` cannot resolve
+   builds the `needed` set in `main` before any candidate is selected, from
+   the universe, defaults, benchmarks and core. So the extra tickers come from
+   the run's recorded tests that passed: `_candidate_tickers` takes each such
+   test in `ledger.list_tests(run)`, calls
+   `qrl.search._spec_for(family).tickers(params)`, and adds the result to
+   `needed`. It skips a test that `_spec_for` or `.tickers` cannot resolve
    (`KeyError`, `TypeError`, `ValueError`). It is not a
    protected file, and existing runs are unaffected since their tickers are
    already loaded.
@@ -139,6 +144,29 @@ fund like RSP (about 500 stocks, about 0.2% each) is exempt. A dated
   nothing.
 - `validate` loads the recorded tests' own tickers (RSP) into `needed`, and
   skips a family `_spec_for` cannot resolve.
+- `_candidate_tickers` uses only passed tests and skips a test with bad
+  params.
+- `validate` refuses when the fixed config changed after seeding, and adds
+  nothing to the ledger.
+- `fixed` refuses a candidate different from the declared one (for example
+  SPY on an RSP run) and records nothing.
+- `fixed` refuses when the pass-rule config changed after seeding.
+- `seed --fixed` stores the marker, family and params, and the pass rule
+  `combined`.
+- `seed --fixed` refuses a bad declaration (two families, an unknown family,
+  no params, params that are not JSON, no `ticker` key) and creates no run;
+  it also refuses without `--pass-rule combined`.
+- `seed` without `--fixed` still rejects `buy_and_hold`, and `buy_and_hold`
+  stays out of `SEARCHABLE_SPACES`.
+- `batch` refuses on a fixed run even with a `--families` override, and also
+  refuses when the fixed config changed after seeding.
+- An error after preflight is recorded as a failed test (`error: boom`), and
+  a second `fixed` call is then refused.
+- `fixed` loads the candidate's own ticker and not the universe.
+- The `scripts/rsp_sleeve.py` report: an errored test gives a FAILED report
+  with the error and no results table; a non-fixed run is refused and no file
+  is written.
+- An encoding without a fixed marker is unchanged.
 - A pre-change `seed_description` (JSON without the fixed key, and plain text)
   decodes as not fixed.
 - A fixed run's description round-trips: encode then decode returns the fixed

@@ -178,6 +178,10 @@ no behaviour changes (they would move reported depletion odds).
   Unifying any row would change reported numbers, so it is left to a
   separate, later change (see "Follow-up" at the end).
 
+  Corrected 2026-10-15, see withdrawal-edge-cases.md: the stale-CPI row is
+  not a decision-versus-long-run difference (both use the same 45-day rule;
+  the strict cash-leg check is inside each side).
+
 **Tests.** Unequal rate lists refused before data is read; an out-of-bounds
 `cash_real_yield` refused; the shipped configs pass both.
 

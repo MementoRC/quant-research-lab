@@ -109,16 +109,27 @@ and `cash_real_yield` must satisfy |y| <= 0.05, the decision helper's bound
 
 ### Differences from the decision helper
 
-These are deliberate and are not unified, because unifying any row would
-change reported numbers.
+Order and depletion threshold were different when this table was first
+written; [withdrawal-edge-cases.md](withdrawal-edge-cases.md) (2026-10-15)
+unifies them (withdrawal first, depleted at 1e-9), changing the decision
+helper only. The step-up difference is inherent to the model and stays. The
+stale-CPI row is not a difference between the two sides.
 
 | | Decision helper | Long run |
 |---|---|---|
 | Withdrawal timing | first trading day of each month | each simulated month |
-| Order | month's return, then withdrawal (`decision_withdraw.py:80-82`) | withdrawal, then return (`longrun.py:167`) |
-| Step-up | each January by CPI year-on-year | every 12 months by the path's own inflation |
-| Depleted at | value <= 0 (`decision_withdraw.py:83`) | value <= 1e-9 (`longrun.py:27, 168`) |
-| Stale CPI | up to 45 days old allowed (`decision_withdraw.py:17-26`); cash leg needs exact month-ends (`true_cash.py:18-29`, kept deliberately, `true-cash-sleeve.md:140-152`) | same 45-day rule (`longrun.py:275`) |
+| Order | withdrawal, then return (after 2026-10-15; was return first, `decision_withdraw.py:79-84`) | withdrawal, then return (`longrun.py:167`) |
+| Step-up | each January by CPI year-on-year (`decision_withdraw.py:42-55`) | every 12 months by the path's own inflation (`longrun.py:150, 163-165`). Inherent: bootstrapped paths start in any month and have no calendar January |
+| Depleted at | value <= 1e-9 (after 2026-10-15; was <= 0) | value <= 1e-9 (`longrun.py:27, 168`) |
+| Stale CPI | same on both sides: the shared 45-day rule (`decision_withdraw.py:17-26`, `longrun.py:275`) | same |
+
+The stale-CPI split is inside each side, not between them. Cash-assumption
+rows that mix a cash leg with a base portfolio use the strict check on exact
+month-ends (`true_cash.py:18-29`, reached in the long run through
+`_assumption_monthly`, `all_assumption_returns` and `cash_leg_returns`). The
+labelled "CASH +1% real (assumption)" row uses the long run's own
+`monthly_inflation` and keeps the 45-day tolerance. Kept by owner decision
+2026-10-11 (`true-cash-sleeve.md:149-152`).
 
 ## Implementation
 

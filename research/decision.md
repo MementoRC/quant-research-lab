@@ -369,7 +369,7 @@ Loss is positive; a negative loss is a gain. Real = (1 + nominal) / (1 + inflati
 
 ## Withdrawals
 
-Paths start on the first trading day of each January 2005-2014 and end 2018-12-31. Values are percentages of the starting value. The monthly withdrawal (annual rate / 12 of the starting value) is taken on the first trading day of each month, after that day's return, proportionally from all holdings, with no extra trading cost. It changes each January by the year-over-year change of CPIAUCNS usable on 1 January (month M is usable from the last day of month M+1). Real values are deflated by the same CPI. Lowest value, max drawdown, longest time below a prior peak and below peak at end are for the 2005 path.
+Paths start on the first trading day of each January 2005-2014 and end 2018-12-31. Values are percentages of the starting value. The monthly withdrawal (annual rate / 12 of the starting value) is taken on the first trading day of each month, before that day's return, proportionally from all holdings, with no extra trading cost. It changes each January by the year-over-year change of CPIAUCNS usable on 1 January (month M is usable from the last day of month M+1). Real values are deflated by the same CPI. Lowest value, max drawdown, longest time below a prior peak and below peak at end are for the 2005 path.
 
 ### Withdrawal rate 2.0% per year
 
@@ -378,72 +378,72 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 | A | 148.5% | 62.4% | 37.6% | 62 months | yes | no | 2014, 5 y (138.1%) | 2005 (85.6%) |
 | B | 152.6% | 65.4% | 39.2% | 37 months | yes | no | 2014, 5 y (142.3%) | 2007 (82.1%) |
 | C | 130.1% | 89.6% | 27.2% | 40 months | yes | no | 2014, 5 y (116.3%) | 2007 (83.2%) |
-| D | 148.6% | 78.8% | 33.4% | 39 months | yes | no | 2014, 5 y (116.2%) | 2005 (92.6%) |
+| D | 148.6% | 78.8% | 33.4% | 39 months | yes | no | 2014, 5 y (116.1%) | 2005 (92.6%) |
 | E | 170.7% | 88.0% | 33.1% | 35 months | yes | no | 2014, 5 y (113.9%) | 2005 (107.9%) |
-| F | 139.3% | 86.3% | 20.7% | 18 months | yes | no | 2014, 5 y (121.2%) | 2005 (100.6%) |
-| G | 149.4% | 98.4% | 15.1% | 26 months | yes | no | 2013, 6 y (96.1%) | 2012 (98.1%) |
+| F | 139.3% | 86.2% | 20.7% | 18 months | yes | no | 2014, 5 y (121.2%) | 2005 (100.6%) |
+| G | 149.4% | 98.4% | 15.1% | 26 months | yes | no | 2013, 6 y (96.1%) | 2012 (98.0%) |
 | CASH | 72.4% | 94.6% | 15.1% | at least 120 months, not recovered | yes | no | 2009, 10 y (72.3%) | 2011 (85.0%) |
 | G-EW | 153.9% | 98.2% | 16.5% | 20 months | yes | no | 2013, 6 y (95.0%) | 2012 (98.7%) |
-| IEF | 106.8% | 96.2% | 12.1% | 30 months | yes | no | 2013, 6 y (87.9%) | 2013 (90.9%) |
-| TLT | 133.9% | 96.8% | 27.2% | 33 months | yes | no | 2009, 10 y (92.7%) | 2009 (81.8%) |
-| RSP | 169.9% | 50.7% | 61.4% | 66 months | yes | no | 2014, 5 y (118.0%) | 2007 (82.2%) |
+| IEF | 106.9% | 96.2% | 12.1% | 30 months | yes | no | 2013, 6 y (87.9%) | 2013 (91.0%) |
+| TLT | 134.0% | 96.8% | 27.2% | 33 months | yes | no | 2009, 10 y (92.7%) | 2009 (81.8%) |
+| RSP | 169.8% | 50.7% | 61.4% | 66 months | yes | no | 2014, 5 y (118.0%) | 2007 (82.2%) |
 | BONDS | 103.9% | 97.5% | 14.0% | 32 months | yes | no | 2009, 10 y (86.5%) | 2009 (88.1%) |
 | AG | 157.6% | 83.8% | 21.8% | 32 months | yes | no | 2014, 5 y (121.9%) | 2005 (103.8%) |
 | G-CASH | 105.7% | 98.7% | 7.6% | at least 29 months, not recovered | yes | no | 2012, 7 y (89.2%) | 2012 (92.0%) |
 | A-CASH | 111.9% | 81.0% | 19.0% | 49 months | yes | no | 2014, 5 y (110.8%) | 2005 (93.9%) |
 | A80-CASH20 | 135.0% | 71.0% | 29.0% | 59 months | yes | no | 2014, 5 y (127.0%) | 2005 (89.5%) |
 | A80-IEF20 | 147.1% | 71.0% | 29.0% | 58 months | yes | no | 2014, 5 y (130.4%) | 2005 (90.8%) |
-| A80-TLT20 | 157.5% | 71.4% | 28.6% | 57 months | yes | no | 2014, 5 y (135.9%) | 2005 (91.2%) |
-| A80-BONDS20 | 146.4% | 71.3% | 28.7% | 58 months | yes | no | 2014, 5 y (131.1%) | 2005 (90.5%) |
+| A80-TLT20 | 157.5% | 71.4% | 28.6% | 57 months | yes | no | 2014, 5 y (135.8%) | 2005 (91.3%) |
+| A80-BONDS20 | 146.4% | 71.3% | 28.7% | 58 months | yes | no | 2014, 5 y (131.0%) | 2005 (90.6%) |
 | A80-RSP20 | 162.0% | 64.3% | 35.7% | 59 months | yes | no | 2014, 5 y (134.7%) | 2005 (88.9%) |
 | B80-CASH20 | 136.5% | 73.5% | 31.2% | 37 months | yes | no | 2014, 5 y (129.5%) | 2007 (86.5%) |
 | C80-CASH20 | 118.0% | 92.1% | 22.3% | 40 months | yes | no | 2014, 5 y (110.1%) | 2007 (86.3%) |
-| D80-CASH20 | 131.0% | 84.8% | 26.7% | 35 months | yes | no | 2014, 5 y (109.7%) | 2005 (94.1%) |
+| D80-CASH20 | 130.9% | 84.8% | 26.7% | 35 months | yes | no | 2014, 5 y (109.7%) | 2005 (94.1%) |
 | E80-CASH20 | 147.0% | 92.8% | 26.6% | 23 months | yes | no | 2014, 5 y (108.0%) | 2005 (106.6%) |
 | F80-CASH20 | 123.7% | 90.8% | 16.8% | 18 months | yes | no | 2014, 5 y (113.4%) | 2005 (100.3%) |
 | G80-CASH20 | 130.5% | 98.5% | 12.0% | 27 months | yes | no | 2013, 6 y (93.5%) | 2012 (95.6%) |
 | A80-TCASH20 | 139.3% | 70.9% | 29.1% | 59 months | yes | no | 2014, 5 y (129.5%) | 2005 (89.2%) |
-| B80-TCASH20 | 140.9% | 73.4% | 31.8% | 37 months | yes | no | 2014, 5 y (132.1%) | 2007 (86.2%) |
-| C80-TCASH20 | 121.9% | 92.9% | 22.4% | 39 months | yes | no | 2014, 5 y (112.3%) | 2007 (86.1%) |
+| B80-TCASH20 | 140.9% | 73.4% | 31.8% | 37 months | yes | no | 2014, 5 y (132.1%) | 2007 (86.3%) |
+| C80-TCASH20 | 121.8% | 92.9% | 22.4% | 39 months | yes | no | 2014, 5 y (112.3%) | 2007 (86.1%) |
 | D80-TCASH20 | 135.1% | 84.1% | 27.4% | 37 months | yes | no | 2014, 5 y (111.8%) | 2005 (93.8%) |
-| E80-TCASH20 | 151.6% | 92.0% | 27.2% | 23 months | yes | no | 2014, 5 y (110.2%) | 2005 (106.2%) |
+| E80-TCASH20 | 151.6% | 92.0% | 27.2% | 23 months | yes | no | 2014, 5 y (110.1%) | 2005 (106.2%) |
 | F80-TCASH20 | 127.8% | 90.9% | 16.4% | 17 months | yes | no | 2014, 5 y (115.7%) | 2005 (100.0%) |
-| G80-TCASH20 | 134.8% | 98.7% | 11.8% | 26 months | yes | no | 2013, 6 y (95.8%) | 2012 (97.5%) |
+| G80-TCASH20 | 134.7% | 98.7% | 11.8% | 26 months | yes | no | 2013, 6 y (95.8%) | 2012 (97.5%) |
 
 ### Withdrawal rate 3.3% per year
 
 | portfolio | real ending value (start 2005) | lowest value | max drawdown (from start) | longest below a prior peak | below peak at end | depleted | worst start year to 2018-12-31 (real ending value; horizons differ) | worst 5-year start (real value after 5 years) |
 |---|---|---|---|---|---|---|---|---|
-| A | 113.9% | 57.9% | 42.1% | 105 months | yes | no | 2005, 14 y (113.9%) | 2005 (77.5%) |
-| B | 120.1% | 61.5% | 40.7% | 42 months | yes | no | 2005, 14 y (120.1%) | 2007 (75.8%) |
-| C | 103.1% | 82.9% | 27.8% | 44 months | yes | no | 2005, 14 y (103.1%) | 2007 (77.2%) |
+| A | 114.0% | 57.9% | 42.1% | 105 months | yes | no | 2005, 14 y (114.0%) | 2005 (77.6%) |
+| B | 120.1% | 61.5% | 40.7% | 42 months | yes | no | 2005, 14 y (120.1%) | 2007 (75.9%) |
+| C | 103.0% | 82.8% | 27.8% | 44 months | yes | no | 2005, 14 y (103.0%) | 2007 (77.2%) |
 | D | 121.5% | 74.2% | 34.8% | 51 months | yes | no | 2014, 5 y (109.2%) | 2005 (86.1%) |
 | E | 143.6% | 83.2% | 34.4% | 37 months | yes | no | 2014, 5 y (106.9%) | 2005 (100.9%) |
 | F | 112.2% | 81.4% | 21.6% | 27 months | yes | no | 2005, 14 y (112.2%) | 2005 (93.3%) |
-| G | 126.2% | 98.1% | 15.8% | 27 months | yes | no | 2013, 6 y (88.0%) | 2012 (91.4%) |
+| G | 126.1% | 98.1% | 15.8% | 27 months | yes | no | 2013, 6 y (88.0%) | 2012 (91.4%) |
 | CASH | 55.1% | 72.1% | 31.5% | at least 120 months, not recovered | yes | no | 2005, 14 y (55.1%) | 2011 (78.7%) |
-| G-EW | 130.7% | 98.0% | 17.3% | 27 months | yes | no | 2013, 6 y (87.0%) | 2012 (92.1%) |
+| G-EW | 130.6% | 98.0% | 17.3% | 27 months | yes | no | 2013, 6 y (87.0%) | 2012 (92.1%) |
 | IEF | 86.5% | 94.2% | 17.4% | at least 77 months, not recovered | yes | no | 2009, 10 y (77.9%) | 2013 (84.5%) |
-| TLT | 111.0% | 95.0% | 27.9% | 33 months | yes | no | 2009, 10 y (78.0%) | 2009 (75.3%) |
-| RSP | 138.9% | 47.7% | 62.5% | 69 months | yes | no | 2014, 5 y (111.1%) | 2007 (74.9%) |
-| BONDS | 83.6% | 95.7% | 18.0% | at least 77 months, not recovered | yes | no | 2009, 10 y (73.0%) | 2009 (81.7%) |
+| TLT | 111.0% | 95.1% | 27.9% | 33 months | yes | no | 2009, 10 y (78.0%) | 2009 (75.3%) |
+| RSP | 138.8% | 47.7% | 62.5% | 69 months | yes | no | 2014, 5 y (111.1%) | 2007 (74.9%) |
+| BONDS | 83.6% | 95.7% | 17.9% | at least 77 months, not recovered | yes | no | 2009, 10 y (73.0%) | 2009 (81.7%) |
 | AG | 128.7% | 80.7% | 22.7% | 33 months | yes | no | 2014, 5 y (114.6%) | 2005 (96.0%) |
 | G-CASH | 85.7% | 98.4% | 12.1% | at least 75 months, not recovered | yes | no | 2012, 7 y (80.1%) | 2012 (85.5%) |
 | A-CASH | 87.0% | 79.2% | 20.8% | 62 months | yes | no | 2005, 14 y (87.0%) | 2005 (86.5%) |
 | A80-CASH20 | 104.5% | 66.2% | 33.8% | 104 months | yes | no | 2005, 14 y (104.5%) | 2005 (81.7%) |
 | A80-IEF20 | 115.3% | 66.8% | 33.2% | 63 months | yes | no | 2005, 14 y (115.3%) | 2005 (82.9%) |
-| A80-TLT20 | 124.5% | 67.7% | 32.3% | 63 months | yes | no | 2005, 14 y (124.5%) | 2005 (83.4%) |
+| A80-TLT20 | 124.6% | 67.7% | 32.3% | 63 months | yes | no | 2005, 14 y (124.6%) | 2005 (83.4%) |
 | A80-BONDS20 | 114.7% | 66.9% | 33.1% | 63 months | yes | no | 2005, 14 y (114.7%) | 2005 (82.7%) |
 | A80-RSP20 | 127.5% | 60.0% | 40.0% | 63 months | yes | no | 2014, 5 y (127.0%) | 2005 (81.1%) |
-| B80-CASH20 | 107.6% | 69.2% | 32.8% | 43 months | yes | no | 2005, 14 y (107.6%) | 2007 (80.1%) |
-| C80-CASH20 | 93.2% | 86.9% | 22.8% | 47 months | yes | no | 2005, 14 y (93.2%) | 2007 (80.2%) |
-| D80-CASH20 | 106.2% | 79.9% | 28.2% | 51 months | yes | no | 2014, 5 y (102.8%) | 2005 (87.5%) |
-| E80-CASH20 | 122.2% | 87.7% | 27.7% | 36 months | yes | no | 2014, 5 y (101.2%) | 2005 (99.6%) |
+| B80-CASH20 | 107.6% | 69.2% | 32.8% | 43 months | yes | no | 2005, 14 y (107.6%) | 2007 (80.2%) |
+| C80-CASH20 | 93.1% | 86.9% | 22.8% | 47 months | yes | no | 2005, 14 y (93.1%) | 2007 (80.2%) |
+| D80-CASH20 | 106.1% | 79.9% | 28.2% | 51 months | yes | no | 2014, 5 y (102.8%) | 2005 (87.5%) |
+| E80-CASH20 | 122.2% | 87.7% | 27.7% | 36 months | yes | no | 2014, 5 y (101.1%) | 2005 (99.6%) |
 | F80-CASH20 | 98.9% | 85.8% | 17.7% | 27 months | yes | no | 2005, 14 y (98.9%) | 2005 (93.1%) |
-| G80-CASH20 | 108.7% | 98.2% | 12.7% | 46 months | yes | no | 2013, 6 y (85.5%) | 2012 (89.0%) |
+| G80-CASH20 | 108.6% | 98.2% | 12.7% | 46 months | yes | no | 2013, 6 y (85.5%) | 2012 (89.0%) |
 | A80-TCASH20 | 108.1% | 66.1% | 33.9% | 103 months | yes | no | 2005, 14 y (108.1%) | 2005 (81.4%) |
 | B80-TCASH20 | 111.3% | 69.1% | 33.4% | 42 months | yes | no | 2005, 14 y (111.3%) | 2007 (79.9%) |
-| C80-TCASH20 | 96.5% | 86.5% | 22.9% | 44 months | yes | no | 2005, 14 y (96.5%) | 2007 (80.0%) |
+| C80-TCASH20 | 96.4% | 86.5% | 22.9% | 44 months | yes | no | 2005, 14 y (96.4%) | 2007 (80.0%) |
 | D80-TCASH20 | 109.7% | 79.3% | 28.9% | 51 months | yes | no | 2014, 5 y (104.9%) | 2005 (87.2%) |
 | E80-TCASH20 | 126.2% | 87.0% | 28.5% | 37 months | yes | no | 2014, 5 y (103.2%) | 2005 (99.2%) |
 | F80-TCASH20 | 102.4% | 85.8% | 17.3% | 27 months | yes | no | 2005, 14 y (102.4%) | 2005 (92.8%) |
@@ -453,37 +453,37 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 
 | portfolio | real ending value (start 2005) | lowest value | max drawdown (from start) | longest below a prior peak | below peak at end | depleted | worst start year to 2018-12-31 (real ending value; horizons differ) | worst 5-year start (real value after 5 years) |
 |---|---|---|---|---|---|---|---|---|
-| A | 95.3% | 55.5% | 44.5% | 110 months | yes | no | 2005, 14 y (95.3%) | 2005 (73.2%) |
+| A | 95.3% | 55.5% | 44.5% | 110 months | yes | no | 2005, 14 y (95.3%) | 2005 (73.3%) |
 | B | 102.6% | 59.4% | 41.5% | 81 months | yes | no | 2005, 14 y (102.6%) | 2007 (72.5%) |
-| C | 88.6% | 78.6% | 28.1% | 49 months | yes | no | 2005, 14 y (88.6%) | 2007 (74.0%) |
-| D | 106.9% | 71.8% | 35.7% | 58 months | yes | no | 2014, 5 y (105.4%) | 2005 (82.6%) |
-| E | 129.0% | 80.6% | 35.1% | 39 months | yes | no | 2014, 5 y (103.2%) | 2005 (97.1%) |
+| C | 88.5% | 78.6% | 28.1% | 50 months | yes | no | 2005, 14 y (88.5%) | 2007 (74.0%) |
+| D | 106.8% | 71.8% | 35.7% | 58 months | yes | no | 2014, 5 y (105.4%) | 2005 (82.6%) |
+| E | 129.0% | 80.7% | 35.1% | 39 months | yes | no | 2014, 5 y (103.2%) | 2005 (97.1%) |
 | F | 97.6% | 78.8% | 22.1% | 38 months | yes | no | 2005, 14 y (97.6%) | 2005 (89.4%) |
-| G | 113.7% | 97.9% | 16.2% | 46 months | yes | no | 2013, 6 y (83.6%) | 2012 (87.8%) |
-| CASH | 45.8% | 59.9% | 41.3% | at least 129 months, not recovered | yes | no | 2005, 14 y (45.8%) | 2011 (75.3%) |
+| G | 113.6% | 97.9% | 16.2% | 46 months | yes | no | 2013, 6 y (83.6%) | 2012 (87.8%) |
+| CASH | 45.7% | 59.9% | 41.3% | at least 129 months, not recovered | yes | no | 2005, 14 y (45.7%) | 2011 (75.3%) |
 | G-EW | 118.1% | 97.8% | 17.7% | at least 29 months, not recovered | yes | no | 2013, 6 y (82.6%) | 2012 (88.5%) |
-| IEF | 75.5% | 93.2% | 23.1% | at least 77 months, not recovered | yes | no | 2009, 10 y (70.6%) | 2013 (81.0%) |
-| TLT | 98.7% | 94.1% | 28.6% | 33 months | yes | no | 2009, 10 y (70.0%) | 2009 (71.8%) |
-| RSP | 122.2% | 46.0% | 63.1% | 73 months | yes | no | 2007, 12 y (106.1%) | 2007 (71.0%) |
-| BONDS | 72.7% | 91.9% | 23.9% | at least 77 months, not recovered | yes | no | 2009, 10 y (65.8%) | 2009 (78.2%) |
+| IEF | 75.5% | 93.2% | 23.1% | at least 77 months, not recovered | yes | no | 2009, 10 y (70.7%) | 2013 (81.0%) |
+| TLT | 98.7% | 94.1% | 28.6% | 33 months | yes | no | 2009, 10 y (70.1%) | 2009 (71.9%) |
+| RSP | 122.2% | 46.1% | 63.1% | 73 months | yes | no | 2007, 12 y (106.1%) | 2007 (71.0%) |
+| BONDS | 72.8% | 91.9% | 23.9% | at least 77 months, not recovered | yes | no | 2009, 10 y (65.8%) | 2009 (78.2%) |
 | AG | 113.1% | 78.0% | 23.2% | 37 months | yes | no | 2014, 5 y (110.7%) | 2005 (91.8%) |
-| G-CASH | 74.9% | 97.8% | 18.5% | at least 82 months, not recovered | yes | no | 2008, 11 y (73.9%) | 2012 (82.0%) |
+| G-CASH | 74.9% | 97.7% | 18.5% | at least 82 months, not recovered | yes | no | 2008, 11 y (73.8%) | 2012 (82.0%) |
 | A-CASH | 73.6% | 76.9% | 23.1% | 118 months | yes | no | 2005, 14 y (73.6%) | 2005 (82.4%) |
 | A80-CASH20 | 88.1% | 63.7% | 36.3% | 109 months | yes | no | 2005, 14 y (88.1%) | 2005 (77.5%) |
-| A80-IEF20 | 98.2% | 64.2% | 35.8% | 105 months | yes | no | 2005, 14 y (98.2%) | 2005 (78.6%) |
-| A80-TLT20 | 106.8% | 65.0% | 35.0% | 79 months | yes | no | 2005, 14 y (106.8%) | 2005 (79.2%) |
-| A80-BONDS20 | 97.6% | 64.3% | 35.7% | 105 months | yes | no | 2005, 14 y (97.6%) | 2005 (78.4%) |
-| A80-RSP20 | 108.9% | 57.7% | 42.3% | 104 months | yes | no | 2005, 14 y (108.9%) | 2005 (76.9%) |
-| B80-CASH20 | 92.0% | 67.0% | 33.7% | 49 months | yes | no | 2005, 14 y (92.0%) | 2007 (76.7%) |
-| C80-CASH20 | 79.9% | 81.9% | 23.9% | 55 months | yes | no | 2005, 14 y (79.9%) | 2007 (76.9%) |
+| A80-IEF20 | 98.2% | 64.2% | 35.8% | 105 months | yes | no | 2005, 14 y (98.2%) | 2005 (78.7%) |
+| A80-TLT20 | 106.8% | 65.1% | 34.9% | 79 months | yes | no | 2005, 14 y (106.8%) | 2005 (79.2%) |
+| A80-BONDS20 | 97.6% | 64.3% | 35.7% | 105 months | yes | no | 2005, 14 y (97.6%) | 2005 (78.5%) |
+| A80-RSP20 | 109.0% | 57.7% | 42.3% | 104 months | yes | no | 2005, 14 y (109.0%) | 2005 (76.9%) |
+| B80-CASH20 | 92.0% | 67.0% | 33.6% | 49 months | yes | no | 2005, 14 y (92.0%) | 2007 (76.8%) |
+| C80-CASH20 | 79.8% | 81.8% | 23.9% | 55 months | yes | no | 2005, 14 y (79.8%) | 2007 (76.9%) |
 | D80-CASH20 | 92.8% | 77.2% | 29.1% | 59 months | yes | no | 2005, 14 y (92.8%) | 2005 (84.0%) |
 | E80-CASH20 | 108.8% | 84.9% | 28.5% | 38 months | yes | no | 2014, 5 y (97.5%) | 2005 (95.8%) |
 | F80-CASH20 | 85.6% | 83.0% | 18.2% | 42 months | yes | no | 2005, 14 y (85.6%) | 2005 (89.2%) |
 | G80-CASH20 | 96.9% | 98.0% | 13.1% | at least 75 months, not recovered | yes | no | 2012, 7 y (80.7%) | 2012 (85.5%) |
-| A80-TCASH20 | 91.3% | 63.6% | 36.4% | 109 months | yes | no | 2005, 14 y (91.3%) | 2005 (77.2%) |
-| B80-TCASH20 | 95.4% | 66.9% | 34.3% | 80 months | yes | no | 2005, 14 y (95.4%) | 2007 (76.5%) |
-| C80-TCASH20 | 82.8% | 82.2% | 23.3% | 50 months | yes | no | 2005, 14 y (82.8%) | 2007 (76.7%) |
-| D80-TCASH20 | 96.1% | 76.6% | 29.8% | 59 months | yes | no | 2005, 14 y (96.1%) | 2005 (83.7%) |
+| A80-TCASH20 | 91.4% | 63.6% | 36.4% | 108 months | yes | no | 2005, 14 y (91.4%) | 2005 (77.3%) |
+| B80-TCASH20 | 95.4% | 66.9% | 34.2% | 80 months | yes | no | 2005, 14 y (95.4%) | 2007 (76.5%) |
+| C80-TCASH20 | 82.7% | 82.2% | 23.3% | 50 months | yes | no | 2005, 14 y (82.7%) | 2007 (76.7%) |
+| D80-TCASH20 | 96.0% | 76.6% | 29.8% | 59 months | yes | no | 2005, 14 y (96.0%) | 2005 (83.7%) |
 | E80-TCASH20 | 112.5% | 84.3% | 29.3% | 40 months | yes | no | 2014, 5 y (99.5%) | 2005 (95.5%) |
 | F80-TCASH20 | 88.8% | 83.1% | 17.8% | 38 months | yes | no | 2005, 14 y (88.8%) | 2005 (88.9%) |
 | G80-TCASH20 | 100.3% | 98.2% | 13.0% | at least 75 months, not recovered | yes | no | 2013, 6 y (83.4%) | 2012 (87.3%) |
@@ -492,38 +492,38 @@ Paths start on the first trading day of each January 2005-2014 and end 2018-12-3
 
 | portfolio | real ending value (start 2005) | lowest value | max drawdown (from start) | longest below a prior peak | below peak at end | depleted | worst start year to 2018-12-31 (real ending value; horizons differ) | worst 5-year start (real value after 5 years) |
 |---|---|---|---|---|---|---|---|---|
-| A | 68.7% | 52.0% | 48.0% | 156 months | yes | no | 2005, 14 y (68.7%) | 2005 (67.0%) |
-| B | 77.5% | 56.4% | 43.6% | 152 months | yes | no | 2005, 14 y (77.5%) | 2007 (67.7%) |
-| C | 67.8% | 70.4% | 30.9% | 93 months | yes | no | 2005, 14 y (67.8%) | 2007 (69.4%) |
+| A | 68.8% | 52.1% | 47.9% | 156 months | yes | no | 2005, 14 y (68.8%) | 2005 (67.1%) |
+| B | 77.6% | 56.4% | 43.6% | 152 months | yes | no | 2005, 14 y (77.6%) | 2007 (67.7%) |
+| C | 67.7% | 70.3% | 30.9% | 93 months | yes | no | 2005, 14 y (67.7%) | 2007 (69.4%) |
 | D | 86.0% | 68.2% | 36.9% | 73 months | yes | no | 2005, 14 y (86.0%) | 2005 (77.6%) |
 | E | 108.1% | 77.0% | 36.2% | 42 months | yes | no | 2008, 11 y (94.3%) | 2005 (91.8%) |
 | F | 76.8% | 75.0% | 25.0% | 114 months | yes | no | 2005, 14 y (76.8%) | 2005 (83.7%) |
 | G | 95.8% | 97.6% | 16.8% | at least 75 months, not recovered | yes | no | 2012, 7 y (77.1%) | 2012 (82.7%) |
 | CASH | 32.4% | 42.4% | 57.6% | at least 167 months, not recovered | yes | no | 2005, 14 y (32.4%) | 2011 (70.4%) |
-| G-EW | 100.3% | 97.4% | 18.4% | at least 75 months, not recovered | yes | no | 2013, 6 y (76.5%) | 2012 (83.4%) |
+| G-EW | 100.2% | 97.4% | 18.4% | at least 75 months, not recovered | yes | no | 2013, 6 y (76.5%) | 2012 (83.4%) |
 | IEF | 59.8% | 75.8% | 32.7% | at least 77 months, not recovered | yes | no | 2005, 14 y (59.8%) | 2013 (76.0%) |
-| TLT | 81.0% | 91.7% | 30.1% | at least 77 months, not recovered | yes | no | 2009, 10 y (58.7%) | 2009 (66.8%) |
-| RSP | 98.4% | 43.7% | 64.1% | 83 months | yes | no | 2007, 12 y (86.4%) | 2007 (65.4%) |
-| BONDS | 57.2% | 72.5% | 36.4% | at least 120 months, not recovered | yes | no | 2009, 10 y (55.4%) | 2009 (73.2%) |
-| AG | 90.9% | 74.1% | 25.9% | 63 months | yes | no | 2005, 14 y (90.9%) | 2005 (85.8%) |
-| G-CASH | 59.5% | 77.7% | 29.4% | at least 82 months, not recovered | yes | no | 2005, 14 y (59.5%) | 2012 (77.0%) |
+| TLT | 81.1% | 91.7% | 30.1% | at least 77 months, not recovered | yes | no | 2009, 10 y (58.8%) | 2009 (66.9%) |
+| RSP | 98.3% | 43.8% | 64.0% | 83 months | yes | no | 2007, 12 y (86.4%) | 2007 (65.4%) |
+| BONDS | 57.2% | 72.5% | 36.4% | at least 120 months, not recovered | yes | no | 2009, 10 y (55.4%) | 2009 (73.3%) |
+| AG | 90.9% | 74.2% | 25.8% | 63 months | yes | no | 2005, 14 y (90.9%) | 2005 (85.8%) |
+| G-CASH | 59.5% | 77.6% | 29.4% | at least 82 months, not recovered | yes | no | 2005, 14 y (59.5%) | 2012 (77.0%) |
 | A-CASH | 54.5% | 70.2% | 29.8% | at least 167 months, not recovered | yes | no | 2005, 14 y (54.5%) | 2005 (76.7%) |
-| A80-CASH20 | 64.7% | 60.0% | 40.0% | at least 167 months, not recovered | yes | no | 2005, 14 y (64.7%) | 2005 (71.4%) |
+| A80-CASH20 | 64.7% | 60.0% | 40.0% | at least 167 months, not recovered | yes | no | 2005, 14 y (64.7%) | 2005 (71.5%) |
 | A80-IEF20 | 73.8% | 60.5% | 39.5% | 121 months | yes | no | 2005, 14 y (73.8%) | 2005 (72.6%) |
-| A80-TLT20 | 81.4% | 61.3% | 38.7% | 115 months | yes | no | 2005, 14 y (81.4%) | 2005 (73.1%) |
+| A80-TLT20 | 81.4% | 61.3% | 38.7% | 115 months | yes | no | 2005, 14 y (81.4%) | 2005 (73.2%) |
 | A80-BONDS20 | 73.2% | 60.6% | 39.4% | 121 months | yes | no | 2005, 14 y (73.2%) | 2005 (72.4%) |
-| A80-RSP20 | 82.4% | 54.4% | 45.6% | 114 months | yes | no | 2005, 14 y (82.4%) | 2005 (70.8%) |
+| A80-RSP20 | 82.4% | 54.4% | 45.6% | 114 months | yes | no | 2005, 14 y (82.4%) | 2005 (70.9%) |
 | B80-CASH20 | 69.8% | 63.7% | 36.3% | 156 months | yes | no | 2005, 14 y (69.8%) | 2007 (71.9%) |
-| C80-CASH20 | 60.8% | 73.2% | 26.9% | at least 104 months, not recovered | yes | no | 2005, 14 y (60.8%) | 2007 (72.2%) |
+| C80-CASH20 | 60.7% | 73.2% | 26.9% | at least 104 months, not recovered | yes | no | 2005, 14 y (60.7%) | 2007 (72.2%) |
 | D80-CASH20 | 73.7% | 73.5% | 30.4% | 85 months | yes | no | 2005, 14 y (73.7%) | 2005 (78.9%) |
-| E80-CASH20 | 89.7% | 81.0% | 29.8% | 42 months | yes | no | 2008, 11 y (83.7%) | 2005 (90.5%) |
+| E80-CASH20 | 89.7% | 81.0% | 29.7% | 42 months | yes | no | 2008, 11 y (83.6%) | 2005 (90.5%) |
 | F80-CASH20 | 66.5% | 79.1% | 20.9% | at least 167 months, not recovered | yes | no | 2005, 14 y (66.5%) | 2005 (83.6%) |
-| G80-CASH20 | 80.1% | 97.8% | 19.7% | at least 75 months, not recovered | yes | no | 2012, 7 y (73.5%) | 2012 (80.4%) |
-| A80-TCASH20 | 67.4% | 59.9% | 40.1% | 162 months | yes | no | 2005, 14 y (67.4%) | 2005 (71.2%) |
+| G80-CASH20 | 80.0% | 97.8% | 19.7% | at least 75 months, not recovered | yes | no | 2012, 7 y (73.5%) | 2012 (80.4%) |
+| A80-TCASH20 | 67.4% | 59.9% | 40.1% | 162 months | yes | no | 2005, 14 y (67.4%) | 2005 (71.3%) |
 | B80-TCASH20 | 72.6% | 63.6% | 36.4% | 156 months | yes | no | 2005, 14 y (72.6%) | 2007 (71.6%) |
-| C80-TCASH20 | 63.3% | 73.7% | 26.8% | at least 137 months, not recovered | yes | no | 2005, 14 y (63.3%) | 2007 (72.0%) |
-| D80-TCASH20 | 76.6% | 72.9% | 31.1% | 81 months | yes | no | 2005, 14 y (76.6%) | 2005 (78.7%) |
-| E80-TCASH20 | 93.0% | 80.4% | 30.5% | 42 months | yes | no | 2008, 11 y (86.7%) | 2005 (90.1%) |
+| C80-TCASH20 | 63.2% | 73.6% | 26.8% | at least 137 months, not recovered | yes | no | 2005, 14 y (63.2%) | 2007 (72.0%) |
+| D80-TCASH20 | 76.5% | 72.9% | 31.1% | 81 months | yes | no | 2005, 14 y (76.5%) | 2005 (78.7%) |
+| E80-TCASH20 | 92.9% | 80.4% | 30.5% | 42 months | yes | no | 2008, 11 y (86.6%) | 2005 (90.1%) |
 | F80-TCASH20 | 69.3% | 79.2% | 20.8% | at least 167 months, not recovered | yes | no | 2005, 14 y (69.3%) | 2005 (83.4%) |
 | G80-TCASH20 | 83.1% | 98.0% | 17.1% | at least 75 months, not recovered | yes | no | 2012, 7 y (76.1%) | 2012 (82.2%) |
 
