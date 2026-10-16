@@ -30,13 +30,15 @@ depleted that month, and no return is applied to it. `decision-helper.md`
 (the "Value path" bullet, lines 108-112) is reworded to say withdrawal first.
 The long run is not touched.
 
-**Effect.** Tiny and conservative. The draw now misses one day of return, so
-values are lower by about one day's return on one month's draw, compounded.
-Expected size: about a basis point or less on depletion odds and ending
-values. This is reasoned from the formula, not measured; the implementation
-reports the actual before/after figures in the PR. Only decision-helper
-numbers move. `research/decision.md` is regenerated. Long-run numbers are
-unchanged.
+**Effect.** Tiny, and not one-directional. The withdrawal now misses that
+day's return: values are lower after an up day and higher after a down day.
+Measured (2026-10-15, regenerated `research/decision.md` against the same
+code before the change, same price cache): only the Withdrawals section
+moved, 68 table rows by at most 0.1 percentage point as printed (some up,
+some down) or 1 month on "longest below a prior peak"; no portfolio's
+depletion changed. The report text now says the withdrawal is taken before
+that day's return (`src/qrl/decision_report.py`). Long-run numbers are
+unchanged: `research/longrun.md` is byte-identical.
 
 **Tests.**
 
