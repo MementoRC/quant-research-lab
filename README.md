@@ -116,8 +116,17 @@ replaces the future with a crash and a boom and checks that past weights stay id
 
 ## Roadmap
 
-- **Phase 1 (this release):** data, engine, criteria, sealing, core trend baseline, dashboard.
-- **Phase 2:** strategy templates, a SQLite ledger of every test, an agent-driven search
-  loop on the research period, walk-forward sleeve selection, multiple-testing adjustment.
-- **Phase 3:** risk sizing and leverage limits, decay monitoring and kill rules, paper
-  trading through Alpaca with position caps and a kill switch.
+Status as of October 2026. `PLAN.md` has the full record.
+
+- **Done:** Phase 1 (data, engine, criteria, sealing, core trend baseline, dashboard);
+  Phase 2 milestones 2.0-2.5 (strategy templates, ledger of every test, search loop on
+  the research period, validation); Phase 3.1 (risk sizing); the daily part of 3.2
+  (health checks); Phase 4 milestones 1-5 (EDGAR factor sleeve).
+- **Result so far:** no sleeve has passed validation. Runs 1-3, 6 and 7 accepted 0
+  candidates. The macro overlay passed research but failed validation. The RSP sleeve
+  (run 7) passed research but failed validation.
+- **Blocked:** 2.6, 2.7, the rest of 3.2 (monthly, quarterly, kill-rule review) and 3.4
+  (execution) wait until a sleeve passes validation.
+- **Skipped:** 3.3 (news layer), by the owner.
+- **Paper track:** started 2026-10-02. Reviews at 3, 6 and 12 months
+  (`config/paper.yaml`).
