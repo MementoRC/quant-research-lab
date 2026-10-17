@@ -6,9 +6,10 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
+from decision_helpers import CANDIDATES, END, ROOT, cpi, criteria, prices, stress_cfg
 
 from qrl import decision_config, decision_report
+from qrl.decision import run_decision
 from qrl.decision_config import load_decision_config, portfolio_states
 from qrl.whatif import (
     merge_rate,
@@ -20,6 +21,7 @@ from qrl.whatif import (
     split_shares,
     valid_names,
 )
+from qrl.whatif_report import percent_text, render_whatif, report_path, slug, summary_lines
 
 
 def test_whatif_public_aliases_are_the_private_objects():
@@ -275,3 +277,80 @@ def test_merge_rate_adds_once_and_sorted():
 def test_mix_config_merges_the_extra_rate(shipped):
     assert mix_config(shipped, [("A", 1.0)], 0.045).rates == [0.02, 0.033, 0.04, 0.045, 0.05]
     assert mix_config(shipped, [("A", 1.0)], 0.04).rates == shipped.rates
+
+
+GIVEN = [("A", 0.8), ("TCASH", 0.2)]
+
+
+@pytest.fixture(scope="module")
+def report(shipped):
+    cfg = replace(mix_config(shipped, GIVEN, None), start_years=[2005, 2006], rates=[0.04])
+    return run_decision(cfg, prices(), cpi(), criteria(), "cd" * 32)
+
+
+def test_slug_rule():
+    assert slug([("G", 0.5), ("A", 0.3), ("TCASH", 0.2)]) == "G.50__A.30__TCASH.20"
+    assert slug([("A", 1 / 3), ("CASH", 2 / 3)]) == "A.33p33__CASH.66p67"
+    assert slug([("TCASH", 1.0)]) == "TCASH.100"
+    assert percent_text(0.12345) == "12p35"
+
+
+def test_report_path_stays_under_reports(tmp_path):
+    reports = tmp_path / "reports"
+    assert report_path(reports, "A.100") == (reports / "whatif-A.100.md").resolve()
+    with pytest.raises(ValueError, match="outside"):
+        report_path(reports, "/../../x")
+
+
+def test_render_has_its_own_header_and_the_reused_sections(report):
+    md = render_whatif(report, GIVEN)
+    assert md.startswith("# What-if mix")
+    assert "not from `config/decision.yaml`" in md
+    assert "mix as given: A 80%, TCASH 20%" in md
+    assert "MIX (the non-cash part, renormalised to 100%): A 100%" in md
+    assert f"decision.yaml sha256: `{report['decision_sha256']}`" in md
+    assert f"stress.yaml sha256: `{'cd' * 32}`" in md
+    for heading in (
+        "## Portfolios (100% of capital)",
+        "## Research-period return",
+        "## Historical windows",
+        "## Judgement-based scenarios",
+        "## Withdrawals",
+        "## Year-one scenario hit",
+    ):
+        assert heading in md
+    assert "| MIX-TCASH |" in md
+    assert "multiple comparisons" not in md
+    assert "A80-CASH20" not in md
+    assert "SHY caveat above" not in md
+    assert decision_report.DOTCOM_PROXY_NOTE in md
+    assert decision_report.DRAWDOWN_NOTE in md
+    assert decision_report.KNOWN_GAP_NOTE in md
+    assert "$" not in md
+
+
+def test_render_tcash_note_and_row_scope(report):
+    md = render_whatif(report, GIVEN)
+    assert "are the non-cash part at 100%" in md
+    assert "only as `MIX-TCASH`" in md
+    windows = md.split("## Historical windows")[1].split("## Judgement-based scenarios")[0]
+    assert "MIX-TCASH" not in windows
+    assert "It follows unadjusted CPI" in md
+
+
+def test_render_without_tcash_has_no_tcash_note(report):
+    md = render_whatif(report, [("A", 0.8), ("CASH", 0.2)])
+    assert "only as `MIX-TCASH`" not in md
+    assert "TCASH share" not in md
+
+
+def test_render_is_deterministic(report):
+    assert render_whatif(report, GIVEN) == render_whatif(report, GIVEN)
+
+
+def test_summary_lines_print_only_rows_that_exist(report, tmp_path):
+    lines = summary_lines(report, GIVEN, tmp_path / "x.md")
+    assert lines[0] == "mix: A 80%, TCASH 20%"
+    assert lines[1] == f"wrote: {tmp_path / 'x.md'}"
+    assert [line.split(":")[0] for line in lines[2:]] == ["MIX", "MIX-TCASH", "A", "CASH"]
+    assert all("CAGR" in line and "max drawdown" in line for line in lines[2:])
