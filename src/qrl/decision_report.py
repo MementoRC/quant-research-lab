@@ -270,8 +270,7 @@ DOTCOM_PROXY_NOTE = (
     "trade), so those cells are indicative only."
 )
 KNOWN_GAP_NOTE = (
-    "- Known gap: no portfolio holds an asset that gains from a falling dollar other "
-    "than gold."
+    "- Known gap: no portfolio holds an asset that gains from a falling dollar other than gold."
 )
 DRAWDOWN_NOTE = (
     "- Drawdowns here count the starting value as a peak. The criteria and the research "
