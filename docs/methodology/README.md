@@ -34,6 +34,9 @@ document itself.
 - [withdrawal-edge-cases.md](withdrawal-edge-cases.md) — one withdrawal order
   and one depletion threshold for the decision helper and the long run; also
   the RSP sleeve written-spec review (spec written 2026-10-15).
+- [whatif-mix.md](whatif-mix.md) — local command that builds your own mix of the
+  decision-report portfolios (plus true cash) and runs it through the report's
+  tables, privately (spec written 2026-10-17, awaiting owner review).
 - [site-safety.md](site-safety.md) — Site safety: survivorship label and holdout
   cut-off on the public dashboard (owner-approved; implemented).
 
