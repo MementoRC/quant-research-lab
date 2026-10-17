@@ -34,6 +34,9 @@ document itself.
 - [withdrawal-edge-cases.md](withdrawal-edge-cases.md) — one withdrawal order
   and one depletion threshold for the decision helper and the long run; also
   the RSP sleeve written-spec review (spec written 2026-10-15).
+- [whatif-mix.md](whatif-mix.md) — local command that builds your own mix of the
+  decision-report portfolios (plus true cash) and runs it through the report's
+  tables, privately (owner-approved 2026-10-17; implemented in PR #64).
 - [macro-overlay.md](macro-overlay.md) — one fixed, pre-registered test of a
   slow de-risk-only macro overlay (trend, volatility, inflation) on core G.
   Research passed; validation failed (`research/overlay.md`).
@@ -41,8 +44,7 @@ document itself.
   drawdown, true cash, start years, PLAN summary, proxied note (implemented in
   PR #60).
 - [audit-remaining.md](audit-remaining.md) — closes the 2026-10-12 audit:
-  deflated-Sharpe counting, paper.yaml pin, docs drift (spec written
-  2026-10-14; awaiting owner review of the written spec).
+  deflated-Sharpe counting, paper.yaml pin, docs drift (implemented in PR #61).
 - [site-safety.md](site-safety.md) — Site safety: survivorship label and holdout
   cut-off on the public dashboard (owner-approved; implemented).
 

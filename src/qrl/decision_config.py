@@ -371,3 +371,10 @@ def load_decision_config(
         sha256=hashlib.sha256(raw).hexdigest(),
         cash_assumptions=cash_rows,
     )
+
+
+# Public names for qrl.whatif (spec: docs/methodology/whatif-mix.md). They point
+# to the same objects; the private names and their behaviour are unchanged.
+blend_portfolio = _blend
+check_full = _check_full
+SUM_TOLERANCE = _EPS
