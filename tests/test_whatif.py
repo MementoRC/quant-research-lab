@@ -3,12 +3,23 @@ config/decision.yaml plus synthetic prices and CPI. Existing tests are untouched
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import tomllib
 from dataclasses import replace
 
 import pytest
-from decision_helpers import CANDIDATES, END, ROOT, cpi, criteria, prices, stress_cfg
+from decision_helpers import (
+    CANDIDATES,
+    END,
+    GOOD_TCASH,
+    ROOT,
+    cpi,
+    criteria,
+    load,
+    prices,
+    stress_cfg,
+)
 from test_decision_cli import _fake_macro, _fake_ohlcv
 
 from qrl import decision_config, decision_report
@@ -515,3 +526,106 @@ def test_whatif_main_refuses_missing_cpi(run, tmp_path, monkeypatch, capsys):
     assert "refused" in printed
     assert "missing CPI" in printed
     assert not (tmp_path / "reports").exists()
+
+
+def _quick(cfg):
+    return replace(cfg, start_years=[2005, 2006], rates=[0.04])
+
+
+def _numbers(rows, pid):
+    """The rows of `pid` without the id column (numbers only)."""
+    return [
+        {k: v for k, v in r.items() if k != "portfolio"} for r in rows if r["portfolio"] == pid
+    ]
+
+
+def _run(cfg):
+    return run_decision(cfg, prices(), cpi(), criteria(), "cd" * 32)
+
+
+def test_parity_cash_mix_equals_the_a80_cash20_blend(shipped):
+    by_id = {p.id: p for p in shipped.portfolios}
+    got = _run(_quick(mix_config(shipped, [("A", 0.8), ("CASH", 0.2)], None)))
+    ref = replace(
+        _quick(shipped),
+        portfolios=[by_id["A"], by_id["CASH"], by_id["A80-CASH20"]],
+        cash_assumptions=(),
+    )
+    want = _run(ref)
+    for key in ("returns", "withdrawals"):
+        assert _numbers(got[key], "MIX") == _numbers(want[key], "A80-CASH20")
+        assert _numbers(got[key], "MIX")  # not vacuous
+
+
+def test_parity_tcash_mix_equals_the_a80_tcash20_row(shipped):
+    by_id = {p.id: p for p in shipped.portfolios}
+    got = _run(_quick(mix_config(shipped, [("A", 0.8), ("TCASH", 0.2)], None)))
+    ref = replace(
+        _quick(shipped),
+        portfolios=[by_id["A"], by_id["CASH"]],
+        cash_assumptions=(shipped.cash_assumptions[0],),
+    )
+    want = _run(ref)
+    for key in ("returns", "withdrawals"):
+        assert _numbers(got[key], "MIX-TCASH") == _numbers(want[key], "A80-TCASH20")
+        assert _numbers(got[key], "MIX-TCASH")
+        assert _numbers(got[key], "A") == _numbers(want[key], "A")
+
+
+def test_report_shows_four_states_for_two_switching_ingredients(shipped):
+    cfg = replace(mix_config(shipped, [("A", 0.5), ("B", 0.5)], None), start_years=[2005])
+    report = _run(replace(cfg, rates=[0.04]))
+    (mix,) = [p for p in report["portfolios"] if p["id"] == "MIX"]
+    assert len(mix["states"]) == 4
+
+
+def test_tcash_only_report_has_the_cash_row_and_no_mix(shipped):
+    report = _run(_quick(mix_config(shipped, [("TCASH", 1.0)], None)))
+    assert [p["id"] for p in report["portfolios"]] == ["A", "CASH"]
+    assert [r["portfolio"] for r in report["returns"]] == ["A", "CASH", "MIX-TCASH"]
+
+
+def test_loader_still_refuses_cash_share_one(tmp_path):
+    text = GOOD_TCASH.replace("cash_share: 0.2", "cash_share: 1.0")
+    with pytest.raises(ValueError, match="strictly between 0 and 1"):
+        load(tmp_path, text)
+
+
+def test_whatif_ignores_prices_and_cpi_after_the_data_end(run, tmp_path, monkeypatch):
+    out = tmp_path / "reports" / "whatif-A.80__TCASH.20.md"
+    assert run.main(["--mix", "A=0.8,TCASH=0.2"]) == 0
+    before = out.read_text()
+
+    fake = _fake_ohlcv()
+
+    def tampered(tickers, refresh=False, cache_dir=None):
+        data = fake(tickers, refresh=refresh, cache_dir=cache_dir)
+        for frame in data.values():
+            frame.loc[frame.index > END] = frame.loc[frame.index > END] * 7.0
+        return data
+
+    late_cpi = cpi()
+    late_cpi.loc[late_cpi.index > END] = late_cpi.loc[late_cpi.index > END] * 5.0
+    # not vacuous: the tampering really changes data after the data end
+    cache = ROOT / "data" / "cache"
+    assert not tampered(["SPY"], cache_dir=cache)["close"].equals(
+        fake(["SPY"], cache_dir=cache)["close"]
+    )
+    monkeypatch.setattr(run, "load_ohlcv", tampered)
+    monkeypatch.setattr(run, "load_macro", _fake_macro(late_cpi))
+    assert run.main(["--mix", "A=0.8,TCASH=0.2"]) == 0
+    assert out.read_text() == before
+
+
+def test_whatif_leaves_decision_yaml_unchanged(run):
+    path = ROOT / "config" / "decision.yaml"
+    before = (path.read_bytes(), hashlib.sha256(path.read_bytes()).hexdigest())
+    assert run.main(["--mix", "G=0.5,A=0.3,TCASH=0.2"]) == 0
+    assert (path.read_bytes(), hashlib.sha256(path.read_bytes()).hexdigest()) == before
+
+
+def test_whatif_tcash_one_writes_a_cash_only_report(run, tmp_path):
+    assert run.main(["--mix", "TCASH=1"]) == 0
+    md = (tmp_path / "reports" / "whatif-TCASH.100.md").read_text()
+    assert "| MIX-TCASH |" in md
+    assert "| MIX |" not in md
