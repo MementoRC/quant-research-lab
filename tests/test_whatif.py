@@ -534,9 +534,7 @@ def _quick(cfg):
 
 def _numbers(rows, pid):
     """The rows of `pid` without the id column (numbers only)."""
-    return [
-        {k: v for k, v in r.items() if k != "portfolio"} for r in rows if r["portfolio"] == pid
-    ]
+    return [{k: v for k, v in r.items() if k != "portfolio"} for r in rows if r["portfolio"] == pid]
 
 
 def _run(cfg):
