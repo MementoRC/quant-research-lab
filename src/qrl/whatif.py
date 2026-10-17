@@ -11,7 +11,9 @@ from dataclasses import replace
 
 from .core_compare import Candidate
 from .decision_config import (
+    MAX_REAL_YIELD,
     SUM_TOLERANCE,
+    CashAssumption,
     DecisionConfig,
     Portfolio,
     blend_portfolio,
@@ -108,3 +110,42 @@ def mix_portfolio(noncash: Shares, cfg: DecisionConfig) -> Portfolio | None:
     mix = replace(flat, parts=merge_parts(flat.parts))
     check_full(mix)
     return mix
+
+
+def _real_yield(cfg: DecisionConfig) -> float | None:
+    """The first cash_assumptions row's real yield; refuses rows that differ
+    (as `qrl.decision._cash_nominal_loss` does). None without rows."""
+    yields = [row.real_yield for row in cfg.cash_assumptions]
+    if len(set(yields)) > 1:
+        raise ValueError("cash_assumption rows have different real_yield values")
+    return yields[0] if yields else None
+
+
+def mix_cash_row(
+    cfg: DecisionConfig, tcash: float, base: str, ids: set[str]
+) -> CashAssumption | None:
+    """The `MIX-TCASH` row, built directly with the `_cash_row` checks except the
+    (0, 1) share and id-pattern rules: `tcash` may be 1 (then `base` is CASH,
+    irrelevant at 100% cash). `ids` are the in-memory config's portfolio ids.
+    None when `tcash` is 0."""
+    real_yield = _real_yield(cfg)
+    if tcash <= 0:
+        return None
+    if real_yield is None:
+        raise ValueError("decision.yaml has no cash_assumptions, so TCASH has no real yield")
+    if base not in ids:
+        raise ValueError(f"cash_assumption base {base!r} is not a portfolio id")
+    if MIX_CASH_ID in ids:
+        raise ValueError(f"cash_assumption id {MIX_CASH_ID!r} is already a portfolio id")
+    if not 0 < tcash <= 1:
+        raise ValueError(f"cash_assumption cash_share {tcash} must be in (0, 1]")
+    if not (math.isfinite(real_yield) and abs(real_yield) <= MAX_REAL_YIELD):
+        raise ValueError(
+            f"cash_assumption real_yield {real_yield} must be finite and within "
+            f"-{MAX_REAL_YIELD}..{MAX_REAL_YIELD}"
+        )
+    if tcash == 1.0:
+        label = "100% true cash (assumption)"
+    else:
+        label = f"{(1 - tcash) * 100:.4g}% MIX + {tcash * 100:.4g}% cash (assumption)"
+    return CashAssumption(MIX_CASH_ID, label, base, tcash, real_yield)

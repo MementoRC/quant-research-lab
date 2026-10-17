@@ -3,12 +3,14 @@ config/decision.yaml plus synthetic prices and CPI. Existing tests are untouched
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
 
 from qrl import decision_config, decision_report
 from qrl.decision_config import load_decision_config, portfolio_states
-from qrl.whatif import mix_portfolio, parse_mix, parse_rate, split_shares
+from qrl.whatif import mix_cash_row, mix_portfolio, parse_mix, parse_rate, split_shares
 
 
 def test_whatif_public_aliases_are_the_private_objects():
@@ -150,3 +152,65 @@ def test_mix_portfolio_is_fully_invested_in_every_state(shipped):
 
 def test_mix_portfolio_is_none_without_a_non_cash_part(shipped):
     assert mix_portfolio([], shipped) is None
+
+
+IDS = {"A", "CASH", "MIX"}
+
+
+def test_cash_row_over_the_mix(shipped):
+    row = mix_cash_row(shipped, 0.2, "MIX", IDS)
+    assert (row.id, row.base, row.cash_share, row.real_yield, row.pair) == (
+        "MIX-TCASH",
+        "MIX",
+        0.2,
+        0.01,
+        None,
+    )
+
+
+def test_cash_row_allows_one_hundred_percent_over_cash(shipped):
+    row = mix_cash_row(shipped, 1.0, "CASH", {"A", "CASH"})
+    assert (row.base, row.cash_share) == ("CASH", 1.0)
+    assert row.label == "100% true cash (assumption)"
+
+
+def test_cash_row_label_over_the_mix(shipped):
+    assert mix_cash_row(shipped, 0.2, "MIX", IDS).label == "80% MIX + 20% cash (assumption)"
+
+
+def test_cash_row_is_none_without_tcash(shipped):
+    assert mix_cash_row(shipped, 0.0, "MIX", IDS) is None
+
+
+def _with_yields(cfg, second):
+    rows = list(cfg.cash_assumptions)
+    rows[1] = replace(rows[1], real_yield=second)
+    return replace(cfg, cash_assumptions=tuple(rows))
+
+
+@pytest.mark.parametrize("tcash", [0.0, 0.2])
+def test_cash_row_refuses_rows_with_different_yields(shipped, tcash):
+    with pytest.raises(ValueError, match="different real_yield"):
+        mix_cash_row(_with_yields(shipped, 0.02), tcash, "MIX", IDS)
+
+
+def test_cash_row_refuses_a_yield_beyond_the_bound(shipped):
+    rows = tuple(replace(r, real_yield=0.06) for r in shipped.cash_assumptions)
+    with pytest.raises(ValueError, match="real_yield"):
+        mix_cash_row(replace(shipped, cash_assumptions=rows), 0.2, "MIX", IDS)
+
+
+def test_cash_row_needs_a_yield_in_the_config(shipped):
+    bare = replace(shipped, cash_assumptions=())
+    assert mix_cash_row(bare, 0.0, "MIX", IDS) is None
+    with pytest.raises(ValueError, match="no cash_assumptions"):
+        mix_cash_row(bare, 0.2, "MIX", IDS)
+
+
+def test_cash_row_checks_base_id_and_share(shipped):
+    with pytest.raises(ValueError, match="base 'MIX'"):
+        mix_cash_row(shipped, 0.2, "MIX", {"A", "CASH"})
+    with pytest.raises(ValueError, match="already a portfolio id"):
+        mix_cash_row(shipped, 0.2, "MIX", {*IDS, "MIX-TCASH"})
+    with pytest.raises(ValueError, match="cash_share"):
+        mix_cash_row(shipped, 1.5, "MIX", IDS)
