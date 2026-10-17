@@ -149,3 +149,34 @@ def mix_cash_row(
     else:
         label = f"{(1 - tcash) * 100:.4g}% MIX + {tcash * 100:.4g}% cash (assumption)"
     return CashAssumption(MIX_CASH_ID, label, base, tcash, real_yield)
+
+
+def valid_names(cfg: DecisionConfig) -> list[str]:
+    """Every portfolio id in the loaded config, then TCASH."""
+    return [*(p.id for p in cfg.portfolios), TCASH]
+
+
+def merge_rate(rates: list[float], rate: float | None) -> list[float]:
+    """The report's rates plus `rate`, sorted; unchanged if `rate` is None or
+    already there."""
+    if rate is None or any(math.isclose(r, rate, rel_tol=0, abs_tol=1e-12) for r in rates):
+        return list(rates)
+    return sorted([*rates, rate])
+
+
+def mix_config(cfg: DecisionConfig, given: Shares, rate: float | None) -> DecisionConfig:
+    """An in-memory config of A, CASH and MIX (MIX only with a non-cash part)
+    plus the `MIX-TCASH` row (only with TCASH > 0), the report's windows,
+    scenarios, start years, thresholds and hashes kept, and the report's rates
+    plus `rate`. `config/decision.yaml` is not touched."""
+    noncash, tcash = split_shares(given)
+    by_id = {p.id: p for p in cfg.portfolios}
+    mix = mix_portfolio(noncash, cfg)
+    portfolios = [by_id["A"], by_id["CASH"], *([mix] if mix else [])]
+    row = mix_cash_row(cfg, tcash, MIX_ID if mix else "CASH", {p.id for p in portfolios})
+    return replace(
+        cfg,
+        portfolios=portfolios,
+        cash_assumptions=(row,) if row else (),
+        rates=merge_rate(cfg.rates, rate),
+    )

@@ -10,7 +10,16 @@ from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
 
 from qrl import decision_config, decision_report
 from qrl.decision_config import load_decision_config, portfolio_states
-from qrl.whatif import mix_cash_row, mix_portfolio, parse_mix, parse_rate, split_shares
+from qrl.whatif import (
+    merge_rate,
+    mix_cash_row,
+    mix_config,
+    mix_portfolio,
+    parse_mix,
+    parse_rate,
+    split_shares,
+    valid_names,
+)
 
 
 def test_whatif_public_aliases_are_the_private_objects():
@@ -214,3 +223,55 @@ def test_cash_row_checks_base_id_and_share(shipped):
         mix_cash_row(shipped, 0.2, "MIX", {*IDS, "MIX-TCASH"})
     with pytest.raises(ValueError, match="cash_share"):
         mix_cash_row(shipped, 1.5, "MIX", IDS)
+
+
+def test_valid_names_are_the_portfolio_ids_plus_tcash(shipped):
+    names = valid_names(shipped)
+    assert names[:7] == list("ABCDEFG")
+    assert "A80-CASH20" in names
+    assert names[-1] == "TCASH"
+
+
+def test_mix_config_holds_a_cash_mix_and_the_report_rates(shipped):
+    cfg = mix_config(shipped, [("A", 0.8), ("CASH", 0.2)], None)
+    assert [p.id for p in cfg.portfolios] == ["A", "CASH", "MIX"]
+    assert cfg.cash_assumptions == ()
+    assert cfg.rates == shipped.rates
+
+
+def test_mix_config_with_tcash_adds_one_row_over_mix(shipped):
+    cfg = mix_config(shipped, [("G", 0.5), ("A", 0.3), ("TCASH", 0.2)], None)
+    assert [p.id for p in cfg.portfolios] == ["A", "CASH", "MIX"]
+    (row,) = cfg.cash_assumptions
+    assert (row.id, row.base, row.cash_share, row.real_yield) == ("MIX-TCASH", "MIX", 0.2, 0.01)
+
+
+def test_mix_config_all_tcash_has_no_mix_portfolio(shipped):
+    cfg = mix_config(shipped, [("TCASH", 1.0)], None)
+    assert [p.id for p in cfg.portfolios] == ["A", "CASH"]
+    (row,) = cfg.cash_assumptions
+    assert (row.base, row.cash_share) == ("CASH", 1.0)
+
+
+def test_mix_config_tcash_just_above_one_is_clamped(shipped):
+    cfg = mix_config(shipped, [("TCASH", 1.0000000005)], None)
+    assert cfg.cash_assumptions[0].cash_share == 1.0
+
+
+def test_mix_config_keeps_everything_else_and_does_not_mutate(shipped):
+    cfg = mix_config(shipped, [("A", 1.0)], None)
+    for field in ("windows", "scenarios", "start_years", "proxied_threshold", "sha256"):
+        assert getattr(cfg, field) == getattr(shipped, field)
+    assert cfg.candidates_sha256 == shipped.candidates_sha256
+    assert len(shipped.portfolios) == 27
+
+
+def test_merge_rate_adds_once_and_sorted():
+    assert merge_rate([0.02, 0.04], None) == [0.02, 0.04]
+    assert merge_rate([0.02, 0.04], 0.04) == [0.02, 0.04]
+    assert merge_rate([0.02, 0.04], 0.03) == [0.02, 0.03, 0.04]
+
+
+def test_mix_config_merges_the_extra_rate(shipped):
+    assert mix_config(shipped, [("A", 1.0)], 0.045).rates == [0.02, 0.033, 0.04, 0.045, 0.05]
+    assert mix_config(shipped, [("A", 1.0)], 0.04).rates == shipped.rates
