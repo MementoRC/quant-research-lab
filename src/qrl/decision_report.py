@@ -265,6 +265,21 @@ def _switching_note(report: dict) -> list[str]:
     ]
 
 
+DOTCOM_PROXY_NOTE = (
+    "- In the dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet "
+    "trade), so those cells are indicative only."
+)
+KNOWN_GAP_NOTE = (
+    "- Known gap: no portfolio holds an asset that gains from a falling dollar other "
+    "than gold."
+)
+DRAWDOWN_NOTE = (
+    "- Drawdowns here count the starting value as a peak. The criteria and the research "
+    "dashboard use `qrl.metrics`, which does not, so their figures can be lower by up to "
+    "about a point."
+)
+
+
 def _notes(report: dict) -> list[str]:
     return [
         "## Notes",
@@ -279,17 +294,13 @@ def _notes(report: dict) -> list[str]:
         *_switching_note(report),
         "- The engine never charges for drift, so the cost of real periodic rebalancing is "
         "slightly understated for every blend.",
-        "- In the dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet "
-        "trade), so those cells are indicative only.",
-        "- Known gap: no portfolio holds an asset that gains from a falling dollar other "
-        "than gold.",
+        DOTCOM_PROXY_NOTE,
+        KNOWN_GAP_NOTE,
         "- Prices are dividend-adjusted, so totals are correct; dividend and interest income "
         "is not separated from sales.",
         "- All figures are percentages: of capital for losses, of the starting value for "
         "withdrawal paths.",
-        "- Drawdowns here count the starting value as a peak. The criteria and the research "
-        "dashboard use `qrl.metrics`, which does not, so their figures can be lower by up to "
-        "about a point.",
+        DRAWDOWN_NOTE,
         *_assumption_scope_note(report),
         "",
     ]
@@ -501,3 +512,16 @@ def render_markdown(report: dict) -> str:
             *_year_one_section(report),
         ]
     )
+
+
+# Public names for qrl.whatif_report (spec: docs/methodology/whatif-mix.md). They
+# point to the same objects; the private names and their behaviour are unchanged.
+pct = _pct
+signed = _signed
+portfolio_section = _portfolio_section
+return_section = _return_section
+window_section = _window_section
+scenario_section = _scenario_section
+withdrawal_section = _withdrawal_section
+year_one_section = _year_one_section
+switching_note = _switching_note
