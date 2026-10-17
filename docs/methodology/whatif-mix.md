@@ -1,7 +1,7 @@
 # What-if mix: your own blend of the report's portfolios
 
 Status: spec written 2026-10-17; design approved 2026-10-16; written spec
-owner-approved 2026-10-17. Awaiting implementation.
+owner-approved 2026-10-17. Implemented 2026-10-17.
 (Owner decisions are listed at the end.)
 Related: [decision-helper.md](decision-helper.md), "Delivery" item 3 (the
 what-if panel). This is part 1 of 2: build-your-own mix. Part 2 (your own
@@ -68,7 +68,7 @@ Rules:
   (so `A=0.8,CASH=0.2` has parts A then CASH, as `A80-CASH20` does, and float
   sums depend on part order). After flattening, parts with the same candidate
   id are merged by summing their shares, keeping first-appearance order.
-  Without this, `A=0.3,AG=0.4` would hold A twice and `portfolio_states`
+  Without this, `A=0.3,AG=0.7` would hold A twice and `portfolio_states`
   would build impossible states pairing A risk-on with A risk-off. Its daily target weights come from
   `portfolio_weights` (`decision.py:47`): the share-weighted sum of the
   parts' weights, rebalanced daily, costs on turnover from `criteria.yaml`
@@ -206,8 +206,8 @@ are unchanged.
   `A=0.8,TCASH=0.2` gives the same numbers as `A80-TCASH20` (same inputs).
   The tests compare numbers only, ignoring the row id and label column.
 - Two switching portfolios (for example `A=0.5,B=0.5`) give four states.
-- Duplicate parts: `A=0.3,AG=0.4` has the same states as the mix of A and G
-  alone, and no state pairs A with itself.
+- Duplicate parts: `A=0.3,AG=0.7` has the same states as `A=0.65,G=0.35`
+  and no state pairs A with itself.
 - `TCASH=1` works in whatif. A `decision.yaml`-style config with
   `cash_share` 1 is still refused by the loader.
 - Sealing: altering prices after 2018-12-31 leaves the output unchanged.
