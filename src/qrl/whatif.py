@@ -7,8 +7,16 @@ maths. Pure functions; the script does the IO.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
-from .decision_config import SUM_TOLERANCE
+from .core_compare import Candidate
+from .decision_config import (
+    SUM_TOLERANCE,
+    DecisionConfig,
+    Portfolio,
+    blend_portfolio,
+    check_full,
+)
 
 TCASH = "TCASH"  # true cash: the cash leg of the cash-assumption rows
 MIX_ID = "MIX"
@@ -64,3 +72,39 @@ def parse_rate(text: str | None) -> float | None:
     if not (math.isfinite(rate) and 0 < rate <= MAX_RATE):
         raise ValueError(f"--rate must be in (0, {MAX_RATE:g}], got {text!r}")
     return rate
+
+
+def split_shares(given: Shares) -> tuple[Shares, float]:
+    """(the non-cash shares renormalised to sum to 1, the TCASH share). With no
+    non-cash part the first element is empty. The TCASH share is clamped to 1 so a
+    sum within the 1e-9 input tolerance above 1 cannot trip the cash row's check."""
+    tcash = min(sum(share for name, share in given if name == TCASH), 1.0)
+    noncash = [(name, share) for name, share in given if name != TCASH]
+    total = sum(share for _, share in noncash)
+    return [(name, share / total) for name, share in noncash], tcash
+
+
+def merge_parts(
+    parts: tuple[tuple[Candidate, float], ...],
+) -> tuple[tuple[Candidate, float], ...]:
+    """Parts with the same candidate id summed, in first-appearance order, so a
+    switching candidate is never held twice (it would give impossible states)."""
+    merged: dict[str, tuple[Candidate, float]] = {}
+    for cand, share in parts:
+        first, total = merged.get(cand.id, (cand, 0.0))
+        merged[cand.id] = (first, total + share)
+    return tuple(merged.values())
+
+
+def mix_portfolio(noncash: Shares, cfg: DecisionConfig) -> Portfolio | None:
+    """`MIX`: the renormalised non-cash shares, flattened as `_blend` flattens a
+    blend, same-candidate parts merged, checked fully invested in every state.
+    None without a non-cash part."""
+    if not noncash:
+        return None
+    label = "Your mix: " + " + ".join(f"{share * 100:.4g}% {name}" for name, share in noncash)
+    raw = {"id": MIX_ID, "label": label, "parts": dict(noncash)}
+    flat = blend_portfolio(raw, {p.id: p for p in cfg.portfolios})
+    mix = replace(flat, parts=merge_parts(flat.parts))
+    check_full(mix)
+    return mix

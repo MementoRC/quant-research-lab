@@ -4,9 +4,11 @@ config/decision.yaml plus synthetic prices and CPI. Existing tests are untouched
 from __future__ import annotations
 
 import pytest
+from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
 
 from qrl import decision_config, decision_report
-from qrl.whatif import parse_mix, parse_rate
+from qrl.decision_config import load_decision_config, portfolio_states
+from qrl.whatif import mix_portfolio, parse_mix, parse_rate, split_shares
 
 
 def test_whatif_public_aliases_are_the_private_objects():
@@ -83,3 +85,68 @@ def test_parse_rate():
 def test_parse_rate_refuses(text):
     with pytest.raises(ValueError, match="--rate"):
         parse_rate(text)
+
+
+@pytest.fixture(scope="module")
+def shipped():
+    return load_decision_config(ROOT / "config" / "decision.yaml", CANDIDATES, stress_cfg(), END)
+
+
+def _same_states(a, b):
+    sa, sb = portfolio_states(a), portfolio_states(b)
+    assert sa.keys() == sb.keys()
+    for state in sa:
+        assert sa[state] == pytest.approx(sb[state])
+
+
+def test_split_shares_renormalises_the_non_cash_part():
+    noncash, tcash = split_shares([("G", 0.5), ("A", 0.3), ("TCASH", 0.2)])
+    assert tcash == 0.2
+    assert [n for n, _ in noncash] == ["G", "A"]
+    assert noncash[0][1] == pytest.approx(0.625)
+    assert sum(s for _, s in noncash) == pytest.approx(1.0, abs=1e-15)
+
+
+def test_split_shares_without_tcash_and_with_only_tcash():
+    assert split_shares([("A", 0.8), ("CASH", 0.2)]) == ([("A", 0.8), ("CASH", 0.2)], 0.0)
+    assert split_shares([("TCASH", 1.0)]) == ([], 1.0)
+
+
+def test_split_shares_clamps_tcash_within_the_sum_tolerance():
+    # parse_mix accepts a sum up to 1e-9 above 1; the cash row must still get share 1
+    assert parse_mix("TCASH=1.0000000005", VALID) == [("TCASH", 1.0000000005)]
+    assert split_shares([("TCASH", 1.0000000005)]) == ([], 1.0)
+
+
+def test_mix_portfolio_is_the_loaders_blend(shipped):
+    mix = mix_portfolio([("A", 0.8), ("CASH", 0.2)], shipped)
+    ref = {p.id: p for p in shipped.portfolios}["A80-CASH20"]
+    assert mix.id == "MIX"
+    assert mix.parts == ref.parts
+
+
+def test_mix_portfolio_flattens_a_blend_ingredient(shipped):
+    mix = mix_portfolio([("AG", 1.0)], shipped)
+    assert [(c.id, s) for c, s in mix.parts] == [("A", 0.5), ("G", 0.5)]
+
+
+def test_mix_portfolio_merges_duplicate_candidates(shipped):
+    merged = mix_portfolio([("A", 0.3), ("AG", 0.7)], shipped)
+    alone = mix_portfolio([("A", 0.65), ("G", 0.35)], shipped)
+    assert [c.id for c, _ in merged.parts] == ["A", "G"]
+    assert len(portfolio_states(merged)) == 2  # no state pairs A with itself
+    _same_states(merged, alone)
+
+
+def test_two_switching_ingredients_give_four_states(shipped):
+    assert len(portfolio_states(mix_portfolio([("A", 0.5), ("B", 0.5)], shipped))) == 4
+
+
+def test_mix_portfolio_is_fully_invested_in_every_state(shipped):
+    mix = mix_portfolio([("G", 0.5), ("A", 0.3), ("BONDS", 0.2)], shipped)
+    for weights in portfolio_states(mix).values():
+        assert sum(weights.values()) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_mix_portfolio_is_none_without_a_non_cash_part(shipped):
+    assert mix_portfolio([], shipped) is None
