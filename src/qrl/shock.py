@@ -12,6 +12,8 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import yaml
 
 from .decision_config import ID_PATTERN, Portfolio, held_tickers
@@ -120,3 +122,48 @@ def check_fund_map(portfolios: list[Portfolio]) -> None:
             f"held fund(s) {unmapped} have no shock group "
             f"(fund map: {', '.join(sorted(FUND_GROUP))})"
         )
+
+
+def stretch_days(start_year: int, n: int) -> pd.DatetimeIndex:
+    """The made-up stretch for real start year `start_year` and an `n`-year
+    shock: weekdays (Monday to Friday, holidays included) from the first weekday
+    on or after 2 January of start_year - n to 31 December of start_year - 1.
+    1 January of the first year is skipped, as a real path's first trading day
+    is never 1 January; later years include it when it is a weekday."""
+    return pd.bdate_range(
+        pd.Timestamp(year=start_year - n, month=1, day=2),
+        pd.Timestamp(year=start_year - 1, month=12, day=31),
+    )
+
+
+def _spread(yearly: list[float], days: pd.DatetimeIndex) -> np.ndarray:
+    """yearly[k] spread evenly and geometrically over the days of calendar year
+    first + k: (1 + r)^(1/n) - 1 on each of its n days, so the year compounds to
+    exactly 1 + r (the `cash_leg_returns` convention, year by year)."""
+    years = pd.DatetimeIndex(days).year.to_numpy()
+    first = int(years[0])
+    if sorted(set(years.tolist())) != list(range(first, first + len(yearly))):
+        raise ValueError(f"stretch days must cover exactly {len(yearly)} calendar year(s)")
+    out = np.empty(len(years))
+    for k, r in enumerate(yearly):
+        mask = years == first + k
+        out[mask] = (1.0 + r) ** (1.0 / mask.sum()) - 1.0
+    return out
+
+
+def stretch_returns(mix: dict[str, float], shock: Shock, days: pd.DatetimeIndex) -> pd.Series:
+    """Daily returns of one state's fixed weights `mix` in the stretch,
+    rebalanced daily with no costs: the weighted sum of each fund's spread daily
+    return. A year therefore does not compound to the weighted sum of the
+    yearly returns (it would with a yearly rebalance)."""
+    total = np.zeros(len(days))
+    for fund, weight in mix.items():
+        total = total + weight * _spread([fund_return(fund, y) for y in shock.years], days)
+    return pd.Series(total, index=days, dtype=float)
+
+
+def cash_returns(shock: Shock, days: pd.DatetimeIndex) -> pd.Series:
+    """The true-cash leg in the stretch: the `short_bonds` return, spread daily."""
+    return pd.Series(
+        _spread([y["short_bonds"] for y in shock.years], days), index=days, dtype=float
+    )
