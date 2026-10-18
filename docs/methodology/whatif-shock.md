@@ -53,7 +53,9 @@ Rules, each a refusal (`load_shock` raises ValueError):
 - `years` is a list of 1 to 10 entries. Each entry is a mapping with exactly
   `stocks`, `gold`, `long_bonds`, `short_bonds`, `inflation`. Unknown or missing
   keys are refused.
-- Every value is a finite number (a boolean or a string is refused).
+- Every value is a finite number (a boolean or a string is refused). Values
+  must parse as YAML numbers: write `0.1` or `1.0e-1`, not `1e-1` (PyYAML reads
+  that as a string). `name` must be a YAML string (`name: 123` is refused).
 - Each return (`stocks`, `gold`, `long_bonds`, `short_bonds`) is above -1 and at
   most 2 (+200%).
 - `inflation` is in [-0.10, 0.30].
@@ -190,7 +192,10 @@ M+1, in the same way as the real series:
 `withdrawal_rows` does, `decision.py:339-343`) is multiplied by one factor
 f = (stretch end level) / (real value dated 31 December Y-1, the real value
 usable on 1 January Y), so its value usable on 1 January Y equals the end
-level, with no jump. The single join date is 31 December Y-1. The spliced
+level, with no jump. The join is strict: a real value dated exactly
+31 December Y-1 is required, and without one the run is refused (`missing CPI:
+no CPIAUCNS value dated <date> for the join`), never joined on an older value.
+The single join date is 31 December Y-1. The spliced
 series is the synthetic values dated up to and including 31 December Y-1,
 followed by the real values dated after 31 December Y-1, times f. The real
 31 December Y-1 value is dropped: the synthetic end level takes its place and
@@ -280,7 +285,9 @@ The header prints:
 
 Then, per rate, a table with one row per portfolio (the headlined state shown
 as `A (risk_off)`, as `decision_report.py:494`) and, for switching rows, a short
-second table with every state's headline value for that row. The report's own caveats about
+second table with every state's headline value for that row: per state, the
+real ending value of the first start year and the worst-start-year real ending
+value with its year and horizon. The report's own caveats about
 costs, CASH being SHY and daily rebalancing are repeated.
 
 A short terminal summary is printed: the shock name and N, the output path, and
@@ -300,9 +307,9 @@ shocked and not shocked, at every rate. It does not print the whole report.
 - The script loads as `scripts/whatif.py:41-49` and `:52-65`: criteria, the
   stress config and its sha256, `load_decision_config`, then prices and CPI
   (`refresh=False`, the shared cache), for the tickers of all portfolios plus
-  `EQUITY_PROXY`. The header's sha256s and data_end come from the config, the
-  stress hash and the cut prices, not from a `run_decision` report (none is
-  run).
+  `EQUITY_PROXY`. The header's sha256s come from the config and the stress
+  hash, and its data_end from `data_end(criteria)`, not from a `run_decision`
+  report (none is run).
 
 ## Refusals
 
@@ -318,6 +325,8 @@ Each is printed as `refused: <reason>` with exit code 1, as
   NaN weights, missing CPI (decision-helper.md "Refusals"); the missing-CPI
   refusal (`usable_cpi`) also applies to the spliced series, including a real
   CPI value not usable on 1 January Y
+- no real CPI value dated exactly 31 December Y-1 for a start year Y (the
+  strict join): `missing CPI: no CPIAUCNS value dated <date> for the join`
 
 ## Tests
 
@@ -371,14 +380,18 @@ the file with `git checkout research/decision.md` and report.
 - `src/qrl/decision.py`: one public alias, `first_years = _first_years`.
 - `src/qrl/decision_config.py`: one public alias, `ID_PATTERN = _ID`, in the
   alias block (`decision_config.py:376-380`), beside the `decision.py` alias.
+- `src/qrl/decision_report.py`: one public alias, `below_peak = _below_peak`,
+  in its alias block (`decision_report.py:516-526`), used by `shock_report.py`
+  for the below-peak text.
 
 ## Untouched
 
 - The locked files named in AGENTS.md.
 - `config/decision.yaml` and `config/longrun.yaml`.
 - `research/decision.md` (byte-identical) and the site.
-- Existing tests, and the private names in `decision.py` and
-  `decision_config.py` (`_first_years`, `_ID` stay).
+- Existing tests, and the private names in `decision.py`,
+  `decision_config.py` and `decision_report.py` (`_first_years`, `_ID`,
+  `_below_peak` stay).
 
 ## Out of scope
 
