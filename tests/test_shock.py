@@ -741,6 +741,16 @@ def test_withdrawal_step_uses_each_keys_own_cpi(shipped):
     for key in paths:
         (alone,) = decision._withdrawal_rows_for("X", {key: paths[key]}, cfg, cpis[key])
         assert row["per_year"][key] == alone["per_year"][key]
+    # the equal-horizon figures: each key's path cut to the row's horizon, own CPI
+    horizon = row["horizon_years"]
+    at_horizon = {}
+    for key in paths:
+        cut = {key: first_years(paths[key], horizon)}
+        (alone,) = decision._withdrawal_rows_for("X", cut, cfg, cpis[key])
+        assert alone["horizon_years"] == horizon
+        at_horizon[key] = alone["worst5_end_real"]
+    worst5_real, worst5_year = min((v, k) for k, v in at_horizon.items())
+    assert (row["worst5_end_real"], row["worst5_year"]) == (worst5_real, worst5_year)
     swapped = decision._withdrawal_rows_for("X", {2001: paths[2001]}, cfg, real)[0]
     assert row["per_year"][2001] != swapped["per_year"][2001]  # one CPI for all keys would differ
 

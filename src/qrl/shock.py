@@ -391,6 +391,7 @@ def headline_rows(
     base = {r["rate"]: r for r in no_shock if r["portfolio"] == pid}
     rows: list[dict] = []
     for i, rate in enumerate(rates):
+        # withdrawal_step returns its rows in `rates` order, so steps[i] is rate i
         at_rate = {name: steps[i] for name, steps in by_state.items()}
         state = worse_state(at_rate)
         rows.append(
