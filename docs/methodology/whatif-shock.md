@@ -49,7 +49,8 @@ Rules, each a refusal (`load_shock` raises ValueError):
   missing keys are refused. Invalid YAML is refused.
 - `name` matches `[A-Za-z0-9_-]+` (the loader's own `_ID`,
   `decision_config.py:29`, which is private; the public alias
-  `ID_PATTERN = _ID` is added in the alias block, `decision_config.py:376-380`).
+  `ID_PATTERN = _ID` is added in the alias block, `decision_config.py:376-382`,
+  at `:382`).
 - `years` is a list of 1 to 10 entries. Each entry is a mapping with exactly
   `stocks`, `gold`, `long_bonds`, `short_bonds`, `inflation`. Unknown or missing
   keys are refused.
@@ -253,8 +254,8 @@ its own splice, so `shock.py` repeats its short per-year step, which takes
 paths keyed by start-year key, a CPI per key and the rates
 (`(paths, cpi_by_key, rates)`), and the worst-start and equal-horizon choices (smallest real value, ties to the lowest
 year, as `decision.py:303-304`). It uses the public alias `first_years` of
-`_first_years`, added to `decision.py` the same way part 1 added aliases
-(`decision_config.py:376-380`): the private name and its behaviour stay. A
+`_first_years`, added to `decision.py` (`:513`) the same way part 1 added
+aliases (`decision_config.py:376-382`): the private name and its behaviour stay. A
 parity test (below) feeds this step the unshocked paths and real CPI and
 requires the report's numbers back.
 
@@ -290,9 +291,22 @@ real ending value of the first start year and the worst-start-year real ending
 value with its year and horizon. The report's own caveats about
 costs, CASH being SHY and daily rebalancing are repeated.
 
+- Above each rate table one line says what the state label means: "For
+  switching rows, the state shown is the fixed-weight state that ends lowest at
+  its worst start year during the stretch; it is not the live rule's choice."
+- Rate headings and the shock table keep their digits (`0.0425` is `4.25%`,
+  `0.04` is `4.0%`); result cells keep the report's one-decimal percentages.
+- A depleted month earlier than the row's real start year falls in the made-up
+  stretch and is shown as `YYYY-MM (stretch)`. The intro says: "A depleted date
+  marked (stretch) falls in the made-up years before the start year, not in real
+  history." A depletion in real history has no marker.
+- With `--mix` absent and cash rows of different real yields, the header names
+  each row beside its yield (for example `A80-TCASH20 +1%`).
+
 A short terminal summary is printed: the shock name and N, the output path, and
 for those of `MIX`, `MIX-TCASH`, A and CASH that are present, the first start year's real ending value,
-shocked and not shocked, at every rate. It does not print the whole report.
+shocked and not shocked, at every rate, as `at 4.0%: 55.0% (no shock: x)`, followed for a
+switching row by `(worse stretch state: risk_off)`. It does not print the whole report.
 
 ## Data and sealing
 
@@ -372,16 +386,28 @@ the file with `git checkout research/decision.md` and report.
 ## Code
 
 - `src/qrl/shock.py`: `load_shock`, `FUND_GROUP`, `stretch_returns`,
-  `stretch_cpi`, `shocked_path`. Pure functions.
+  `stretch_cpi`, `shocked_path`. Pure functions. Extra public helpers:
+  `fund_return` (a fund's group return for a year), `check_fund_map` (refuses a
+  held fund outside the map), `stretch_days` (the made-up weekdays),
+  `cash_returns` (the cash leg in the stretch), `join_returns` (stretch then
+  real returns), `withdrawal_step` (the per-year rows step, one CPI per key),
+  `extend_config` (MIX, MIX-TCASH and the merged rate on the full config),
+  `shock_paths` (every row, state and start year), `worse_state` (the headline
+  rule), `headline_rows` (one row per rate with every state) and `run_shock`
+  (the report as plain data).
 - `src/qrl/shock_report.py`: the markdown and the terminal summary. A pure
   renderer, deterministic, no timestamp.
+- `src/qrl/whatif_report.py`: two public aliases at its end, `listing =
+  _listing` and `noncash_line = _noncash_line`, used by `shock_report.py`; the
+  private names and their behaviour stay.
 - `scripts/whatif_shock.py`: IO and wiring only, as `scripts/whatif.py`.
 - `pixi.toml`: the task `whatif-shock`.
 - `src/qrl/decision.py`: one public alias, `first_years = _first_years`.
 - `src/qrl/decision_config.py`: one public alias, `ID_PATTERN = _ID`, in the
-  alias block (`decision_config.py:376-380`), beside the `decision.py` alias.
+  alias block (`decision_config.py:376-382`, at `:382`), beside the
+  `decision.py` alias.
 - `src/qrl/decision_report.py`: one public alias, `below_peak = _below_peak`,
-  in its alias block (`decision_report.py:516-526`), used by `shock_report.py`
+  in its alias block (`decision_report.py:516-528`, at `:528`), used by `shock_report.py`
   for the below-peak text.
 
 ## Untouched
