@@ -28,6 +28,7 @@ from qrl.shock import (
     check_fund_map,
     extend_config,
     fund_return,
+    headline_rows,
     join_returns,
     load_shock,
     run_shock,
@@ -679,6 +680,69 @@ def test_run_shock_refuses_a_held_fund_outside_the_map(shipped):
     cfg = replace(cfg, portfolios=[*cfg.portfolios, _foreign()])
     with pytest.raises(ValueError, match="no shock group"):
         run_shock(cfg, prices(), cpi(), criteria(), SHOCK2, "cd" * 32)
+
+
+def _flat(daily: float, key: int) -> pd.Series:
+    return pd.Series(daily, index=pd.bdate_range(f"{key}-01-02", "2004-12-31"))
+
+
+def _two_state_paths():
+    """State `a` is the better one at the first start key (2000) and the worse
+    one at its worst start key (2001); state `b` is the reverse."""
+    return {
+        "a": {2000: _flat(0.0006, 2000), 2001: _flat(-0.0004, 2001)},
+        "b": {2000: _flat(0.0002, 2000), 2001: _flat(-0.0001, 2001)},
+    }
+
+
+def _no_shock(rates):
+    return [{"portfolio": "X", "rate": r} for r in rates]
+
+
+def test_headline_is_the_worst_start_year_pick_not_the_first_start_years():
+    real = cpi()
+    rates = [0.04]
+    (row,) = headline_rows(
+        "X", _two_state_paths(), dict.fromkeys((2000, 2001), real), rates, _no_shock(rates)
+    )
+    a, b = row["states"]["a"], row["states"]["b"]
+    # the two rankings disagree: a leads at the first key, b leads at the worst key
+    assert a["first"]["end_real"] > b["first"]["end_real"]
+    assert a["worst_end_real"] < b["worst_end_real"]
+    assert (a["worst_year"], b["worst_year"]) == (2001, 2001)
+    assert row["state"] == "a"
+    assert row["shocked"] is a
+
+
+def test_headline_state_is_chosen_per_rate():
+    real = cpi()
+    rates = [0.0, 0.5]
+    rows = headline_rows(
+        "X", _two_state_paths(), dict.fromkeys((2000, 2001), real), rates, _no_shock(rates)
+    )
+    for row in rows:
+        assert row["state"] == worse_state(row["states"])
+        assert row["shocked"] is row["states"][row["state"]]
+    # no withdrawals: a ends lower at its worst key; 50% a year depletes both (0 = 0), the greater name wins
+    assert rows[0]["states"]["a"]["worst_end_real"] < rows[0]["states"]["b"]["worst_end_real"]
+    assert (
+        rows[1]["states"]["a"]["worst_end_real"] == rows[1]["states"]["b"]["worst_end_real"] == 0.0
+    )
+    assert [r["state"] for r in rows] == ["a", "b"]
+
+
+def test_withdrawal_step_uses_each_keys_own_cpi(shipped):
+    real = cpi().loc[:END]
+    other = real * (1.0 + 0.5 * (real.index - real.index[0]).days / 3650.0)
+    cpis = {2000: real, 2001: other}
+    paths = {2000: _flat(0.0003, 2000), 2001: _flat(0.0002, 2001)}
+    cfg = _small(shipped, rates=(0.04,))
+    (row,) = withdrawal_step("X", paths, cpis, [0.04])
+    for key in paths:
+        (alone,) = decision._withdrawal_rows_for("X", {key: paths[key]}, cfg, cpis[key])
+        assert row["per_year"][key] == alone["per_year"][key]
+    swapped = decision._withdrawal_rows_for("X", {2001: paths[2001]}, cfg, real)[0]
+    assert row["per_year"][2001] != swapped["per_year"][2001]  # one CPI for all keys would differ
 
 
 def test_run_shock_refuses_missing_cpi(shipped):
