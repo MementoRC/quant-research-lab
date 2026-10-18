@@ -320,7 +320,7 @@ Each is printed as `refused: <reason>` with exit code 1, as
 - `--shock` missing
 - a held ticker not in the fund map
 - every `--mix` and `--rate` refusal of part 1
-- `cash_assumptions` rows with different real yields (`whatif.py:115-121`)
+- with `--mix`, `cash_assumptions` rows with different real yields (`whatif.py:115-121`)
 - every refusal the report already makes: a held fund unpriced at a start date,
   NaN weights, missing CPI (decision-helper.md "Refusals"); the missing-CPI
   refusal (`usable_cpi`) also applies to the spliced series, including a real
