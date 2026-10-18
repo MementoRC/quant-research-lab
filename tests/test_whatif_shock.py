@@ -4,6 +4,7 @@ prices and CPI. Existing tests are untouched."""
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import tomllib
@@ -19,7 +20,7 @@ from qrl.core_compare import Candidate
 from qrl.decision_config import Portfolio, load_decision_config
 from qrl.decision_report import pct
 from qrl.shock import extend_config, run_shock
-from qrl.shock_report import render_shock, summary_lines
+from qrl.shock_report import rate_text, render_shock, summary_lines
 from qrl.whatif_report import report_path
 
 GIVEN = [("A", 0.8), ("TCASH", 0.2)]
@@ -102,7 +103,64 @@ def test_summary_lines(report, tmp_path):
     assert [x.split(",")[0] for x in lines[2:]] == ["MIX", "MIX-TCASH", "A", "CASH"]
     assert all("(no shock: " in x for x in lines[2:])
     a = next(r for r in report["rows"] if r["portfolio"] == "A")
-    assert f"({a['state']})" in lines[4]
+    assert f"(worse stretch state: {a['state']})" in lines[4]
+    assert f"at 4.0%: {pct(a['shocked']['first']['end_real'])} (no shock: " in lines[4]
+    assert "(worse stretch state: " not in lines[5]  # CASH is static
+
+
+def test_render_explains_the_state_label(report):
+    md = render_shock(report, GIVEN)
+    note = (
+        "For switching rows, the state shown is the fixed-weight state that ends lowest "
+        "at its worst start year during the stretch; it is not the live rule's choice."
+    )
+    assert md.count(note) == len(report["rates"])
+    assert (
+        "A depleted date marked (stretch) falls in the made-up years before the start "
+        "year, not in real history." in md
+    )
+
+
+def _depleted_row(report, pid, when):
+    row = next(r for r in report["rows"] if r["portfolio"] == pid)
+    row["shocked"]["first"]["depleted"] = when
+    return row
+
+
+def test_render_marks_a_depletion_inside_the_stretch(report):
+    rep = copy.deepcopy(report)
+    row = _depleted_row(rep, "D", "2003-05")  # first real start year is 2005
+    assert row["shocked"]["first_year"] + rep["n"] == 2005
+    _depleted_row(rep, "CASH", "2006-01")  # real history: no marker
+    lines = render_shock(rep, GIVEN).splitlines()
+    d = next(x for x in lines if x.startswith("| D |"))
+    cash = next(x for x in lines if x.startswith("| CASH |"))
+    assert "2003-05 (stretch)" in d
+    assert "2006-01" in cash
+    assert "2006-01 (stretch)" not in cash
+
+
+def test_render_every_table_row_has_the_header_cell_count(report):
+    lines = render_shock(report, GIVEN).splitlines()
+    checked = 0
+    for i, line in enumerate(lines):
+        if line.startswith("|") and (i == 0 or not lines[i - 1].startswith("|")):
+            width = line.count("|")
+            block = []
+            for x in lines[i:]:
+                if not x.startswith("|"):
+                    break
+                block.append(x)
+            assert all(x.count("|") == width for x in block), block[0]
+            checked += 1
+    assert checked >= 3  # the shock table and, per rate, the rows and the state tables
+
+
+def test_rate_text_keeps_two_decimals_where_needed():
+    assert rate_text(0.0425) == "4.25%"
+    assert rate_text(0.04) == "4.0%"
+    assert rate_text(0.033) == "3.3%"
+    assert rate_text(-0.3) == "-30.0%"
 
 
 def test_whatif_shock_pixi_task():
@@ -214,6 +272,12 @@ def test_whatif_shock_main_extra_rate(run, tmp_path, shock_file):
     assert "### Withdrawal rate 4.5% per year" in _out(tmp_path).read_text()
 
 
+def test_whatif_shock_main_rate_heading_keeps_its_precision(run, tmp_path, shock_file, capsys):
+    assert run.main(["--shock", str(shock_file), "--rate", "0.0425"]) == 0
+    assert "### Withdrawal rate 4.25% per year" in _out(tmp_path).read_text()
+    assert "at 4.25%: " in capsys.readouterr().out
+
+
 def test_whatif_shock_main_resolves_a_relative_shock_path(run, tmp_path, shock_file, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert run.main(["--shock", shock_file.name]) == 0
@@ -287,7 +351,7 @@ def test_whatif_shock_main_without_a_mix_runs_cash_rows_with_different_yields(
     cli = _cli(tmp_path, monkeypatch, _odd)
     assert cli.main(["--shock", str(shock_file)]) == 0
     md = _out(tmp_path).read_text()
-    assert "CPI plus +1% / +2% real after it" in md
+    assert "CPI plus A80-TCASH20 +1% / B80-TCASH20 +2% real after it" in md
     assert "| MIX" not in md
 
 

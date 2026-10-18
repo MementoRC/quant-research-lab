@@ -440,5 +440,6 @@ def run_shock(
         "start_years": list(cfg.start_years),
         # one value in the shipped config; several only without --mix (rows run as the report's)
         "real_yields": sorted({ca.real_yield for ca in cfg.cash_assumptions}),
+        "cash_yields": [(ca.id, ca.real_yield) for ca in cfg.cash_assumptions],
         "rows": rows,
     }

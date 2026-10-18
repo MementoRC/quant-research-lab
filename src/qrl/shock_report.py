@@ -9,23 +9,29 @@ from __future__ import annotations
 from pathlib import Path
 
 from .decision_report import below_peak, pct, signed
-from .shock import GROUPS
+from .shock import YEAR_KEYS
 from .whatif import MIX_CASH_ID, MIX_ID, Shares, split_shares
+from .whatif_report import listing, noncash_line
 
 SUMMARY_IDS = (MIX_ID, MIX_CASH_ID, "A", "CASH")
+STATE_NOTE = (
+    "For switching rows, the state shown is the fixed-weight state that ends lowest at its "
+    "worst start year during the stretch; it is not the live rule's choice."
+)
 
 
-def _listing(shares: Shares) -> str:
-    return ", ".join(f"{name} {share * 100:.4g}%" for name, share in shares)
+def rate_text(x: float) -> str:
+    """A rate or shock input as a percentage keeping its digits (0.0425 -> 4.25%,
+    0.04 -> 4.0%); used for rate headings and the shock table, not result cells."""
+    text = f"{100 * x:g}"
+    return f"{text if '.' in text or 'e' in text else text + '.0'}%"
 
 
 def _mix_lines(given: Shares | None) -> list[str]:
     if not given:
         return []
     noncash, tcash = split_shares(given)
-    lines = [f"- mix as given: {_listing(given)}"]
-    if noncash:
-        lines.append(f"- {MIX_ID} (the non-cash part, renormalised to 100%): {_listing(noncash)}")
+    lines = [f"- mix as given: {listing(given)}", *noncash_line(noncash)]
     if tcash > 0:
         base = MIX_ID if noncash else "CASH"
         lines.append(f"- {MIX_CASH_ID}: {base} plus {tcash * 100:.4g}% true cash")
@@ -33,10 +39,10 @@ def _mix_lines(given: Shares | None) -> list[str]:
 
 
 def _shock_table(report: dict) -> list[str]:
-    keys = (*GROUPS, "inflation")
+    keys = YEAR_KEYS
     lines = ["| shock year | " + " | ".join(keys) + " |", "|---|" + "---|" * len(keys)]
     for k, year in enumerate(report["years"], 1):
-        lines.append(f"| {k} | " + " | ".join(pct(year[key]) for key in keys) + " |")
+        lines.append(f"| {k} | " + " | ".join(rate_text(year[key]) for key in keys) + " |")
     return lines
 
 
@@ -68,10 +74,13 @@ def _tcash_note(report: dict) -> list[str]:
     yields = report["real_yields"]
     if not yields:
         return []
+    if len(yields) == 1:
+        shown = signed(yields[0])
+    else:
+        shown = " / ".join(f"{pid} {signed(y)}" for pid, y in report["cash_yields"])
     return [
         "- True cash (the TCASH rows) earns `short_bonds` in the stretch and CPI plus "
-        f"{' / '.join(signed(y) for y in yields)} real after it (each row's own yield), as in "
-        "the report."
+        f"{shown} real after it (each row's own yield), as in the report."
     ]
 
 
@@ -121,7 +130,8 @@ def _intro(report: dict) -> list[str]:
         "the report's own in brackets (no shock). Lowest value, max drawdown, longest below a "
         f"prior peak and depleted are for the {first} path. Worst-start cells show the year and "
         f"the horizon in years (shocked horizons include the {n} stretch year(s)); the equal "
-        f"horizon is the report's plus {n} year(s).",
+        f"horizon is the report's plus {n} year(s). A depleted date marked (stretch) falls in "
+        "the made-up years before the start year, not in real history.",
         "",
     ]
 
@@ -135,6 +145,15 @@ def _equal(row: dict, n: int) -> str:
     return f"{row['worst5_year'] + n}, {row['horizon_years']} y ({pct(row['worst5_end_real'])})"
 
 
+def _depleted(shocked: dict, n: int) -> str:
+    """The shocked path's depleted month; marked when it falls before the real
+    start year (first key + N), that is inside the made-up stretch."""
+    when = shocked["first"]["depleted"]
+    if not when:
+        return "no"
+    return f"{when} (stretch)" if int(when[:4]) < shocked["first_year"] + n else when
+
+
 def _cells(shocked: dict, base: dict, n: int) -> list[str]:
     s, b = shocked["first"], base["first"]
     pairs = [
@@ -142,7 +161,7 @@ def _cells(shocked: dict, base: dict, n: int) -> list[str]:
         (pct(s["lowest"]), pct(b["lowest"])),
         (pct(s["max_drawdown"]), pct(b["max_drawdown"])),
         (below_peak(s), below_peak(b)),  # the report's own text (public alias)
-        (s["depleted"] or "no", b["depleted"] or "no"),
+        (_depleted(shocked, n), b["depleted"] or "no"),
         (_worst(shocked, n), _worst(base, 0)),
         (_equal(shocked, n), _equal(base, 0)),
     ]
@@ -179,7 +198,9 @@ def _rate_section(report: dict, rate: float) -> list[str]:
     first = min(report["start_years"])
     rows = [r for r in report["rows"] if r["rate"] == rate]
     lines = [
-        f"### Withdrawal rate {pct(rate)} per year",
+        f"### Withdrawal rate {rate_text(rate)} per year",
+        "",
+        STATE_NOTE,
         "",
         f"| portfolio | real ending value (start {first}) | lowest value | max drawdown (from "
         f"start) | longest below a prior peak | depleted | worst start year to "
@@ -201,10 +222,10 @@ def render_shock(report: dict, given: Shares | None) -> str:
 
 
 def _figure(row: dict) -> str:
-    state = f" ({row['state']})" if row["state"] else ""
+    state = f" (worse stretch state: {row['state']})" if row["state"] else ""
     return (
-        f"{pct(row['rate'])}: {pct(row['shocked']['first']['end_real'])}{state} "
-        f"(no shock: {pct(row['no_shock']['first']['end_real'])})"
+        f"at {rate_text(row['rate'])}: {pct(row['shocked']['first']['end_real'])} "
+        f"(no shock: {pct(row['no_shock']['first']['end_real'])}){state}"
     )
 
 

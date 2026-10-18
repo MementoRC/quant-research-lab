@@ -56,6 +56,12 @@ def _listing(shares: Shares) -> str:
     return ", ".join(f"{name} {_share(share)}" for name, share in shares)
 
 
+def _noncash_line(noncash: Shares) -> list[str]:
+    if not noncash:
+        return []
+    return [f"- {MIX_ID} (the non-cash part, renormalised to 100%): {_listing(noncash)}"]
+
+
 def _tcash_header(noncash: Shares, tcash: float) -> list[str]:
     if tcash <= 0:
         return []
@@ -84,11 +90,7 @@ def _header(report: dict, given: Shares) -> list[str]:
         "recommends nothing. Spec: docs/methodology/whatif-mix.md.",
         "",
         f"- mix as given: {_listing(given)}",
-        *(
-            [f"- {MIX_ID} (the non-cash part, renormalised to 100%): {_listing(noncash)}"]
-            if noncash
-            else []
-        ),
+        *_noncash_line(noncash),
         *_tcash_header(noncash, tcash),
         f"- data: up to {report['data_end']} only (validation and holdout stay sealed)",
         f"- decision.yaml sha256: `{report['decision_sha256']}`",
@@ -170,3 +172,9 @@ def summary_lines(report: dict, given: Shares, path: Path) -> list[str]:
             r = by_id[pid]
             lines.append(f"{pid}: CAGR {pct(r['cagr'])}, max drawdown {pct(r['max_drawdown'])}")
     return lines
+
+
+# Public names for qrl.shock_report (spec: docs/methodology/whatif-shock.md). They
+# point to the same objects; the private names and their behaviour are unchanged.
+listing = _listing
+noncash_line = _noncash_line
