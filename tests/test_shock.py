@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
+from decision_helpers import CANDIDATES, END, ROOT, cpi, stress_cfg
 
 from qrl import decision, decision_config, decision_report
 from qrl.core_compare import Candidate
@@ -18,7 +18,9 @@ from qrl.shock import (
     cash_returns,
     check_fund_map,
     fund_return,
+    join_returns,
     load_shock,
+    shocked_path,
     stretch_cpi,
     stretch_days,
     stretch_returns,
@@ -271,3 +273,72 @@ def test_stretch_cpi_is_usable_on_every_stretch_day():
     s = stretch_cpi(SHOCK3, 2010)
     for day in stretch_days(2010, 3):
         usable_cpi(s, day)  # raises "missing CPI" if a value were older than 45 days
+
+
+def test_shocked_path_joins_the_real_cpi_with_no_jump():
+    real = cpi().loc[:END]
+    s = shocked_path(real, SHOCK2, 2005)
+    synthetic = stretch_cpi(SHOCK2, 2005)
+    join = pd.Timestamp("2004-12-31")
+    f = synthetic.iloc[-1] / real.loc[join]
+    assert s.index.is_monotonic_increasing
+    assert s.index.is_unique  # the real 31 Dec Y-1 value is dropped, not duplicated
+    assert s.loc[:join].index.equals(synthetic.index)
+    assert s.loc[:join].tolist() == synthetic.tolist()
+    assert s.loc[join] == synthetic.iloc[-1]
+    assert s.loc[join] == pytest.approx(real.loc[join] * f, rel=1e-12)  # no step at the join
+    after = s.loc[s.index > join]
+    assert after.index.equals(real.loc[real.index > join].index)
+    assert after.tolist() == (real.loc[real.index > join] * f).tolist()
+
+
+def test_shocked_path_step_ups_are_the_shock_then_the_real_ones():
+    real = cpi().loc[:END]
+    s = shocked_path(real, SHOCK2, 2005)
+    assert _jan(s, 2005) == stretch_cpi(SHOCK2, 2005).iloc[-1]
+    assert _jan(s, 2004) / _jan(s, 2003) == pytest.approx(1.0 + Y1["inflation"], rel=1e-12)
+    # January Y: the last shock year's inflation
+    assert _jan(s, 2005) / _jan(s, 2004) == pytest.approx(1.0 + Y2["inflation"], rel=1e-12)
+    for year in range(2006, 2019):  # from January Y+1 the real step-ups
+        want = _jan(real, year) / _jan(real, year - 1)
+        assert _jan(s, year) / _jan(s, year - 1) == pytest.approx(want, rel=1e-12)
+
+
+def test_shocked_path_refuses_a_real_cpi_not_usable_on_1_january():
+    real = cpi().loc[:END].drop([pd.Timestamp("2004-11-30"), pd.Timestamp("2004-12-31")])
+    with pytest.raises(ValueError, match="missing CPI"):
+        shocked_path(real, SHOCK2, 2005)
+
+
+def test_shocked_path_requires_a_real_value_dated_exactly_31_december():
+    # 30 Nov 2004 would still be usable on 1 Jan 2005 (32 days old), but the join is strict
+    real = cpi().loc[:END].drop([pd.Timestamp("2004-12-31")])
+    with pytest.raises(
+        ValueError, match="missing CPI: no CPIAUCNS value dated 2004-12-31 for the join"
+    ):
+        shocked_path(real, SHOCK2, 2005)
+
+
+def test_shocked_path_refuses_a_nan_on_the_join_date():
+    real = cpi().loc[:END].copy()
+    real.loc[pd.Timestamp("2004-12-31")] = float("nan")
+    with pytest.raises(ValueError, match="for the join"):
+        shocked_path(real, SHOCK2, 2005)
+
+
+def test_join_returns_puts_the_stretch_before_the_real_series():
+    stretch = cash_returns(SHOCK2, stretch_days(2005, 2))
+    real = pd.Series(0.001, index=pd.bdate_range("2005-01-03", "2005-03-31"))
+    joined = join_returns(stretch, real)
+    assert len(joined) == len(stretch) + len(real)
+    assert joined.index.is_monotonic_increasing
+    assert joined.index.is_unique
+    assert joined.iloc[: len(stretch)].tolist() == stretch.tolist()
+    assert joined.iloc[len(stretch) :].tolist() == real.tolist()
+
+
+def test_join_returns_refuses_an_overlap():
+    stretch = cash_returns(SHOCK2, stretch_days(2005, 2))
+    overlap = pd.Series(0.0, index=pd.bdate_range("2004-12-31", "2005-01-31"))
+    with pytest.raises(ValueError, match="before the real start"):
+        join_returns(stretch, overlap)

@@ -187,3 +187,34 @@ def stretch_cpi(shock: Shock, start_year: int) -> pd.Series:
             dates.append(pd.Timestamp(year=first + k, month=month, day=1) + pd.offsets.MonthEnd(0))
             values.append(values[-1] * step)
     return pd.Series(values, index=pd.DatetimeIndex(dates), name=CPI_SERIES, dtype=float)
+
+
+def shocked_path(real_cpi: pd.Series, shock: Shock, start_year: int) -> pd.Series:
+    """The CPI of one shocked path (the splice): the stretch's CPI dated up to
+    and including 31 December of start_year - 1 (the single join date), then the
+    real values dated after it times f = stretch end level / the real value dated
+    exactly 31 December of start_year - 1 (November's, usable on 1 January of
+    start_year). The real 31 December value is dropped; the end level takes its
+    place and equals it times f, so no step is added. `real_cpi` must already be
+    cut at the data end. Raises "missing CPI" if no real value (non-NaN) is dated
+    exactly on the join date: the join is strict, no older value is used."""
+    join = pd.Timestamp(year=start_year - 1, month=12, day=31)
+    known = real_cpi.dropna()
+    if join not in known.index:
+        raise ValueError(f"missing CPI: no {CPI_SERIES} value dated {join.date()} for the join")
+    synthetic = stretch_cpi(shock, start_year)
+    factor = float(synthetic.iloc[-1]) / float(known.loc[join])
+    after = real_cpi.loc[real_cpi.index > join] * factor
+    spliced: pd.Series = pd.concat([synthetic, after]).rename(CPI_SERIES)
+    return spliced
+
+
+def join_returns(stretch: pd.Series, real: pd.Series) -> pd.Series:
+    """The stretch's daily returns followed by the real ones (one path). The
+    join charges no extra cost: the real series keeps its own day-one purchase."""
+    if not stretch.index[-1] < real.index[0]:
+        raise ValueError(
+            f"the stretch must end before the real start {pd.Timestamp(real.index[0]).date()}"
+        )
+    joined: pd.Series = pd.concat([stretch, real])
+    return joined
