@@ -506,3 +506,8 @@ def _cash_fields(ca: CashAssumption) -> dict:
         "cash_share": ca.cash_share,
         "real_yield": ca.real_yield,
     }
+
+
+# Public name for qrl.shock (spec: docs/methodology/whatif-shock.md). It points to
+# the same object; the private name and its behaviour are unchanged.
+first_years = _first_years
