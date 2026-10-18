@@ -30,12 +30,14 @@ from qrl.shock import (
     fund_return,
     join_returns,
     load_shock,
+    run_shock,
     shock_paths,
     shocked_path,
     stretch_cpi,
     stretch_days,
     stretch_returns,
     withdrawal_step,
+    worse_state,
 )
 from qrl.true_cash import cash_leg_returns, mix_returns
 
@@ -571,3 +573,116 @@ def test_ten_year_shock_paths(shipped):
     assert path.index[0] == pd.Timestamp("1995-01-02")
     assert sorted(set(path.index.year)) == list(range(1995, 2019))
     assert cpi_by_key[1995].index[0] == pd.Timestamp("1994-12-31")
+
+
+def _at(**values):
+    return {name: {"worst_end_real": v} for name, v in values.items()}
+
+
+def test_worse_state_is_the_lower_worst_start_value():
+    assert worse_state(_at(risk_on=0.5, risk_off=0.3)) == "risk_off"
+    assert worse_state(_at(risk_on=0.2, risk_off=0.3)) == "risk_on"
+
+
+def test_worse_state_tie_goes_to_the_greater_name():
+    assert worse_state(_at(risk_on=0.3, risk_off=0.3)) == "risk_on"
+    assert worse_state(_at(risk_on=0.0, risk_off=0.0)) == "risk_on"  # every state depleted
+    four = {
+        "risk_off+risk_off": {"worst_end_real": 0.1},
+        "risk_on+risk_off": {"worst_end_real": 0.1},
+        "risk_on+risk_on": {"worst_end_real": 0.4},
+    }
+    assert worse_state(four) == "risk_on+risk_off"
+
+
+@pytest.fixture(scope="module")
+def small_report(shipped):
+    base = _small(shipped, years=(2005, 2006), rates=(0.04,))
+    cfg = extend_config(base, [("A", 0.8), ("CASH", 0.2)], None)
+    return base, cfg, run_shock(cfg, prices(), cpi(), criteria(), SHOCK2, "cd" * 32)
+
+
+def _numbers(rows):
+    return [{k: v for k, v in r.items() if k != "portfolio"} for r in rows]
+
+
+def test_run_shock_report_fields(small_report):
+    _, cfg, report = small_report
+    assert (report["name"], report["n"], report["years"]) == ("t2", 2, [Y1, Y2])
+    assert report["data_end"] == "2018-12-31"
+    assert report["decision_sha256"] == cfg.sha256
+    assert report["candidates_sha256"] == cfg.candidates_sha256
+    assert report["stress_sha256"] == "cd" * 32
+    assert (report["rates"], report["start_years"]) == ([0.04], [2005, 2006])
+    assert report["real_yields"] == [0.01]
+    assert [r["portfolio"] for r in report["rows"]] == ["A", "CASH", "D", "MIX", "A80-TCASH20"]
+
+
+def test_run_shock_headlines_the_worse_state(small_report):
+    _, _, report = small_report
+    rows = {r["portfolio"]: r for r in report["rows"]}
+    a = rows["A"]
+    assert set(a["states"]) == {"risk_on", "risk_off"}
+    # the stretch sinks stocks (QQQ) and lifts gold, and the real part is shared
+    assert a["state"] == "risk_on"
+    assert a["state"] == worse_state(a["states"])
+    assert a["shocked"] is a["states"][a["state"]]
+    assert a["shocked"]["worst_end_real"] == min(s["worst_end_real"] for s in a["states"].values())
+    assert rows["D"]["state"] is None
+    assert list(rows["D"]["states"]) == ["static"]
+    assert rows["A80-TCASH20"]["state"] == worse_state(rows["A80-TCASH20"]["states"])
+
+
+def test_run_shock_no_shock_columns_are_the_report_rows(shipped, small_report):
+    base, _, report = small_report
+    want = withdrawal_rows(base, prices(), cpi(), criteria())
+    assert [r["no_shock"] for r in report["rows"] if r["portfolio"] != "MIX"] == want
+    by_id = {p.id: p for p in shipped.portfolios}
+    blend = replace(base, portfolios=[by_id["A80-CASH20"]], cash_assumptions=())
+    ref = withdrawal_rows(blend, prices(), cpi(), criteria())
+    mix = [r["no_shock"] for r in report["rows"] if r["portfolio"] == "MIX"]
+    assert _numbers(mix) == _numbers(ref)  # parity on MIX too
+    assert mix  # not vacuous
+
+
+def test_run_shock_equal_horizon_is_h0_plus_n(small_report):
+    _, _, report = small_report
+    for row in report["rows"]:
+        s, b = row["shocked"], row["no_shock"]
+        assert b["horizon_years"] == 2018 - 2006 + 1  # H0
+        assert s["horizon_years"] == b["horizon_years"] + 2  # H0 + N
+        assert (s["first_year"], b["first_year"]) == (2003, 2005)
+        assert s["horizons"] == {2003: 16, 2004: 15}
+
+
+def test_cash_path_through_a_one_year_stretch_in_closed_form(shipped):
+    cfg = _small(shipped, ids=("CASH",), cash=0, years=(2005,), rates=(0.04,))
+    shock = Shock("t1", (Y1,))
+    paths, cpi_by_key = shock_paths(cfg, prices(), cpi(), criteria(), shock)
+    path = paths["CASH"]["static"][2004]
+    days = stretch_days(2005, 1)
+    rate, w = 0.04, 0.04 / 12
+    d = (1.0 + Y1["short_bonds"]) ** (1.0 / len(days)) - 1.0  # the geometric daily return
+    month_starts = [days[days.month == m][0] for m in range(1, 13)]
+    remaining = [int((days >= first).sum()) for first in month_starts]
+    # each month's withdrawal, taken before that day's return, then compounded to year end
+    closed = (1.0 + d) ** len(days) - w * sum((1.0 + d) ** c for c in remaining)
+    monthly = monthly_withdrawals(rate, 2004, 2018, cpi_by_key[2004])
+    values = withdrawal_path(path, monthly).values
+    assert values.loc[days[-1]] == pytest.approx(closed, rel=1e-12)
+    assert monthly[2004] == w
+    assert monthly[2005] == pytest.approx(w * (1.0 + Y1["inflation"]), rel=1e-12)
+
+
+def test_run_shock_refuses_a_held_fund_outside_the_map(shipped):
+    cfg = _small(shipped, years=(2005,), rates=(0.04,))
+    cfg = replace(cfg, portfolios=[*cfg.portfolios, _foreign()])
+    with pytest.raises(ValueError, match="no shock group"):
+        run_shock(cfg, prices(), cpi(), criteria(), SHOCK2, "cd" * 32)
+
+
+def test_run_shock_refuses_missing_cpi(shipped):
+    cfg = _small(shipped, years=(2005,), rates=(0.04,))
+    holes = cpi().drop([pd.Timestamp("2004-11-30"), pd.Timestamp("2004-12-31")])
+    with pytest.raises(ValueError, match="missing CPI"):
+        run_shock(cfg, prices(), holes, criteria(), SHOCK2, "cd" * 32)

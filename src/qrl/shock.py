@@ -23,6 +23,7 @@ from .decision import (
     first_years,
     portfolio_returns,
     start_dates,
+    withdrawal_rows,
 )
 from .decision_config import ID_PATTERN, DecisionConfig, Portfolio, held_tickers, portfolio_states
 from .decision_withdraw import CPI_SERIES, monthly_withdrawals, path_metrics, withdrawal_path
@@ -364,3 +365,79 @@ def shock_paths(
         real = {year: rets[ca.id] for year, rets in per_start.items()}
         paths[ca.id] = _state_paths(portfolio_states(by_id[ca.base]), real, shock, ca.cash_share)
     return paths, cpi_by_key
+
+
+def worse_state(at_rate: dict[str, dict]) -> str:
+    """The headlined state of one row at one rate: the lower real ending value at
+    its worst start year (`worst_end_real`). A tie, including every state
+    depleted, goes to the greater name (`qrl.decision.worst_state`'s rule)."""
+    _, name = max((-row["worst_end_real"], state) for state, row in at_rate.items())
+    return name
+
+
+def headline_rows(
+    pid: str,
+    states: StatePaths,
+    cpi_by_key: dict[int, pd.Series],
+    rates: list[float],
+    no_shock: list[dict],
+) -> list[dict]:
+    """One row per rate: every state's `withdrawal_step` row, the headlined
+    state (None for a static row) and its row, and the report's own row for
+    `pid` at that rate (`no_shock`, from `withdrawal_rows`)."""
+    by_state = {
+        name: withdrawal_step(pid, paths, cpi_by_key, rates) for name, paths in states.items()
+    }
+    base = {r["rate"]: r for r in no_shock if r["portfolio"] == pid}
+    rows: list[dict] = []
+    for i, rate in enumerate(rates):
+        at_rate = {name: steps[i] for name, steps in by_state.items()}
+        state = worse_state(at_rate)
+        rows.append(
+            {
+                "portfolio": pid,
+                "rate": rate,
+                "state": state if len(at_rate) > 1 else None,
+                "shocked": at_rate[state],
+                "states": at_rate,
+                "no_shock": base[rate],
+            }
+        )
+    return rows
+
+
+def run_shock(
+    cfg: DecisionConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+    shock: Shock,
+    stress_sha256: str,
+) -> dict:
+    """The shock report as plain data (rendered by `qrl.shock_report`): every
+    portfolio and cash row of `cfg` (already `extend_config`-ed) per rate, the
+    headlined shocked row beside the report's own no-shock row
+    (`withdrawal_rows` on the same config). Raises ValueError on any refusal."""
+    check_fund_map(cfg.portfolios)
+    no_shock = withdrawal_rows(cfg, data, cpi, criteria)
+    paths, cpi_by_key = shock_paths(cfg, data, cpi, criteria, shock)
+    rows = [
+        row
+        for pid, states in paths.items()
+        for row in headline_rows(pid, states, cpi_by_key, cfg.rates, no_shock)
+    ]
+    return {
+        "name": shock.name,
+        "years": [dict(year) for year in shock.years],
+        "n": len(shock.years),
+        "data_end": str(data_end(criteria).date()),
+        "decision_sha256": cfg.sha256,
+        "candidates_sha256": cfg.candidates_sha256,
+        "stress_sha256": stress_sha256,
+        "cost_bps": float(criteria["costs"]["bps_per_unit_turnover"]),
+        "rates": list(cfg.rates),
+        "start_years": list(cfg.start_years),
+        # one value in the shipped config; several only without --mix (rows run as the report's)
+        "real_yields": sorted({ca.real_yield for ca in cfg.cash_assumptions}),
+        "rows": rows,
+    }
