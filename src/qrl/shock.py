@@ -16,8 +16,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from .decision import first_years
 from .decision_config import ID_PATTERN, Portfolio, held_tickers
-from .decision_withdraw import CPI_SERIES
+from .decision_withdraw import CPI_SERIES, monthly_withdrawals, path_metrics, withdrawal_path
 
 GROUPS = ("stocks", "gold", "long_bonds", "short_bonds")
 YEAR_KEYS = (*GROUPS, "inflation")
@@ -224,3 +225,50 @@ def join_returns(stretch: pd.Series, real: pd.Series) -> pd.Series:
         )
     joined: pd.Series = pd.concat([stretch, real])
     return joined
+
+
+def withdrawal_step(
+    pid: str,
+    paths: dict[int, pd.Series],
+    cpi_by_key: dict[int, pd.Series],
+    rates: list[float],
+) -> list[dict]:
+    """`qrl.decision._withdrawal_rows_for` with one CPI per start-year key (each
+    shocked path has its own splice); that helper takes one CPI for all start
+    years, so its short step is repeated here. `paths` maps the key (the first
+    withdrawal year) to daily returns. Same rows and rules: the worst start year
+    and the equal-horizon worst by smallest real value, ties to the lowest key;
+    the horizon H is the last path's end year minus the last key plus one, every
+    path cut to its first H calendar years (`first_years`)."""
+    end_years = {k: pd.DatetimeIndex(r.index)[-1].year for k, r in paths.items()}
+    last = max(paths)
+    horizon = end_years[last] - last + 1
+    cut = {k: first_years(r, horizon) for k, r in paths.items()}
+
+    def metrics(key: int, returns: pd.Series, rate: float, end_year: int) -> dict:
+        monthly = monthly_withdrawals(rate, key, end_year, cpi_by_key[key])
+        return path_metrics(withdrawal_path(returns, monthly), cpi_by_key[key])
+
+    rows: list[dict] = []
+    for rate in rates:
+        per_year = {k: metrics(k, r, rate, end_years[k]) for k, r in paths.items()}
+        at_horizon = {k: metrics(k, r, rate, k + horizon - 1)["end_real"] for k, r in cut.items()}
+        first = min(per_year)
+        worst_real, worst_year = min((m["end_real"], k) for k, m in per_year.items())
+        worst5_real, worst5_year = min((v, k) for k, v in at_horizon.items())
+        rows.append(
+            {
+                "portfolio": pid,
+                "rate": rate,
+                "first_year": first,
+                "first": per_year[first],
+                "worst_year": worst_year,
+                "worst_end_real": worst_real,
+                "horizons": {k: end_years[k] - k + 1 for k in paths},
+                "horizon_years": horizon,
+                "worst5_year": worst5_year,
+                "worst5_end_real": worst5_real,
+                "per_year": per_year,
+            }
+        )
+    return rows

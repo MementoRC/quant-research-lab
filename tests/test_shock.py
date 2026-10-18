@@ -4,14 +4,23 @@ and CPI. Existing tests are untouched."""
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pandas as pd
 import pytest
-from decision_helpers import CANDIDATES, END, ROOT, cpi, stress_cfg
+from decision_helpers import CANDIDATES, END, ROOT, cpi, criteria, prices, stress_cfg
 
 from qrl import decision, decision_config, decision_report
 from qrl.core_compare import Candidate
+from qrl.decision import (
+    all_assumption_returns,
+    first_years,
+    portfolio_returns,
+    start_dates,
+    withdrawal_rows,
+)
 from qrl.decision_config import Portfolio, held_tickers, load_decision_config
-from qrl.decision_withdraw import monthly_withdrawals, usable_cpi
+from qrl.decision_withdraw import monthly_withdrawals, path_metrics, usable_cpi, withdrawal_path
 from qrl.shock import (
     FUND_GROUP,
     Shock,
@@ -24,6 +33,7 @@ from qrl.shock import (
     stretch_cpi,
     stretch_days,
     stretch_returns,
+    withdrawal_step,
 )
 
 
@@ -340,3 +350,69 @@ def test_join_returns_refuses_an_overlap():
     overlap = pd.Series(0.0, index=pd.bdate_range("2004-12-31", "2005-01-31"))
     with pytest.raises(ValueError, match="before the real start"):
         join_returns(stretch, overlap)
+
+
+def _small(cfg, ids=("A", "CASH", "D"), cash=1, years=(2005, 2006, 2007), rates=(0.02, 0.04)):
+    """The shipped config cut down for speed: some portfolios, the first `cash`
+    cash rows (their bases must be among `ids`), some start years and rates."""
+    by_id = {p.id: p for p in cfg.portfolios}
+    return replace(
+        cfg,
+        portfolios=[by_id[i] for i in ids],
+        cash_assumptions=cfg.cash_assumptions[:cash],
+        start_years=list(years),
+        rates=list(rates),
+    )
+
+
+def _cost():
+    return float(criteria()["costs"]["bps_per_unit_turnover"])
+
+
+def _cut():
+    return {k: v.loc[:END] for k, v in prices().items()}
+
+
+def _starts(cfg, cut):
+    return start_dates(pd.DatetimeIndex(cut["close"].index), cfg.start_years, END)
+
+
+def test_withdrawal_step_gives_the_report_rows_back(shipped):
+    """Parity: fed the unshocked paths and the real CPI, the step returns the
+    report's own withdrawal rows exactly."""
+    cfg = _small(shipped)
+    want = withdrawal_rows(cfg, prices(), cpi(), criteria())
+    cut, known = _cut(), cpi().loc[:END]
+    starts = _starts(cfg, cut)
+    got = []
+    for p in cfg.portfolios:
+        paths = {y: portfolio_returns(p, cut, day, _cost()) for y, day in starts.items()}
+        got += withdrawal_step(p.id, paths, dict.fromkeys(paths, known), cfg.rates)
+    per_start = {
+        y: all_assumption_returns(cfg, cut, known, day, _cost()) for y, day in starts.items()
+    }
+    for ca in cfg.cash_assumptions:
+        paths = {y: rets[ca.id] for y, rets in per_start.items()}
+        got += withdrawal_step(ca.id, paths, dict.fromkeys(paths, known), cfg.rates)
+    assert len(want) == 4 * 2  # not vacuous: 3 portfolios + 1 cash row, 2 rates
+    assert got == want
+
+
+def test_withdrawal_step_equal_horizon_on_a_small_case():
+    real = cpi()
+    daily = {2000: 0.0003, 2001: -0.0004, 2002: 0.0001}
+    paths = {
+        y: pd.Series(r, index=pd.bdate_range(f"{y}-01-02", "2004-12-31")) for y, r in daily.items()
+    }
+    (row,) = withdrawal_step("X", paths, dict.fromkeys(paths, real), [0.04])
+    assert row["horizon_years"] == 3  # last end year 2004 - last key 2002 + 1
+    assert row["horizons"] == {2000: 5, 2001: 4, 2002: 3}
+    assert first_years(paths[2000], 3).index[-1] == pd.Timestamp("2002-12-31")
+    assert first_years(paths[2001], 3).index[-1] == pd.Timestamp("2003-12-31")
+    at = {
+        y: path_metrics(
+            withdrawal_path(first_years(r, 3), monthly_withdrawals(0.04, y, y + 2, real)), real
+        )["end_real"]
+        for y, r in paths.items()
+    }
+    assert (row["worst5_end_real"], row["worst5_year"]) == min((v, y) for y, v in at.items())
