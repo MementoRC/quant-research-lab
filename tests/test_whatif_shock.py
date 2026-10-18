@@ -4,11 +4,18 @@ prices and CPI. Existing tests are untouched."""
 
 from __future__ import annotations
 
+import importlib.util
+import tomllib
+from dataclasses import replace
+
+import pandas as pd
 import pytest
 from decision_helpers import CANDIDATES, END, ROOT, cpi, criteria, prices, stress_cfg
-from test_shock import SHOCK2, _small
+from test_decision_cli import _fake_macro, _fake_ohlcv
+from test_shock import GOOD_SHOCK, SHOCK2, _shock_text, _small, _year_text
 
-from qrl.decision_config import load_decision_config
+from qrl.core_compare import Candidate
+from qrl.decision_config import Portfolio, load_decision_config
 from qrl.decision_report import pct
 from qrl.shock import extend_config, run_shock
 from qrl.shock_report import render_shock, summary_lines
@@ -94,3 +101,253 @@ def test_summary_lines(report, tmp_path):
     assert all("(no shock: " in x for x in lines[2:])
     a = next(r for r in report["rows"] if r["portfolio"] == "A")
     assert f"({a['state']})" in lines[4]
+
+
+def test_whatif_shock_pixi_task():
+    tasks = tomllib.loads((ROOT / "pixi.toml").read_text())["tasks"]
+    assert tasks["whatif-shock"] == "python scripts/whatif_shock.py"
+
+
+def _load_cli():
+    spec = importlib.util.spec_from_file_location(
+        "whatif_shock_cli", ROOT / "scripts" / "whatif_shock.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+QUICK_IDS = ("A", "B", "CASH", "D", "AG")
+
+
+def _trimmed(cfg):
+    """A few portfolios (two switching, a static, a blend holding TLT), the A and
+    B cash rows, two start years, one rate: fast but every row kind."""
+    by_id = {p.id: p for p in cfg.portfolios}
+    return replace(
+        cfg,
+        portfolios=[by_id[i] for i in QUICK_IDS],
+        cash_assumptions=cfg.cash_assumptions[:2],
+        start_years=[2005, 2006],
+        rates=[0.04],
+    )
+
+
+def _cli(tmp_path, monkeypatch, shape):
+    """The CLI with synthetic data, the loaded config passed through `shape`,
+    and reports under tmp_path. Loaded here, not at import."""
+    cli = _load_cli()
+    real = cli.load_decision_config
+    monkeypatch.setattr(cli, "load_decision_config", lambda *a, **k: shape(real(*a, **k)))
+    monkeypatch.setattr(cli, "load_ohlcv", _fake_ohlcv())
+    monkeypatch.setattr(cli, "load_macro", _fake_macro(cpi()))
+    monkeypatch.setattr(cli, "REPORTS", tmp_path / "reports")
+    return cli
+
+
+@pytest.fixture
+def run(tmp_path, monkeypatch):
+    return _cli(tmp_path, monkeypatch, _trimmed)
+
+
+@pytest.fixture
+def shock_file(tmp_path):
+    path = tmp_path / "stagflation.yaml"
+    path.write_text(GOOD_SHOCK)
+    return path
+
+
+def _out(tmp_path):
+    return tmp_path / "reports" / "whatif-shock-stagflation-5y.md"
+
+
+def _refused(cli, args, tmp_path, capsys):
+    assert cli.main(args) == 1
+    printed = capsys.readouterr().out
+    assert printed.startswith("refused: ")
+    assert not (tmp_path / "reports").exists()  # nothing written
+    return printed
+
+
+def test_whatif_shock_main_writes_the_report(run, tmp_path, shock_file, capsys):
+    assert run.main(["--shock", str(shock_file)]) == 0
+    out = _out(tmp_path)
+    assert list((tmp_path / "reports").iterdir()) == [out]
+    printed = capsys.readouterr().out
+    assert printed.splitlines()[:2] == [
+        "shock: stagflation-5y, N = 2 year(s)",
+        f"wrote: {out.resolve()}",
+    ]
+    assert "A, real ending value" in printed
+    assert "CASH, real ending value" in printed
+    assert "MIX" not in printed
+    assert "## Withdrawals" not in printed  # a summary, not the whole report
+    md = out.read_text()
+    lines = md.splitlines()
+    for pid in (*QUICK_IDS, "A80-TCASH20", "B80-TCASH20"):
+        assert any(x.startswith((f"| {pid} |", f"| {pid} (")) for x in lines)
+    assert "| MIX" not in md
+
+
+def test_whatif_shock_main_mix_adds_mix_rows(run, tmp_path, shock_file, capsys):
+    assert run.main(["--shock", str(shock_file), "--mix", "A=0.8,TCASH=0.2"]) == 0
+    md = _out(tmp_path).read_text()
+    assert "| MIX (" in md
+    assert "| MIX-TCASH (" in md
+    assert "mix as given: A 80%, TCASH 20%" in md
+    printed = capsys.readouterr().out
+    assert [x.split(",")[0] for x in printed.splitlines()[2:]] == ["MIX", "MIX-TCASH", "A", "CASH"]
+
+
+def test_whatif_shock_main_tcash_one_has_only_mix_tcash(run, tmp_path, shock_file):
+    assert run.main(["--shock", str(shock_file), "--mix", "TCASH=1"]) == 0
+    md = _out(tmp_path).read_text()
+    assert "| MIX-TCASH |" in md
+    assert "| MIX |" not in md
+    assert "| MIX (" not in md
+
+
+def test_whatif_shock_main_extra_rate(run, tmp_path, shock_file):
+    assert run.main(["--shock", str(shock_file), "--rate", "0.045"]) == 0
+    assert "### Withdrawal rate 4.5% per year" in _out(tmp_path).read_text()
+
+
+def test_whatif_shock_main_resolves_a_relative_shock_path(run, tmp_path, shock_file, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run.main(["--shock", shock_file.name]) == 0
+    assert _out(tmp_path).exists()
+
+
+def test_whatif_shock_main_refuses_without_shock(run, tmp_path, capsys):
+    assert "--shock is required" in _refused(run, [], tmp_path, capsys)
+
+
+def test_whatif_shock_main_refuses_a_missing_shock_file(run, tmp_path, capsys):
+    args = ["--shock", str(tmp_path / "nope.yaml")]
+    assert "cannot be read" in _refused(run, args, tmp_path, capsys)
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        ("name: [unclosed\n", "not valid YAML"),
+        (_shock_text(_year_text(), name="bad/name"), "must match"),
+        (_shock_text(*[_year_text()] * 11), "1 to 10"),
+        (_shock_text(_year_text(cash=0.0)), "unknown key"),
+        (_shock_text(_year_text(stocks=-1)), "above -1"),
+        (_shock_text(_year_text(inflation=0.31)), "inflation"),
+    ],
+)
+def test_whatif_shock_main_refuses_a_bad_shock_file(run, tmp_path, capsys, text, match):
+    path = tmp_path / "bad.yaml"
+    path.write_text(text)
+    assert match in _refused(run, ["--shock", str(path)], tmp_path, capsys)
+
+
+@pytest.mark.parametrize(
+    ("extra", "match"),
+    [
+        (["--mix", "A"], "NAME=SHARE"),
+        (["--mix", "A=x"], "not a number"),
+        (["--mix", "A=0.5,A=0.5"], "repeated"),
+        (["--mix", "Z=1"], "unknown mix name"),
+        (["--mix", "A=0.5,CASH=0.4"], "sum"),
+        (["--rate", "x"], "not a number"),
+        (["--rate", "0.11"], "--rate"),
+        (["--rate", "0"], "--rate"),
+    ],
+)
+def test_whatif_shock_main_refuses_a_bad_mix_or_rate(
+    run, tmp_path, shock_file, capsys, extra, match
+):
+    args = ["--shock", str(shock_file), *extra]
+    assert match in _refused(run, args, tmp_path, capsys)
+
+
+def _odd(cfg):
+    cfg = _trimmed(cfg)
+    rows = list(cfg.cash_assumptions)
+    rows[1] = replace(rows[1], real_yield=0.02)
+    return replace(cfg, cash_assumptions=tuple(rows))
+
+
+def test_whatif_shock_main_with_a_mix_refuses_cash_rows_with_different_yields(
+    tmp_path, monkeypatch, shock_file, capsys
+):
+    cli = _cli(tmp_path, monkeypatch, _odd)
+    args = ["--shock", str(shock_file), "--mix", "A=0.8,TCASH=0.2"]
+    assert "different real_yield" in _refused(cli, args, tmp_path, capsys)
+
+
+def test_whatif_shock_main_without_a_mix_runs_cash_rows_with_different_yields(
+    tmp_path, monkeypatch, shock_file
+):
+    cli = _cli(tmp_path, monkeypatch, _odd)
+    assert cli.main(["--shock", str(shock_file)]) == 0
+    md = _out(tmp_path).read_text()
+    assert "CPI plus +1% / +2% real after it" in md
+    assert "| MIX" not in md
+
+
+def test_whatif_shock_main_refuses_a_cpi_with_no_value_on_the_join_date(
+    tmp_path, monkeypatch, shock_file, capsys
+):
+    # No cash rows: their strict monthly CPI check would refuse first, with its own
+    # message. For the portfolios, 30 Nov 2004 keeps every no-shock figure
+    # computable (usable within 45 days); only the strict join refuses.
+    cli = _cli(tmp_path, monkeypatch, lambda cfg: replace(_trimmed(cfg), cash_assumptions=()))
+    monkeypatch.setattr(cli, "load_macro", _fake_macro(cpi().drop(pd.Timestamp("2004-12-31"))))
+    printed = _refused(cli, ["--shock", str(shock_file)], tmp_path, capsys)
+    assert "missing CPI: no CPIAUCNS value dated 2004-12-31 for the join" in printed
+
+
+def test_whatif_shock_main_refuses_a_held_fund_outside_the_map(
+    tmp_path, monkeypatch, shock_file, capsys
+):
+    cand = Candidate("X", "x", "core_mix", {"risk_on": {"EFA": 1.0}})
+
+    def foreign(cfg):
+        cfg = _trimmed(cfg)
+        return replace(cfg, portfolios=[*cfg.portfolios, Portfolio("X", "x", ((cand, 1.0),))])
+
+    cli = _cli(tmp_path, monkeypatch, foreign)
+    args = ["--shock", str(shock_file)]
+    assert "no shock group" in _refused(cli, args, tmp_path, capsys)
+
+
+def test_whatif_shock_main_refuses_missing_cpi(run, tmp_path, monkeypatch, shock_file, capsys):
+    monkeypatch.setattr(run, "load_macro", _fake_macro(cpi().loc[:"2005-06-30"]))
+    assert "missing CPI" in _refused(run, ["--shock", str(shock_file)], tmp_path, capsys)
+
+
+def test_whatif_shock_main_refuses_an_unpriced_held_fund(
+    run, tmp_path, monkeypatch, shock_file, capsys
+):
+    fake = _fake_ohlcv()
+
+    def holes(tickers, refresh=False, cache_dir=None):
+        data = fake(tickers, refresh=refresh, cache_dir=cache_dir)
+        close = data["close"]
+        close.loc[close.index[close.index >= "2005-01-01"][0], "TLT"] = float("nan")
+        return data
+
+    monkeypatch.setattr(run, "load_ohlcv", holes)
+    printed = _refused(run, ["--shock", str(shock_file)], tmp_path, capsys)
+    assert "unpriced at the start" in printed
+
+
+def test_whatif_shock_main_refuses_a_missing_ticker(run, tmp_path, monkeypatch, shock_file, capsys):
+    monkeypatch.setattr(run, "load_ohlcv", _fake_ohlcv(drop="TLT"))
+    assert "TLT" in _refused(run, ["--shock", str(shock_file)], tmp_path, capsys)
+
+
+def test_whatif_shock_main_refuses_when_loading_criteria_fails(
+    run, tmp_path, monkeypatch, shock_file, capsys
+):
+    def boom(path):
+        raise ValueError("criteria broken")
+
+    monkeypatch.setattr(run, "load_criteria", boom)
+    assert run.main(["--shock", str(shock_file)]) == 1
+    assert capsys.readouterr().out == "refused: criteria broken\n"
+    assert not (tmp_path / "reports").exists()
