@@ -19,7 +19,7 @@ from qrl.decision import (
     start_dates,
     withdrawal_rows,
 )
-from qrl.decision_config import Portfolio, held_tickers, load_decision_config
+from qrl.decision_config import Portfolio, held_tickers, load_decision_config, portfolio_states
 from qrl.decision_withdraw import monthly_withdrawals, path_metrics, usable_cpi, withdrawal_path
 from qrl.shock import (
     FUND_GROUP,
@@ -30,12 +30,14 @@ from qrl.shock import (
     fund_return,
     join_returns,
     load_shock,
+    shock_paths,
     shocked_path,
     stretch_cpi,
     stretch_days,
     stretch_returns,
     withdrawal_step,
 )
+from qrl.true_cash import cash_leg_returns, mix_returns
 
 
 def test_shock_public_aliases_are_the_private_objects():
@@ -470,3 +472,102 @@ def test_extend_config_without_a_mix_keeps_cash_rows_with_different_yields(shipp
     cfg = extend_config(odd, None, 0.045)  # no MIX, no MIX-TCASH: the report's rows as they are
     assert cfg.cash_assumptions == odd.cash_assumptions
     assert cfg.portfolios == odd.portfolios
+
+
+@pytest.fixture(scope="module")
+def assembled(shipped):
+    base = _small(shipped, ids=("A", "B", "CASH", "D"), cash=2, years=(2005, 2006), rates=(0.04,))
+    cfg = extend_config(base, [("A", 0.4), ("B", 0.4), ("TCASH", 0.2)], None)
+    paths, cpi_by_key = shock_paths(cfg, prices(), cpi(), criteria(), SHOCK2)
+    return cfg, paths, cpi_by_key
+
+
+def test_shock_paths_rows_states_and_keys(assembled):
+    _, paths, _ = assembled
+    assert list(paths) == ["A", "B", "CASH", "D", "MIX", "A80-TCASH20", "B80-TCASH20", "MIX-TCASH"]
+    assert set(paths["A"]) == {"risk_on", "risk_off"}
+    assert list(paths["D"]) == ["static"]
+    four = {"risk_on+risk_on", "risk_on+risk_off", "risk_off+risk_on", "risk_off+risk_off"}
+    assert set(paths["MIX"]) == four  # a mix of two switching cores
+    assert set(paths["MIX-TCASH"]) == four
+    assert set(paths["A80-TCASH20"]) == {"risk_on", "risk_off"}  # a TCASH row, switching base
+    for states in paths.values():
+        for by_key in states.values():
+            assert list(by_key) == [2003, 2004]  # keyed by Y - N
+
+
+def test_shock_paths_are_the_stretch_then_the_report_returns(assembled):
+    cfg, paths, _ = assembled
+    cut = _cut()
+    starts = _starts(cfg, cut)
+    by_id = {p.id: p for p in cfg.portfolios}
+    for pid in ("A", "D", "MIX"):
+        real = {y: portfolio_returns(by_id[pid], cut, day, _cost()) for y, day in starts.items()}
+        for state, mix in portfolio_states(by_id[pid]).items():
+            for y, day in starts.items():
+                path = paths[pid][state][y - 2]
+                days = stretch_days(y, 2)
+                assert path.index[0] == days[0]
+                assert len(path) == len(days) + len(real[y])
+                assert path.loc[: days[-1]].tolist() == stretch_returns(mix, SHOCK2, days).tolist()
+                assert path.loc[day:].index.equals(real[y].index)
+                assert path.loc[day:].tolist() == real[y].tolist()  # exactly the report's
+
+
+def test_shock_paths_tcash_rows_mix_the_base_state_with_short_bonds(assembled):
+    cfg, paths, _ = assembled
+    cut, known = _cut(), cpi().loc[:END]
+    by_id = {p.id: p for p in cfg.portfolios}
+    for y, day in _starts(cfg, cut).items():
+        report = all_assumption_returns(cfg, cut, known, day, _cost())
+        days = stretch_days(y, 2)
+        for ca in cfg.cash_assumptions:
+            for state, mix in portfolio_states(by_id[ca.base]).items():
+                path = paths[ca.id][state][y - 2]
+                want = mix_returns(
+                    stretch_returns(mix, SHOCK2, days), cash_returns(SHOCK2, days), ca.cash_share
+                )
+                assert path.loc[: days[-1]].tolist() == want.tolist()
+                assert path.loc[day:].tolist() == report[ca.id].tolist()
+
+
+def test_true_cash_follows_short_bonds_then_cpi_plus_the_real_yield(shipped):
+    base = _small(shipped, ids=("A", "CASH"), cash=1, years=(2005,), rates=(0.04,))
+    cfg = extend_config(base, [("TCASH", 1.0)], None)
+    paths, _ = shock_paths(cfg, prices(), cpi(), criteria(), SHOCK2)
+    (by_key,) = paths["MIX-TCASH"].values()
+    path = by_key[2003]
+    cut = _cut()
+    day = _starts(cfg, cut)[2005]
+    for year, values in zip((2003, 2004), SHOCK2.years, strict=True):
+        part = path[path.index.year == year]
+        assert float((1.0 + part).prod()) == pytest.approx(1.0 + values["short_bonds"], rel=1e-12)
+    real = path.loc[day:]
+    leg = cash_leg_returns(
+        pd.DatetimeIndex(real.index), pd.DatetimeIndex(cut["close"].index), cpi().loc[:END], 0.01
+    )
+    assert real.to_numpy() == pytest.approx(leg.to_numpy(), rel=1e-12, abs=1e-15)
+
+
+def test_shock_paths_cpi_per_key_is_each_start_years_splice(assembled):
+    _, _, cpi_by_key = assembled
+    known = cpi().loc[:END]
+    assert list(cpi_by_key) == [2003, 2004]
+    for key, year in ((2003, 2005), (2004, 2006)):
+        assert cpi_by_key[key].equals(shocked_path(known, SHOCK2, year))
+
+
+def test_equal_horizon_cut_dates_of_a_shocked_path(assembled):
+    _, paths, _ = assembled
+    # H = H0 + N = (2018 - 2006 + 1) + 2 = 15; a path keyed Y-N is cut at the end of Y+H0-1
+    assert first_years(paths["D"]["static"][2003], 15).index[-1] == pd.Timestamp("2017-12-29")
+    assert first_years(paths["D"]["static"][2004], 15).index[-1] == pd.Timestamp("2018-12-31")
+
+
+def test_ten_year_shock_paths(shipped):
+    cfg = _small(shipped, ids=("CASH",), cash=0, years=(2005,), rates=(0.04,))
+    paths, cpi_by_key = shock_paths(cfg, prices(), cpi(), criteria(), SHOCK10)
+    path = paths["CASH"]["static"][1995]
+    assert path.index[0] == pd.Timestamp("1995-01-02")
+    assert sorted(set(path.index.year)) == list(range(1995, 2019))
+    assert cpi_by_key[1995].index[0] == pd.Timestamp("1994-12-31")

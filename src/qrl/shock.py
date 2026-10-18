@@ -16,9 +16,17 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from .decision import first_years
-from .decision_config import ID_PATTERN, DecisionConfig, Portfolio, held_tickers
+from .decision import (
+    all_assumption_returns,
+    cash_rows,
+    data_end,
+    first_years,
+    portfolio_returns,
+    start_dates,
+)
+from .decision_config import ID_PATTERN, DecisionConfig, Portfolio, held_tickers, portfolio_states
 from .decision_withdraw import CPI_SERIES, monthly_withdrawals, path_metrics, withdrawal_path
+from .true_cash import mix_returns
 from .whatif import MIX_ID, Shares, merge_rate, mix_cash_row, mix_portfolio, split_shares
 
 GROUPS = ("stocks", "gold", "long_bonds", "short_bonds")
@@ -296,3 +304,63 @@ def extend_config(cfg: DecisionConfig, given: Shares | None, rate: float | None)
         cash_assumptions=(*cfg.cash_assumptions, *([row] if row else [])),
         rates=merge_rate(cfg.rates, rate),
     )
+
+
+StatePaths = dict[str, dict[int, pd.Series]]  # state -> start-year key -> daily returns
+
+
+def _state_paths(
+    states: dict[str, dict[str, float]],
+    real: dict[int, pd.Series],
+    shock: Shock,
+    cash_share: float | None,
+) -> StatePaths:
+    """Per state: the fixed-weight stretch (mixed with the short-bonds cash leg
+    at `cash_share` for a TCASH row, `mix_returns`' daily rule) joined to the
+    real series of each start year, keyed by start year - N."""
+    n = len(shock.years)
+    out: StatePaths = {}
+    for name, mix in states.items():
+        out[name] = {}
+        for year, returns in real.items():
+            days = stretch_days(year, n)
+            stretch = stretch_returns(mix, shock, days)
+            if cash_share is not None:
+                stretch = mix_returns(stretch, cash_returns(shock, days), cash_share)
+            out[name][year - n] = join_returns(stretch, returns)
+    return out
+
+
+def shock_paths(
+    cfg: DecisionConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+    shock: Shock,
+) -> tuple[dict[str, StatePaths], dict[int, pd.Series]]:
+    """Every row's shocked paths per state and start-year key, and the spliced
+    CPI per key. Prices and CPI are cut at the data end exactly as
+    `withdrawal_rows` cuts them. After the stretch each path is the report's own
+    `portfolio_returns` (portfolios) or `all_assumption_returns` (cash rows, cash
+    leg on the unscaled real CPI) from the real start day, the same for every
+    state. A TCASH row runs once per state of its base."""
+    end = data_end(criteria)
+    cut = {k: v.loc[:end] for k, v in data.items()}
+    known_cpi = cpi.loc[:end]
+    cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
+    starts = start_dates(pd.DatetimeIndex(cut["close"].index), cfg.start_years, end)
+    n = len(shock.years)
+    cpi_by_key = {year - n: shocked_path(known_cpi, shock, year) for year in starts}
+    by_id = {p.id: p for p in cfg.portfolios}
+    paths: dict[str, StatePaths] = {}
+    for p in cfg.portfolios:
+        real = {year: portfolio_returns(p, cut, day, cost_bps) for year, day in starts.items()}
+        paths[p.id] = _state_paths(portfolio_states(p), real, shock, None)
+    per_start = {
+        year: all_assumption_returns(cfg, cut, known_cpi, day, cost_bps)
+        for year, day in starts.items()
+    }
+    for ca in cash_rows(cfg):
+        real = {year: rets[ca.id] for year, rets in per_start.items()}
+        paths[ca.id] = _state_paths(portfolio_states(by_id[ca.base]), real, shock, ca.cash_share)
+    return paths, cpi_by_key
