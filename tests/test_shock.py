@@ -26,6 +26,7 @@ from qrl.shock import (
     Shock,
     cash_returns,
     check_fund_map,
+    extend_config,
     fund_return,
     join_returns,
     load_shock,
@@ -416,3 +417,56 @@ def test_withdrawal_step_equal_horizon_on_a_small_case():
         for y, r in paths.items()
     }
     assert (row["worst5_end_real"], row["worst5_year"]) == min((v, y) for y, v in at.items())
+
+
+def test_extend_config_without_a_mix_keeps_the_report_rows(shipped):
+    cfg = extend_config(shipped, None, None)
+    assert cfg.portfolios == shipped.portfolios
+    assert cfg.cash_assumptions == shipped.cash_assumptions
+    assert cfg.rates == shipped.rates
+
+
+def test_extend_config_adds_mix_and_its_cash_row_to_the_full_config(shipped):
+    cfg = extend_config(shipped, [("G", 0.5), ("A", 0.3), ("TCASH", 0.2)], 0.045)
+    assert [p.id for p in cfg.portfolios] == [*(p.id for p in shipped.portfolios), "MIX"]
+    assert [c.id for c in cfg.cash_assumptions] == [
+        *(c.id for c in shipped.cash_assumptions),
+        "MIX-TCASH",
+    ]
+    row = cfg.cash_assumptions[-1]
+    assert (row.base, row.cash_share, row.real_yield) == ("MIX", 0.2, 0.01)
+    assert cfg.rates == [0.02, 0.033, 0.04, 0.045, 0.05]
+    assert len(shipped.portfolios) == 27  # not mutated
+    assert len(shipped.cash_assumptions) == 7
+
+
+def test_extend_config_without_tcash_adds_only_mix(shipped):
+    cfg = extend_config(shipped, [("A", 0.8), ("CASH", 0.2)], None)
+    assert cfg.portfolios[-1].id == "MIX"
+    assert cfg.cash_assumptions == shipped.cash_assumptions
+
+
+def test_extend_config_all_tcash_has_no_mix(shipped):
+    cfg = extend_config(shipped, [("TCASH", 1.0)], None)
+    assert [p.id for p in cfg.portfolios] == [p.id for p in shipped.portfolios]
+    row = cfg.cash_assumptions[-1]
+    assert (row.id, row.base, row.cash_share) == ("MIX-TCASH", "CASH", 1.0)
+
+
+def _odd_yields(cfg):
+    rows = list(cfg.cash_assumptions)
+    rows[1] = replace(rows[1], real_yield=0.02)
+    return replace(cfg, cash_assumptions=tuple(rows))
+
+
+@pytest.mark.parametrize("given", [[("A", 1.0)], [("A", 0.8), ("TCASH", 0.2)]])
+def test_extend_config_with_a_mix_refuses_cash_rows_with_different_yields(shipped, given):
+    with pytest.raises(ValueError, match="different real_yield"):
+        extend_config(_odd_yields(shipped), given, None)
+
+
+def test_extend_config_without_a_mix_keeps_cash_rows_with_different_yields(shipped):
+    odd = _odd_yields(shipped)
+    cfg = extend_config(odd, None, 0.045)  # no MIX, no MIX-TCASH: the report's rows as they are
+    assert cfg.cash_assumptions == odd.cash_assumptions
+    assert cfg.portfolios == odd.portfolios

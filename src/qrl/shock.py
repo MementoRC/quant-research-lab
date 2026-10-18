@@ -9,7 +9,7 @@ the IO. Every price and CPI frame is cut at the research end (2018-12-31) as
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -17,8 +17,9 @@ import pandas as pd
 import yaml
 
 from .decision import first_years
-from .decision_config import ID_PATTERN, Portfolio, held_tickers
+from .decision_config import ID_PATTERN, DecisionConfig, Portfolio, held_tickers
 from .decision_withdraw import CPI_SERIES, monthly_withdrawals, path_metrics, withdrawal_path
+from .whatif import MIX_ID, Shares, merge_rate, mix_cash_row, mix_portfolio, split_shares
 
 GROUPS = ("stocks", "gold", "long_bonds", "short_bonds")
 YEAR_KEYS = (*GROUPS, "inflation")
@@ -272,3 +273,26 @@ def withdrawal_step(
             }
         )
     return rows
+
+
+def extend_config(cfg: DecisionConfig, given: Shares | None, rate: float | None) -> DecisionConfig:
+    """The full decision config plus `MIX` (when the mix has a non-cash part) at
+    the end of its portfolios, `MIX-TCASH` (when TCASH > 0; base MIX, or CASH
+    without a non-cash part) at the end of its cash rows, and the report's rates
+    plus `rate`. Built with part 1's `mix_portfolio` and `mix_cash_row`, not
+    `mix_config` (which keeps only A and CASH). Only with a mix: `mix_cash_row`
+    then also refuses cash rows with different real yields. Without a mix there is
+    no MIX or MIX-TCASH, only the merged rates: the report's own cash rows run as
+    the report runs them. Nothing is written."""
+    if not given:
+        return replace(cfg, rates=merge_rate(cfg.rates, rate))
+    noncash, tcash = split_shares(given)
+    mix = mix_portfolio(noncash, cfg)
+    portfolios = [*cfg.portfolios, *([mix] if mix else [])]
+    row = mix_cash_row(cfg, tcash, MIX_ID if mix else "CASH", {p.id for p in portfolios})
+    return replace(
+        cfg,
+        portfolios=portfolios,
+        cash_assumptions=(*cfg.cash_assumptions, *([row] if row else [])),
+        rates=merge_rate(cfg.rates, rate),
+    )
