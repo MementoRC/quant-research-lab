@@ -4,6 +4,7 @@ prices and CPI. Existing tests are untouched."""
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import tomllib
 from dataclasses import replace
@@ -19,6 +20,7 @@ from qrl.decision_config import Portfolio, load_decision_config
 from qrl.decision_report import pct
 from qrl.shock import extend_config, run_shock
 from qrl.shock_report import render_shock, summary_lines
+from qrl.whatif_report import report_path
 
 GIVEN = [("A", 0.8), ("TCASH", 0.2)]
 
@@ -351,3 +353,76 @@ def test_whatif_shock_main_refuses_when_loading_criteria_fails(
     assert run.main(["--shock", str(shock_file)]) == 1
     assert capsys.readouterr().out == "refused: criteria broken\n"
     assert not (tmp_path / "reports").exists()
+
+
+def test_whatif_shock_ignores_prices_and_cpi_after_the_data_end(
+    run, tmp_path, monkeypatch, shock_file
+):
+    args = ["--shock", str(shock_file), "--mix", "A=0.8,TCASH=0.2"]
+    assert run.main(args) == 0
+    before = _out(tmp_path).read_text()
+
+    fake = _fake_ohlcv()
+
+    def tampered(tickers, refresh=False, cache_dir=None):
+        data = fake(tickers, refresh=refresh, cache_dir=cache_dir)
+        for frame in data.values():
+            frame.loc[frame.index > END] = frame.loc[frame.index > END] * 7.0
+        return data
+
+    late_cpi = cpi()
+    late_cpi.loc[late_cpi.index > END] = late_cpi.loc[late_cpi.index > END] * 5.0
+    # not vacuous: the tampering really changes data after the data end
+    cache = ROOT / "data" / "cache"  # `_fake_ohlcv` asserts this cache_dir
+    assert not tampered(["SPY"], cache_dir=cache)["close"].equals(
+        fake(["SPY"], cache_dir=cache)["close"]
+    )
+    monkeypatch.setattr(run, "load_ohlcv", tampered)
+    monkeypatch.setattr(run, "load_macro", _fake_macro(late_cpi))
+    assert run.main(args) == 0
+    assert _out(tmp_path).read_text() == before
+
+
+def _digest(path):
+    data = path.read_bytes()
+    return data, hashlib.sha256(data).hexdigest()
+
+
+def test_whatif_shock_leaves_decision_yaml_and_the_shock_file_unchanged(run, shock_file):
+    paths = [ROOT / "config" / "decision.yaml", shock_file]
+    before = [_digest(p) for p in paths]
+    assert run.main(["--shock", str(shock_file), "--mix", "A=0.8,TCASH=0.2"]) == 0
+    assert [_digest(p) for p in paths] == before
+
+
+def test_whatif_shock_output_path_is_under_reports(run, tmp_path, shock_file):
+    reports = tmp_path / "reports"
+    want = (reports / "whatif-shock-stagflation-5y.md").resolve()
+    assert report_path(reports, "shock-stagflation-5y") == want
+    assert run.main(["--shock", str(shock_file)]) == 0
+    written = [p.resolve() for p in reports.rglob("*") if p.is_file()]
+    assert written == [want]
+    assert want.parent == reports.resolve()
+
+
+def _mtimes(folder):
+    if not folder.exists():
+        return {}
+    return {p: p.stat().st_mtime_ns for p in folder.rglob("*") if p.is_file()}
+
+
+def test_whatif_shock_writes_nothing_under_research_or_site(run, shock_file):
+    before = {d: _mtimes(ROOT / d) for d in ("research", "site")}
+    assert run.main(["--shock", str(shock_file)]) == 0
+    assert {d: _mtimes(ROOT / d) for d in ("research", "site")} == before
+
+
+def test_whatif_shock_full_config_has_every_row(tmp_path, monkeypatch, shock_file):
+    cli = _cli(tmp_path, monkeypatch, lambda cfg: replace(cfg, start_years=[2005], rates=[0.04]))
+    assert cli.main(["--shock", str(shock_file)]) == 0
+    lines = _out(tmp_path).read_text().splitlines()
+    shipped = _shipped()
+    ids = [p.id for p in shipped.portfolios] + [c.id for c in shipped.cash_assumptions]
+    assert len(ids) == 27 + 7
+    for pid in ids:
+        assert any(x.startswith((f"| {pid} |", f"| {pid} (")) for x in lines), pid
