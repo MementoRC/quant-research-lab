@@ -5,9 +5,12 @@ and CPI. Existing tests are untouched."""
 from __future__ import annotations
 
 import pytest
+from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
 
 from qrl import decision, decision_config, decision_report
-from qrl.shock import Shock, load_shock
+from qrl.core_compare import Candidate
+from qrl.decision_config import Portfolio, held_tickers, load_decision_config
+from qrl.shock import FUND_GROUP, Shock, check_fund_map, fund_return, load_shock
 
 
 def test_shock_public_aliases_are_the_private_objects():
@@ -98,3 +101,50 @@ def test_load_shock_refuses_a_missing_file(tmp_path):
 def test_load_shock_refuses_an_unreadable_path(tmp_path):
     with pytest.raises(ValueError, match="cannot be read"):
         load_shock(tmp_path)  # a directory
+
+
+@pytest.fixture(scope="module")
+def shipped():
+    return load_decision_config(ROOT / "config" / "decision.yaml", CANDIDATES, stress_cfg(), END)
+
+
+def test_fund_map_covers_exactly_the_held_funds(shipped):
+    assert held_tickers(shipped.portfolios) == set(FUND_GROUP)
+    check_fund_map(shipped.portfolios)  # no refusal
+
+
+@pytest.mark.parametrize(
+    ("fund", "group"),
+    [
+        ("SPY", "stocks"),
+        ("QQQ", "stocks"),
+        ("RSP", "stocks"),
+        ("GLD", "gold"),
+        ("TLT", "long_bonds"),
+        ("SHY", "short_bonds"),
+    ],
+)
+def test_fund_return_is_the_group_return(fund, group):
+    for year in (Y1, Y2):
+        assert fund_return(fund, year) == year[group]
+
+
+def test_ief_is_the_midpoint_of_long_and_short_bonds():
+    for year in (Y1, Y2):
+        assert fund_return("IEF", year) == (year["long_bonds"] + year["short_bonds"]) / 2
+    assert fund_return("IEF", Y1) == pytest.approx(-0.07)
+
+
+def _foreign():
+    cand = Candidate("X", "x", "core_mix", {"risk_on": {"EFA": 0.5, "SPY": 0.5}})
+    return Portfolio("X", "x", ((cand, 1.0),))
+
+
+def test_check_fund_map_refuses_a_held_fund_outside_the_map(shipped):
+    with pytest.raises(ValueError, match="no shock group"):
+        check_fund_map([*shipped.portfolios, _foreign()])
+
+
+def test_fund_return_refuses_a_fund_outside_the_map():
+    with pytest.raises(ValueError, match="no shock group"):
+        fund_return("EFA", Y1)

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from .decision_config import ID_PATTERN
+from .decision_config import ID_PATTERN, Portfolio, held_tickers
 
 GROUPS = ("stocks", "gold", "long_bonds", "short_bonds")
 YEAR_KEYS = (*GROUPS, "inflation")
@@ -86,3 +86,37 @@ def load_shock(path: str | Path) -> Shock:
     if not isinstance(years, list) or not 1 <= len(years) <= MAX_YEARS:
         raise ValueError(f"shock `years` must be a list of 1 to {MAX_YEARS} entries")
     return Shock(name, tuple(_year(entry, k) for k, entry in enumerate(years, 1)))
+
+
+# Each held fund takes one group's yearly return; IEF the midpoint (mean) of long
+# and short bonds. Flagged caveats (spec): QQQ is treated like SPY, and IEF at the
+# midpoint is a rough duration guess, not data.
+FUND_GROUP: dict[str, tuple[str, ...]] = {
+    "SPY": ("stocks",),
+    "QQQ": ("stocks",),
+    "RSP": ("stocks",),
+    "GLD": ("gold",),
+    "TLT": ("long_bonds",),
+    "SHY": ("short_bonds",),
+    "IEF": ("long_bonds", "short_bonds"),
+}
+
+
+def fund_return(fund: str, year: dict[str, float]) -> float:
+    """A fund's return in one shock year: the arithmetic mean of its groups'
+    returns (one group, or IEF's two)."""
+    groups = FUND_GROUP.get(fund)
+    if groups is None:
+        raise ValueError(f"held fund {fund!r} has no shock group (fund map: {sorted(FUND_GROUP)})")
+    return sum(year[g] for g in groups) / len(groups)
+
+
+def check_fund_map(portfolios: list[Portfolio]) -> None:
+    """Refuse a held fund (any state, weight > 0) that is not in FUND_GROUP.
+    Signal-only tickers need no group: the stretch uses fixed weights."""
+    unmapped = sorted(held_tickers(portfolios) - FUND_GROUP.keys())
+    if unmapped:
+        raise ValueError(
+            f"held fund(s) {unmapped} have no shock group "
+            f"(fund map: {', '.join(sorted(FUND_GROUP))})"
+        )
