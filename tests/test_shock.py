@@ -11,6 +11,7 @@ from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
 from qrl import decision, decision_config, decision_report
 from qrl.core_compare import Candidate
 from qrl.decision_config import Portfolio, held_tickers, load_decision_config
+from qrl.decision_withdraw import monthly_withdrawals, usable_cpi
 from qrl.shock import (
     FUND_GROUP,
     Shock,
@@ -18,6 +19,7 @@ from qrl.shock import (
     check_fund_map,
     fund_return,
     load_shock,
+    stretch_cpi,
     stretch_days,
     stretch_returns,
 )
@@ -232,3 +234,40 @@ def test_ten_year_stretch():
     for k in range(10):
         part = rets[rets.index.year == 1995 + k]
         assert float((1.0 + part).prod()) == pytest.approx(1.0 + 0.01 * k, rel=1e-12)
+
+
+SHOCK3 = Shock("t3", (Y1, Y2, {**Y2, "inflation": -0.02}))
+
+
+def _jan(series, year):
+    """The CPI usable on 1 January of `year`."""
+    return usable_cpi(series, pd.Timestamp(year=year, month=1, day=1))
+
+
+def test_stretch_cpi_dates():
+    s = stretch_cpi(SHOCK3, 2010)  # stretch 2007-2009
+    assert s.index[0] == pd.Timestamp("2006-12-31")
+    assert s.iloc[0] == 100.0
+    assert len(s) == 1 + 12 * 3
+    assert s.index[-1] == pd.Timestamp("2009-12-31")
+    assert s.index.is_monotonic_increasing
+    assert (s.index == s.index + pd.offsets.MonthEnd(0)).all()  # every date a month end
+    assert list(s.index[1:13].month) == list(range(1, 13))
+    assert set(s.index[1:13].year) == {2007}
+    assert (s.index[1:] - s.index[:-1]).max() <= pd.Timedelta(days=31)
+
+
+def test_stretch_cpi_steps_up_by_each_years_inflation():
+    s = stretch_cpi(SHOCK3, 2010)
+    for k, year in enumerate(SHOCK3.years):
+        ratio = _jan(s, 2008 + k) / _jan(s, 2007 + k)
+        assert ratio == pytest.approx(1.0 + year["inflation"], rel=1e-12)
+    assert _jan(s, 2010) == s.iloc[-1]  # the end level is usable on 1 January Y
+    amounts = monthly_withdrawals(0.04, 2007, 2010, s)
+    assert amounts[2008] / amounts[2007] == pytest.approx(1.0 + Y1["inflation"], rel=1e-12)
+
+
+def test_stretch_cpi_is_usable_on_every_stretch_day():
+    s = stretch_cpi(SHOCK3, 2010)
+    for day in stretch_days(2010, 3):
+        usable_cpi(s, day)  # raises "missing CPI" if a value were older than 45 days

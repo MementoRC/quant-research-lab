@@ -17,6 +17,7 @@ import pandas as pd
 import yaml
 
 from .decision_config import ID_PATTERN, Portfolio, held_tickers
+from .decision_withdraw import CPI_SERIES
 
 GROUPS = ("stocks", "gold", "long_bonds", "short_bonds")
 YEAR_KEYS = (*GROUPS, "inflation")
@@ -167,3 +168,22 @@ def cash_returns(shock: Shock, days: pd.DatetimeIndex) -> pd.Series:
     return pd.Series(
         _spread([y["short_bonds"] for y in shock.years], days), index=days, dtype=float
     )
+
+
+def stretch_cpi(shock: Shock, start_year: int) -> pd.Series:
+    """The stretch's CPI, dated by availability like the real series (month M's
+    value on the last day of M+1). Level 100 for November of start_year - N - 1,
+    dated 31 December of that year; then per shock year k twelve values (the
+    observations December of the year before to November of k, dated 31 January
+    to 31 December of k), each the previous one times (1 + inflation_k)^(1/12).
+    So the CPI usable on 1 January of k+1 over that of k is 1 + inflation_k, and
+    the last value, dated 31 December of start_year - 1, is the end level."""
+    first = start_year - len(shock.years)
+    dates = [pd.Timestamp(year=first - 1, month=12, day=31)]
+    values = [100.0]
+    for k, year in enumerate(shock.years):
+        step = (1.0 + year["inflation"]) ** (1 / 12)
+        for month in range(1, 13):
+            dates.append(pd.Timestamp(year=first + k, month=month, day=1) + pd.offsets.MonthEnd(0))
+            values.append(values[-1] * step)
+    return pd.Series(values, index=pd.DatetimeIndex(dates), name=CPI_SERIES, dtype=float)
