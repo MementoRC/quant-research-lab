@@ -37,6 +37,10 @@ document itself.
 - [whatif-mix.md](whatif-mix.md) — local command that builds your own mix of the
   decision-report portfolios (plus true cash) and runs it through the report's
   tables, privately (owner-approved 2026-10-17; implemented in PR #64).
+- [whatif-shock.md](whatif-shock.md) — local command that runs the decision-report
+  portfolios (and an optional mix) with withdrawals through a multi-year bad
+  stretch you define, then real history, privately (spec written 2026-10-18,
+  awaiting owner review).
 - [macro-overlay.md](macro-overlay.md) — one fixed, pre-registered test of a
   slow de-risk-only macro overlay (trend, volatility, inflation) on core G.
   Research passed; validation failed (`research/overlay.md`).

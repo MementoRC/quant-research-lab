@@ -378,3 +378,5 @@ def load_decision_config(
 blend_portfolio = _blend
 check_full = _check_full
 SUM_TOLERANCE = _EPS
+# Public name for qrl.shock (spec: docs/methodology/whatif-shock.md).
+ID_PATTERN = _ID

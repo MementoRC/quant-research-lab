@@ -524,3 +524,5 @@ scenario_section = _scenario_section
 withdrawal_section = _withdrawal_section
 year_one_section = _year_one_section
 switching_note = _switching_note
+# Public name for qrl.shock_report (spec: docs/methodology/whatif-shock.md).
+below_peak = _below_peak
