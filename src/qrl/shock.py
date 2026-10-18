@@ -44,9 +44,15 @@ def _exact_keys(raw: object, keys: tuple[str, ...], what: str) -> dict:
 
 
 def _number(value: object, what: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{what}: {value!r} is not a finite number")
-    return float(value)
+    try:
+        number = float(value)  # a huge int overflows here
+    except OverflowError as exc:
+        raise ValueError(f"{what}: {str(value)[:20]}... is not a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{what}: {value!r} is not a finite number")
+    return number
 
 
 def _year(raw: object, k: int) -> dict[str, float]:

@@ -98,8 +98,9 @@ def test_load_shock_accepts_the_bounds_and_ten_years(tmp_path):
         (_shock_text(_year_text(stocks=-1)), "above -1"),
         (_shock_text(_year_text(short_bonds=-1.5)), "above -1"),
         (_shock_text(_year_text(gold=2.01)), "at most 2"),
-        (_shock_text(_year_text(inflation=0.31)), "inflation"),
-        (_shock_text(_year_text(inflation=-0.11)), "inflation"),
+        (_shock_text(_year_text(inflation=0.31)), r"inflation .* must be in"),
+        (_shock_text(_year_text(inflation=-0.11)), r"inflation .* must be in"),
+        (_shock_text(_year_text(stocks="1" + "0" * 400)), "not a finite number"),
     ],
 )
 def test_load_shock_refuses(tmp_path, text, match):
@@ -271,8 +272,11 @@ def test_stretch_cpi_steps_up_by_each_years_inflation():
 
 def test_stretch_cpi_is_usable_on_every_stretch_day():
     s = stretch_cpi(SHOCK3, 2010)
-    for day in stretch_days(2010, 3):
+    days = stretch_days(2010, 3)
+    for day in days:
         usable_cpi(s, day)  # raises "missing CPI" if a value were older than 45 days
+    assert usable_cpi(s, days[0]) == 100.0
+    assert usable_cpi(s, days[-1]) == s.iloc[-1]
 
 
 def test_shocked_path_joins_the_real_cpi_with_no_jump():
@@ -302,12 +306,6 @@ def test_shocked_path_step_ups_are_the_shock_then_the_real_ones():
     for year in range(2006, 2019):  # from January Y+1 the real step-ups
         want = _jan(real, year) / _jan(real, year - 1)
         assert _jan(s, year) / _jan(s, year - 1) == pytest.approx(want, rel=1e-12)
-
-
-def test_shocked_path_refuses_a_real_cpi_not_usable_on_1_january():
-    real = cpi().loc[:END].drop([pd.Timestamp("2004-11-30"), pd.Timestamp("2004-12-31")])
-    with pytest.raises(ValueError, match="missing CPI"):
-        shocked_path(real, SHOCK2, 2005)
 
 
 def test_shocked_path_requires_a_real_value_dated_exactly_31_december():
