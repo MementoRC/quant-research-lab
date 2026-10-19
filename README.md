@@ -123,7 +123,8 @@ Status as of October 2026. `PLAN.md` has the full record.
   the research period, validation); Phase 3.1 (risk sizing); the daily part of 3.2
   (health checks); Phase 4 milestones 1-5 (EDGAR factor sleeve).
 - **Result so far:** no sleeve has passed validation. Runs 1-3, 6 and 7 accepted 0
-  candidates. The macro overlay passed research but failed validation. The RSP sleeve
+  candidates. The macro overlay passed research but failed validation and the
+  one-time 2023+ holdout (track closed; the holdout is now spent). The RSP sleeve
   (run 7) passed research but failed validation.
 - **Blocked:** 2.6, 2.7, the rest of 3.2 (monthly, quarterly, kill-rule review) and 3.4
   (execution) wait until a sleeve passes validation.

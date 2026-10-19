@@ -43,7 +43,8 @@ document itself.
   awaiting owner review).
 - [macro-overlay.md](macro-overlay.md) — one fixed, pre-registered test of a
   slow de-risk-only macro overlay (trend, volatility, inflation) on core G.
-  Research passed; validation failed (`research/overlay.md`).
+  Research passed; validation and holdout failed; track closed
+  (`research/overlay.md`).
 - [report-wording.md](report-wording.md) — wording fixes in reports: cost,
   drawdown, true cash, start years, PLAN summary, proxied note (implemented in
   PR #60).
