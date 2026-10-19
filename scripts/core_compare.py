@@ -41,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out-json", default=str(ROOT / "reports" / "core_compare.json"))
     ap.add_argument("--out-md", default=str(ROOT / "research" / "core_compare.md"))
+    ap.add_argument(
+        "--offline",
+        action="store_true",
+        help="use the price cache as is (refresh=False) instead of re-downloading",
+    )
     args = ap.parse_args(argv)
 
     criteria, _ = load_criteria(ROOT / "config" / "criteria.yaml")
@@ -56,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     tickers = sorted(
         {EQUITY_PROXY, bench} | {t for c in cands for t in REGISTRY[c.fn].tickers(c.params)}
     )
-    data = load_ohlcv(tickers, refresh=True)  # as scripts/stress.py
+    data = load_ohlcv(tickers, refresh=not args.offline)  # default as scripts/stress.py
     missing = [t for t in tickers if t not in data["close"].columns]
     if missing:
         print(f"no price data for: {missing}")  # the loader drops tickers it cannot fetch
