@@ -39,6 +39,17 @@ pixi run -e dev serve            # open http://localhost:8000
 
 Opening `site/index.html` directly from disk will not load the data; use the local server.
 
+## Checking the reports
+
+`pixi run docs-regen` rebuilds each rebuildable report in `research/` into a temp
+directory and compares it with the committed file. It is local only (CI has no data
+cache), read-only, and never touches the ledger. One line per report: **MATCH** means
+identical, **DIFF** means different (a short diff is shown), **SKIP** means it is not
+rebuilt (one-time or ledger-writing report, or a cache is missing; the reason is
+printed), **ERROR** means the rebuild failed or a report is not listed. A DIFF means
+the committed report no longer matches the code plus the current cache (data
+revisions included). Exit code is 1 on any DIFF or ERROR.
+
 ## Publish to GitHub Pages
 
 1. Create an empty repository on GitHub (the repo name becomes the URL path).

@@ -48,7 +48,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 1 if diag["split_fetch_failed"] else 0
 
 
-def cmd_coverage(_: argparse.Namespace) -> int:
+def cmd_coverage(args: argparse.Namespace) -> int:
     meta, membership = pu.load_pit_universe(pu.UNIVERSE_PIT_PATH)
     features_path = pu.PIT_CACHE_DIR / "features.parquet"
     if not features_path.exists():
@@ -64,7 +64,9 @@ def cmd_coverage(_: argparse.Namespace) -> int:
         gaps = pu.shares_gap_detector(features, pool_info)
         stale = pu.shares_stale_detector(features, pool_info)
     text = pu.format_coverage(table, membership, today, meta, gaps, stale)
-    REPORT_PATH.write_text(text)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text)
     print(text)
     return 0
 
@@ -78,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--min-cap", type=float, default=pu.DEFAULT_MIN_CAP)
     b.set_defaults(func=cmd_build)
     c = sub.add_parser("coverage", help="per-year input coverage report (read-only)")
+    c.add_argument("--out", default=str(REPORT_PATH), help="report path")
     c.set_defaults(func=cmd_coverage)
     args = ap.parse_args(argv)
     return int(args.func(args))

@@ -40,6 +40,7 @@ null-sleeve = "python scripts/null_sleeve.py"
 rebuild-validation = "python scripts/rebuild_validation.py"
 walk-forward = "python scripts/walkforward.py"
 unseal-holdout = "python scripts/unseal_holdout.py"
+docs-regen = "python scripts/docs_regen.py"
 
 [feature.ci.dependencies]
 ruff = ">=0.8.4"
