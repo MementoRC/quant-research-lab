@@ -50,6 +50,9 @@ document itself.
   PR #60).
 - [audit-remaining.md](audit-remaining.md) — closes the 2026-10-12 audit:
   deflated-Sharpe counting, paper.yaml pin, docs drift (implemented in PR #61).
+- [code-audit.md](code-audit.md) — October 2026 code audit: research-integrity
+  fixes, test gaps, duplication and QA strictness, in four PRs (draft, awaiting
+  owner review).
 - [site-safety.md](site-safety.md) — Site safety: survivorship label and holdout
   cut-off on the public dashboard (owner-approved; implemented).
 
