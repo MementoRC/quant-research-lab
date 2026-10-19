@@ -52,3 +52,22 @@ Window 2019-01-02 to 2022-12-30. Verdict: **FAIL**.
 | Sharpe vs G | 0.71 | >= 0.741 | no |
 | Max drawdown vs G | 0.1511 | <= 0.1853 | yes |
 | CAGR vs G | 0.0491 | >= 0.0461 | yes |
+
+## Holdout 2023+ (one-time unseal, decisive)
+
+Ledger overlay event 3 (2026-10-19T01:35:57.409838+00:00).
+
+Window 2023-01-03 to 2026-10-16. Verdict: **FAIL**.
+
+| metric | overlay-G | static G |
+|---|---|---|
+| Sharpe | 1.362 | 1.391 |
+| CAGR | 10.93% | 12.08% |
+| Max drawdown (criteria rule) | 7.31% | 8.02% |
+| Volatility | 7.84% | 8.45% |
+
+| rule | value | threshold | passed |
+|---|---|---|---|
+| Sharpe vs G | 1.362 | >= 1.441 | no |
+| Max drawdown vs G | 0.0731 | <= 0.0802 | yes |
+| CAGR vs G | 0.1093 | >= 0.1108 | no |
