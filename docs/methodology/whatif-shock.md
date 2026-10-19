@@ -1,6 +1,6 @@
 # What-if shock: your own bad stretch, then real history
 
-Status: spec written 2026-10-18; design approved by the owner 2026-10-17/18
+Status: Implemented in PR #65 (2026-10-18). Spec written 2026-10-18; design approved by the owner 2026-10-17/18
 (decisions listed at the end). Written spec reviewed and approved by the
 owner 2026-10-18.
 Related: [decision-helper.md](decision-helper.md), [whatif-mix.md](whatif-mix.md).

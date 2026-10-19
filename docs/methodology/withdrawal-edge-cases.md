@@ -1,6 +1,6 @@
 # Withdrawal edge cases: one order, one depletion threshold
 
-Status: spec written 2026-10-15; owner-approved 2026-10-15. Implemented 2026-10-15.
+Status: Implemented 2026-10-15. Spec written 2026-10-15; owner-approved 2026-10-15.
 Source: follow-up of [audit-remaining.md](audit-remaining.md) finding 17 (its
 "Follow-up" section). That finding documented four differences between the
 decision helper and the long run and left them alone because unifying them

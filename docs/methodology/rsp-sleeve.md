@@ -1,6 +1,6 @@
 # RSP sleeve: a fixed equal-weight S&P 500 sleeve
 
-Status: spec written 2026-10-09, owner-approved design 2026-10-09. Tooling
+Status: Closed. Spec written 2026-10-09, owner-approved design 2026-10-09. Tooling
 implemented and run: run 7 (one attempt) passed the research period
 2005-2018, then failed validation 2019-2022 on deflated Sharpe (0.495 <
 0.95); accepted 0; not adopted. Results in `research/rsp_sleeve.md`

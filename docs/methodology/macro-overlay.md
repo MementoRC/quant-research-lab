@@ -1,5 +1,9 @@
 # Macro overlay on core G (design, pre-registered 2026-10-07)
 
+Status: Closed. Research passed; validation failed; the one-time holdout
+failed on 2026-10-18 (Sharpe 1.362 vs 1.441 needed). Track closed.
+Results in `research/overlay.md`.
+
 ## Purpose
 
 The owner wants a portfolio that adapts to macro conditions. The approach: keep

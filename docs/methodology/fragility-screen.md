@@ -1,6 +1,7 @@
 # Balance-sheet fragility screen — design
 
-Date: 2026-10-05. Status: approved in conversation (owner, 2026-10-05). Implemented; results in `research/fragility.md`.
+Date: 2026-10-05.
+Status: Implemented; approved in conversation (owner, 2026-10-05). Results in `research/fragility.md`.
 
 ## In plain words
 

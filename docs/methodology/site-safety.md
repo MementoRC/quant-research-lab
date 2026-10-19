@@ -1,6 +1,6 @@
 # Site safety: survivorship label and holdout cut-off on the public dashboard
 
-Status: spec written 2026-10-12, owner-approved 2026-10-12. Implemented on branch feature/site-safety.
+Status: Implemented in PR #59 (merge 805daae, 2026-10-12). Spec written 2026-10-12, owner-approved 2026-10-12.
 Source: the read-only audit of 2026-10-12 (workflow wf_78e2e1c3-596),
 findings 1 and 2, the only two rated medium. No other audit finding is in
 scope here.
