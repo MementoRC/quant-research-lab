@@ -1,6 +1,6 @@
 # True cash for every core: 80% core + 20% cash, SHY and +1% real
 
-Status: spec written 2026-10-12, owner-approved design and spec 2026-10-12. Revised 2026-10-14 (report wording): see report-wording.md.
+Status: Implemented. Spec written 2026-10-12, owner-approved design and spec 2026-10-12. Revised 2026-10-14 (report wording): see report-wording.md.
 Owner choices
 (2026-10-12): every core B-G, each with a SHY pair, 20% share, +1% real.
 Extends [true-cash-sleeve.md](true-cash-sleeve.md) and

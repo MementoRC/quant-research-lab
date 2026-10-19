@@ -1,7 +1,7 @@
 # Audit remainder: deflated-Sharpe counting, paper.yaml pin, docs drift
 
-Status: spec written 2026-10-14; owner decisions taken 2026-10-14 (listed at
-the end). Awaiting owner review of this written spec.
+Status: Implemented in PR #61. Spec written 2026-10-14; owner decisions taken
+2026-10-14 (listed at the end).
 Source: the read-only audit of 2026-10-12 (workflow wf_78e2e1c3-596),
 findings 8, 9, 15, 16, 17 and 18, all rated low. Findings 3-7 and 14 were
 handled by `report-wording.md`. This closes the audit.

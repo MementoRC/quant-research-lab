@@ -1,7 +1,7 @@
 # What-if mix: your own blend of the report's portfolios
 
-Status: spec written 2026-10-17; design approved 2026-10-16; written spec
-owner-approved 2026-10-17. Implemented 2026-10-17.
+Status: Implemented 2026-10-17 (PR #64). Spec written 2026-10-17; design
+approved 2026-10-16; written spec owner-approved 2026-10-17.
 (Owner decisions are listed at the end.)
 Related: [decision-helper.md](decision-helper.md), "Delivery" item 3 (the
 what-if panel). This is part 1 of 2: build-your-own mix. Part 2 (your own

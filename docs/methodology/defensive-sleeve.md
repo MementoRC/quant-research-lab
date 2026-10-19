@@ -1,6 +1,6 @@
 # Defensive sleeve: what 20% in bonds or cash buys and costs
 
-Status: spec written 2026-10-10, owner-approved design 2026-10-10. Run 2026-10-10 (branch feature/defensive-sleeve): results in research/decision.md and research/longrun.md.
+Status: Implemented. Spec written 2026-10-10, owner-approved design 2026-10-10. Run 2026-10-10 (branch feature/defensive-sleeve): results in research/decision.md and research/longrun.md.
 Extends [decision-helper.md](decision-helper.md) and [longrun.md](longrun.md).
 
 ## Question

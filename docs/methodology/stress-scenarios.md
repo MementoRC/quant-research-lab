@@ -1,6 +1,7 @@
 # Stress-scenario module — design
 
-Date: 2026-10-03. Status: approved in conversation. Implemented (`pixi run stress`, `scripts/stress.py`); it writes `reports/stress.json` (gitignored), so there is no `research/` file.
+Date: 2026-10-03.
+Status: Implemented; approved in conversation (`pixi run stress`, `scripts/stress.py`). It writes `reports/stress.json` (gitignored), so there is no `research/` file.
 
 ## Purpose
 

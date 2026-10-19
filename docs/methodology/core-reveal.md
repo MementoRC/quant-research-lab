@@ -1,6 +1,7 @@
 # Core shortlist reveal — design
 
-Date: 2026-10-04. Status: approved in conversation (owner, 2026-10-04). Implemented; results in `research/core_reveal.md`.
+Date: 2026-10-04.
+Status: Implemented; approved in conversation (owner, 2026-10-04). Results in `research/core_reveal.md`.
 
 ## Purpose
 
