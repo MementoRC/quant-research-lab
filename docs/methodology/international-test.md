@@ -1,9 +1,9 @@
-# International final test (design, owner-approved 2026-10-21)
+# International final test (approved 2026-10-21)
 
-Status: Draft. Design approved by the owner on 2026-10-21; not implemented. No
-market in any set has been run. Files named below without backticks
-(config/international.yaml, src/qrl/international.py,
-scripts/international.py) do not exist yet.
+Status: Approved by the owner on 2026-10-21 (gold source amended the same
+day, before any run). Not implemented. No market in any set has been run.
+Files named below without backticks (config/international.yaml,
+src/qrl/international.py, scripts/international.py) do not exist yet.
 
 ## Purpose
 
@@ -111,9 +111,16 @@ Daily proxy return = previous yield / 252 - duration x (yield change), yields
 in decimals, each yield lagged one business day (FRED publishes H.15 rates the
 next day), so the proxy uses nothing not known at the close.
 
-Gold: GLD only (from 2004-11-18). There is no gold proxy. A rule that can hold
-gold is scored on the late window only, and its report says so. This section
-may be amended to name a gold source, but only before any run on any set.
+Gold: GLD from 2004-11-18. Before that: Yahoo `GC=F` (COMEX front-month
+gold futures, unadjusted continuous series, from 2000-08-30), lagged one
+business day and spliced to GLD at GLD's first date. It is a futures price,
+not the London fix (the LBMA fix is no longer freely available), so a roll
+can add a small jump. `check-data` reports the daily-return correlation of
+`GC=F` against GLD over 2004-11-18 to 2006-12-31; this compares gold data
+only, never a rule result. If it is below 0.95, a rule that can hold gold is
+scored on the late window only, and its report says so. There is no gold
+data before 2000-08-30: a gold-holding rule's early window starts once
+`GC=F` covers its warm-up (about mid-2001 for a 200-day lookback).
 
 The engine is unchanged: translation and proxies only build the price frame it
 receives.
