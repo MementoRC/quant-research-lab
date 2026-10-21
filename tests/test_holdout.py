@@ -160,6 +160,17 @@ def test_exactly_one_unseal_holdout_true_call_site_in_src():
     assert path == ROOT / "src" / "qrl" / "holdout.py"
 
 
+def test_only_build_site_sets_unseal_holdout_true_in_scripts():
+    # Scripts that unseal for a candidate (overlay.py, unseal_holdout.py, ...)
+    # must go through qrl.holdout.unseal, so every unsealing is recorded in the
+    # ledger and a repeat is refused or marked forced. The one allowed direct
+    # call is build_site.py's dashboard metrics, reached only for fixed
+    # baselines and benchmarks or entries with ledger-checked holdout
+    # provenance (its `allow_holdout`). Any new call site fails here.
+    hits = _unseal_true_call_sites(ROOT / "scripts")
+    assert [path for path, _lineno in hits] == [ROOT / "scripts" / "build_site.py"]
+
+
 def test_new_milestone_2_6_files_do_not_spell_out_the_literal_elsewhere():
     # The ONE real call site inside qrl.holdout.unseal, and nowhere else --
     # no docstring or comment in these new files spells out the literal

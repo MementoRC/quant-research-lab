@@ -261,12 +261,18 @@ def coverage_report(
     return pd.DataFrame.from_dict(rows, orient="index")
 
 
+# Synthetic series end on a fixed date, not today: each business day added
+# would change every random draw (the draws per ticker are sized by the index
+# length) and make tests that use synthetic data flip from one day to the next.
+SYNTHETIC_END = "2026-10-19"
+
+
 def synthetic_prices(
     tickers: list[str], start: str = "2003-01-01", end: str | None = None, seed: int = 7
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Random-walk OHLC for offline work. Not market data; never trade on it."""
     rng = np.random.default_rng(seed)
-    idx = pd.bdate_range(start, end or pd.Timestamp.today().normalize())
+    idx = pd.bdate_range(start, end or SYNTHETIC_END)
     drift = {"QQQ": 0.0006, "SPY": 0.0004, "GLD": 0.0003}
     vol = {"QQQ": 0.015, "SPY": 0.011, "GLD": 0.010}
     opens, closes = {}, {}
