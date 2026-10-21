@@ -59,6 +59,9 @@ Implemented or Closed), matching its `Status:` line.
   deflated-Sharpe counting, paper.yaml pin, docs drift (implemented in PR #61).
 - [site-safety.md](site-safety.md) — Site safety: survivorship label and holdout
   cut-off on the public dashboard (implemented in PR #59; owner-approved).
+- [international-test.md](international-test.md) — final test of an accepted
+  index-level rule on non-US markets, replacing the spent 2023+ holdout (draft:
+  design owner-approved 2026-10-21; not implemented).
 
 ## Former paths
 
