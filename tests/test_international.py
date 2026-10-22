@@ -8,7 +8,15 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from qrl.international import load_international_config
+from qrl.international import (
+    NotCovered,
+    Rule,
+    derive_equity_leg,
+    holds_gold,
+    load_international_config,
+    translate,
+)
+from qrl.strategies import REGISTRY
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config" / "international.yaml"
@@ -68,3 +76,82 @@ def test_min_pass_above_set_size_is_refused(tmp_path):
     path = _variant(tmp_path, "min_pass: 3", "min_pass: 5")
     with pytest.raises(ValueError, match="min_pass"):
         load_international_config(path)
+
+
+TREND = Rule("core_trend", {"risk_on": "SPY", "risk_off": "IEF", "lookback": 200})
+
+
+def test_covered_strategies_are_registry_names():
+    assert _cfg().covered <= set(REGISTRY)
+
+
+def test_the_equity_leg_is_derived_from_the_params():
+    cfg = _cfg()
+    assert derive_equity_leg(TREND, cfg) == "SPY"
+    assert (
+        derive_equity_leg(
+            Rule("core_trend", {"risk_on": "QQQ", "risk_off": "CASH", "lookback": 150}), cfg
+        )
+        == "QQQ"
+    )
+    # an equity ticker only in risk_off, and a signal naming the same ticker
+    assert (
+        derive_equity_leg(Rule("core_trend", {"risk_on": "GLD", "risk_off": "QQQ"}), cfg) == "QQQ"
+    )
+    mix = Rule(
+        "core_mix",
+        {"risk_on": {"SPY": 0.6, "IEF": 0.4}, "risk_off": {"GLD": 0.5}, "signal": "SPY"},
+    )
+    assert derive_equity_leg(mix, cfg) == "SPY"
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        Rule("core_mix", {"risk_on": {"SPY": 0.5, "QQQ": 0.5}}),  # two equity legs
+        Rule("core_mix", {"risk_on": {"SPY": 1.0}, "signal": "QQQ"}),  # two via signal
+        Rule("core_trend", {"risk_on": "GLD", "risk_off": "IEF"}),  # zero: all defensive
+        Rule("core_trend", {"risk_off": "IEF", "lookback": 200}),  # zero: leg left to a default
+        Rule("buy_and_hold", {"ticker": "SPY"}),  # strategy not covered
+    ],
+)
+def test_uncovered_rules_are_refused(rule):
+    with pytest.raises(NotCovered):
+        derive_equity_leg(rule, _cfg())
+
+
+def test_translate_swaps_only_the_equity_ticker():
+    rule = Rule(
+        "core_mix",
+        {
+            "risk_on": {"SPY": 0.6, "IEF": 0.4},
+            "risk_off": {"IEF": 0.5, "GLD": 0.5},
+            "signal": "SPY",
+            "lookback": 200,
+        },
+    )
+    out = translate(rule, "SPY", "EWJ")
+    assert out.params == {
+        "risk_on": {"EWJ": 0.6, "IEF": 0.4},
+        "risk_off": {"IEF": 0.5, "GLD": 0.5},
+        "signal": "EWJ",
+        "lookback": 200,
+    }
+    assert rule.params["signal"] == "SPY"  # the accepted rule is untouched
+
+
+def test_translate_refuses_an_equity_leg_left_to_a_default():
+    with pytest.raises(NotCovered, match="default"):
+        translate(Rule("core_trend", {"risk_off": "GLD", "lookback": 200}), "QQQ", "EWJ")
+
+
+def test_rule_sha_ignores_key_order():
+    a = Rule("core_trend", {"risk_on": "SPY", "lookback": 200})
+    b = Rule("core_trend", {"lookback": 200, "risk_on": "SPY"})
+    assert a.sha256 == b.sha256
+    assert len(a.sha256) == 64
+
+
+def test_holds_gold():
+    assert holds_gold(Rule("core_trend", {"risk_on": "SPY", "risk_off": "GLD"}), _cfg())
+    assert not holds_gold(TREND, _cfg())

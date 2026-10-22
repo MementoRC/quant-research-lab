@@ -11,7 +11,9 @@ config's own windows.
 
 from __future__ import annotations
 
+import copy
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -132,3 +134,79 @@ def load_international_config(path: str | Path) -> tuple[InternationalConfig, st
     )
     _validate(cfg)
     return cfg, hashlib.sha256(raw).hexdigest()
+
+
+_LEG_PARAMS = ("risk_on", "risk_off", "signal")
+
+
+class NotCovered(ValueError):  # noqa: N818 - name fixed by the plan and spec
+    """The rule cannot be translated mechanically (spec: Scope, Translation)."""
+
+
+@dataclass(frozen=True)
+class Rule:
+    family: str  # REGISTRY name of the strategy
+    params: dict
+
+    @property
+    def sha256(self) -> str:
+        payload = json.dumps(
+            {"family": self.family, "params": self.params}, sort_keys=True, separators=(",", ":")
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def tickers(self) -> list[str]:
+        """Every ticker named in risk_on, risk_off (string or dict keys) and signal."""
+        found: list[str] = []
+        for key in _LEG_PARAMS:
+            value = self.params.get(key)
+            if isinstance(value, str):
+                found.append(value)
+            elif isinstance(value, dict):
+                found.extend(str(t) for t in value)
+        return found
+
+
+def derive_equity_leg(rule: Rule, cfg: InternationalConfig) -> str:
+    """The rule's single non-defensive ticker. Refuses (NotCovered) a strategy
+    that is not covered, and a rule with zero or more than one such ticker."""
+    if rule.family not in cfg.covered:
+        raise NotCovered(
+            f"strategy {rule.family!r} is not covered (covered: {sorted(cfg.covered)})"
+        )
+    others = sorted({t for t in rule.tickers() if t not in cfg.defensive})
+    if len(others) != 1:
+        raise NotCovered(
+            f"the rule's non-defensive tickers are {others}; exactly one equity leg is required"
+        )
+    return others[0]
+
+
+def _swap(value: object, old: str, new: str) -> object:
+    if isinstance(value, str):
+        return new if value == old else value
+    if isinstance(value, dict):
+        return {_swap(k, old, new): _swap(v, old, new) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_swap(v, old, new) for v in value]
+    return value
+
+
+def translate(rule: Rule, equity_leg: str, market: str) -> Rule:
+    """The same rule with every occurrence of `equity_leg` replaced by `market`
+    (risk_on, risk_off and signal alike). No other parameter changes. Refuses a
+    rule whose equity leg is only a default."""
+    params = _swap(copy.deepcopy(rule.params), equity_leg, market)
+    if not isinstance(params, dict):
+        raise NotCovered("the rule's params must be a mapping")
+    out = Rule(rule.family, params)
+    tickers = out.tickers()
+    if equity_leg in tickers or market not in tickers:
+        raise NotCovered(
+            f"{equity_leg} is not named in the rule's params (a default?); it cannot be swapped"
+        )
+    return out
+
+
+def holds_gold(rule: Rule, cfg: InternationalConfig) -> bool:
+    return cfg.gold_fund in rule.tickers()
