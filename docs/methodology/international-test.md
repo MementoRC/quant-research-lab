@@ -1,7 +1,9 @@
 # International final test (approved 2026-10-21)
 
 Status: Approved by the owner on 2026-10-21 (gold source amended the same
-day, before any run). Not implemented. No market in any set has been run.
+day, before any run; run arguments, cash, gold lag, pinning and scope
+amended the same day, before any code). Not implemented. No market in any
+set has been run.
 Files named below without backticks (config/international.yaml,
 src/qrl/international.py, scripts/international.py) do not exist yet.
 
@@ -20,14 +22,16 @@ labeled last resort only.
 
 ## Scope
 
-Covered: index- and ETF-level rules with exactly one timed equity leg (core
-variants such as a trend switch, overlays, ETF sleeves of that shape).
+Covered: rules of the `core_trend` and `core_mix` strategies (registry
+names) with exactly one timed equity leg.
 
-Not covered: single-stock sleeves. A point-in-time foreign stock universe needs
-historical index membership and delisted prices that free data does not have.
-Rules built on US-only inputs that cannot be swapped (EDGAR fundamentals) are
-not covered either. Rules with more than one equity leg are not covered. An
-uncovered rule falls back to the paper track or a labeled forced unseal.
+Not covered: every other strategy, including overlays, macro-signal rules and
+single-stock sleeves. A point-in-time foreign stock universe needs historical
+index membership and delisted prices that free data does not have. Rules built
+on US-only inputs that cannot be swapped (EDGAR fundamentals) are not covered
+either. Rules with more than one equity leg are not covered. An uncovered rule
+falls back to the paper track or a labeled forced unseal. Widening the scope
+needs a spec amendment before any run.
 
 ## Market sets
 
@@ -84,21 +88,28 @@ backtest.
 
 One mechanical translation, fixed here, no per-market choices:
 
-- The rule's config must name its timed equity leg (`equity_leg`, for example
-  SPY or QQQ). Every other ticker in the rule must be on the defensive list in
-  config/international.yaml: GLD, IEF, TLT, SHY, cash. A rule with no
-  `equity_leg`, or with any other ticker, is refused as not covered.
-- The equity leg is replaced by the market's ETF. Every parameter stays as
-  accepted.
+- The equity leg is the one ticker in the rule's parameters (`risk_on`,
+  `risk_off`, and for `core_mix` also `signal`) that is not on the defensive
+  list in config/international.yaml: GLD, IEF, TLT, SHY, CASH. A rule with no
+  such ticker, or more than one, is refused as not covered.
+- The equity leg is replaced by the market's ETF wherever it appears,
+  including as `core_mix`'s `signal`. Every other parameter stays as accepted.
 - Defensive legs stay the US-dollar investor's assets.
-- Macro signals, if any, stay US signals, with the lags already in
-  `config/macro.yaml`.
+- Cash earns the 3-month T-bill rate (below). The rule's weights are computed
+  unchanged; any weight left uninvested (weights summing below 1, or
+  `core_trend`'s `risk_off: CASH`) is assigned to a priced `CASH` column
+  before the frame reaches the engine. The engine itself still pays 0% on
+  uninvested weight; after this step there is none. Note: the US research,
+  validation and holdout results all used 0% cash, so a rule that holds cash
+  scores somewhat better here than it would under the US convention. Reports
+  say so.
 
 The question this answers: does the timing logic work on other stock markets,
 for a US-dollar investor?
 
 Defensive-leg proxies, used only before each fund's first date and spliced at
-that date (so the price series has no jump):
+that date (so the price series has no jump). Cash has no fund: its price
+series is built from DTB3 over the whole backtest.
 
 | Leg | Fund start | Proxy before it (FRED) | Duration used |
 |---|---|---|---|
@@ -112,8 +123,10 @@ in decimals, each yield lagged one business day (FRED publishes H.15 rates the
 next day), so the proxy uses nothing not known at the close.
 
 Gold: GLD from 2004-11-18. Before that: Yahoo `GC=F` (COMEX front-month
-gold futures, unadjusted continuous series, from 2000-08-30), lagged one
-business day and spliced to GLD at GLD's first date. It is a futures price,
+gold futures, unadjusted continuous series, from 2000-08-30), spliced to GLD
+at GLD's first date. It is not lagged: a futures settlement is known at the
+close, like any market price (only publication-delayed series such as FRED
+yields are lagged). It is a futures price,
 not the London fix (the LBMA fix is no longer freely available), so a roll
 can add a small jump. `check-data` reports the daily-return correlation of
 `GC=F` against GLD over 2004-11-18 to 2006-12-31; this compares gold data
@@ -154,8 +167,15 @@ The market sets are sealed like the holdout:
   tested on synthetic data only.
 - `check-data` may download and report coverage (first date, gaps, proxy
   coverage per window). It never prints or stores returns or metrics.
-- A run needs a rule that passed validation, `--confirm`, and a fresh owner
-  go-ahead.
+- A run is `run --set <set> --test-id <id> --reason "..." --confirm`, and
+  needs a fresh owner go-ahead. `--test-id` names a ledger test whose
+  validation event has `passed = 1` (see Components); the rule run is that
+  test's strategy and parameters, unchanged. `--reason` is required and
+  recorded.
+- The first `--confirm` run pins `international.yaml`'s sha256 in the
+  ledger's `config_pins` table (name `international`). Every later run
+  refuses if the file's hash differs from the pin. Pins are never
+  overwritten.
 - Sets are used in order: main, then reserve_1, then reserve_2. A run on a
   later set is refused while an earlier one is unused.
 - Before anything is scored, the run writes an `international_events` row:
@@ -172,14 +192,19 @@ The market sets are sealed like the holdout:
 ## Components
 
 - config/international.yaml: sets, windows, warm-up start, pass rule,
-  proxies. Its sha256 is recorded with each event; a run refuses if it changed
-  since the spec commit.
+  defensive list, proxies, covered strategies. Its sha256 is recorded with
+  each event and pinned in `config_pins` on the first confirmed run.
 - src/qrl/international.py: pure functions. Translate a rule (swap the
   equity ticker, parameters unchanged), score windows, per-market verdict, set
   verdict. No data loading.
-- `qrl.ledger`: new `international_events` table and its check.
+- `qrl.ledger`: new `international_events` table and its check. The
+  existing `validation_events` table gains a `passed` column (0 or 1; NULL on
+  rows written before this change, which are not back-filled). Validation sets
+  it once all its checks have run, so a rejected candidate's row records 0.
+  Until now a validation event only meant "validated", not "passed".
 - scripts/international.py (pixi task `international`): subcommands
-  `check-data --set <set>` and `run --set <set> --rule <id> --confirm`.
+  `check-data --set <set>` and
+  `run --set <set> --test-id <id> --reason "..." --confirm`.
 - `research/international_<set>.md`: written once per run. Per-market table,
   count, average, verdict.
 - No changes to locked files (engine, metrics, periods, checks, locked YAMLs,
@@ -193,7 +218,18 @@ The market sets are sealed like the holdout:
   average passes; 4 of 7 fails.
 - Dates 2005-01-01 to 2022-12-31 never enter scoring.
 - Translation changes only the equity ticker, never a parameter.
+- A strategy other than `core_trend` or `core_mix`, or a rule with zero or
+  two non-defensive tickers, is refused.
+- A test id with no validation event, or whose event has `passed` 0 or
+  NULL, is refused; a run without `--reason` is refused.
+- Validation records `passed = 1` for an accepted candidate and 0 for a
+  rejected one; the migration adds the column to an existing ledger without
+  changing old rows.
+- Uninvested weight goes to `CASH`, and `CASH` returns equal lagged
+  DTB3 / 252.
+- `GC=F` is spliced unlagged.
 - `check-data` output contains no return or metric figures.
-- Hash-change refusal.
+- Hash-change refusal: the first confirmed run pins `international.yaml`;
+  a later run with a different hash is refused.
 - scripts/international.py never sets `unseal_holdout=True` (covered by
   `tests/test_holdout.py`'s scripts guard).
