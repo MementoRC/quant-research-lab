@@ -421,3 +421,28 @@ def set_verdict(results: list[dict], market_set: MarketSet) -> dict:
         "average_sharpe_gain": average,
         "passed": bool(count >= market_set.min_pass and average is not None and average > 0),
     }
+
+
+def data_end_before(
+    close: pd.DataFrame, markets: tuple[str, ...] | list[str], run_time: pd.Timestamp
+) -> pd.Timestamp:
+    """The last trading day before the run's date on which every market has a close."""
+    rows = close[list(markets)].dropna(how="any")
+    rows = rows[rows.index < run_time.normalize()]
+    if rows.empty:
+        raise ValueError("no day before the run date has a close for every market")
+    return rows.index[-1]
+
+
+def freeze(
+    open_: pd.DataFrame, close: pd.DataFrame, data_end: pd.Timestamp
+) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    """Drop data after `data_end` and fingerprint what is left (sha256 of the
+    sorted frames as CSV)."""
+    frozen_open = open_.loc[:data_end].sort_index(axis=1)
+    frozen_close = close.loc[:data_end].sort_index(axis=1)
+    digest = hashlib.sha256()
+    for name, frame in (("open", frozen_open), ("close", frozen_close)):
+        digest.update(name.encode("utf-8"))
+        digest.update(frame.to_csv(float_format="%.12g").encode("utf-8"))
+    return frozen_open, frozen_close, digest.hexdigest()

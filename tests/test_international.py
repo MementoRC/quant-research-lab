@@ -417,3 +417,30 @@ def test_no_market_with_enough_data_fails():
     v = set_verdict([_m(False, None, enough=False)] * 7, MAIN)
     assert v["average_sharpe_gain"] is None
     assert not v["passed"]
+
+
+from qrl.international import data_end_before, freeze  # noqa: E402
+
+
+def test_data_end_is_the_last_complete_day_before_the_run():
+    idx = pd.bdate_range("2026-10-12", "2026-10-20")
+    close = pd.DataFrame({"A": 1.0, "B": 1.0}, index=idx)
+    close.loc["2026-10-16", "B"] = np.nan
+    assert data_end_before(close, ["A", "B"], pd.Timestamp("2026-10-20 09:00")) == pd.Timestamp(
+        "2026-10-19"
+    )
+    assert data_end_before(close, ["A", "B"], pd.Timestamp("2026-10-19")) == pd.Timestamp(
+        "2026-10-15"
+    )
+
+
+def test_freeze_truncates_and_its_hash_is_stable_and_sensitive():
+    open_, close = synthetic_prices(["A"], start="2026-01-01", end="2026-03-31")
+    end = pd.Timestamp("2026-02-27")
+    _, frozen_close, sha = freeze(open_, close, end)
+    assert frozen_close.index[-1] == end
+    assert freeze(open_, close, end)[2] == sha
+    changed = close.copy()
+    changed.iloc[3, 0] *= 1.001
+    assert freeze(open_, changed, end)[2] != sha
+    assert freeze(open_, close, pd.Timestamp("2026-02-26"))[2] != sha
