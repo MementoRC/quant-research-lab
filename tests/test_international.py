@@ -377,3 +377,43 @@ def test_market_with_too_little_data_does_not_pass():
     assert not res["enough_data"]
     assert not res["passed"]
     assert res["sharpe_gain"] is None
+
+
+from qrl.international import MarketSet, set_verdict  # noqa: E402
+
+MAIN = MarketSet("main", ("A", "B", "C", "D", "E", "F", "G"), 5)
+
+
+def _m(passed, gain, enough=True):
+    return {"passed": passed, "sharpe_gain": gain, "enough_data": enough}
+
+
+def test_five_of_seven_with_a_negative_average_fails():
+    v = set_verdict([_m(True, 0.1)] * 5 + [_m(False, -0.6)] * 2, MAIN)
+    assert v["passed_markets"] == 5
+    assert v["average_sharpe_gain"] < 0
+    assert not v["passed"]
+
+
+def test_six_of_seven_with_a_positive_average_passes():
+    v = set_verdict([_m(True, 0.2)] * 6 + [_m(False, -0.1)], MAIN)
+    assert v["passed"]
+    assert v["required"] == 5
+    assert v["markets"] == 7
+
+
+def test_four_of_seven_fails():
+    assert not set_verdict([_m(True, 0.3)] * 4 + [_m(False, 0.1)] * 3, MAIN)["passed"]
+
+
+def test_a_market_without_enough_data_is_not_passed_and_left_out_of_the_average():
+    v = set_verdict([_m(True, 0.2)] * 5 + [_m(False, None, enough=False)] * 2, MAIN)
+    assert v["passed"]
+    assert v["average_sharpe_gain"] == pytest.approx(0.2)
+    assert v["markets"] == 7
+
+
+def test_no_market_with_enough_data_fails():
+    v = set_verdict([_m(False, None, enough=False)] * 7, MAIN)
+    assert v["average_sharpe_gain"] is None
+    assert not v["passed"]

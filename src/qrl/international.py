@@ -404,3 +404,20 @@ def evaluate_market(
         "buy_and_hold": bh_m,
         "windows": per_window,
     }
+
+
+def set_verdict(results: list[dict], market_set: MarketSet) -> dict:
+    """Count of passed markets AND a positive average Sharpe gain over the
+    markets with enough data. A market below the minimum counts as not passed;
+    the denominator stays the set size."""
+    count = sum(1 for r in results if r["passed"])
+    gains = [r["sharpe_gain"] for r in results if r["enough_data"]]
+    average = sum(gains) / len(gains) if gains else None
+    return {
+        "set": market_set.name,
+        "passed_markets": count,
+        "markets": len(results),
+        "required": market_set.min_pass,
+        "average_sharpe_gain": average,
+        "passed": bool(count >= market_set.min_pass and average is not None and average > 0),
+    }
