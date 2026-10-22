@@ -25,7 +25,9 @@ its own thresholds can evolve without invalidating in-flight runs;
 milestone 2.5). Added as a nullable column via an additive migration in `_init_schema`
 so existing ledgers are never dropped or recreated. `trial_sharpes` returns
 one Sharpe per test in a run, the trial distribution the deflated Sharpe
-ratio needs.
+ratio needs. `validation_events.passed` (0 or 1) is the final validation
+verdict, set by `set_validation_verdict` after the checks; NULL on rows
+written before it existed.
 
 Milestone 2.6 additions (see `qrl.walkforward` and
 `qrl.holdout`):
@@ -131,7 +133,8 @@ CREATE TABLE IF NOT EXISTS validation_events (
     test_id INTEGER PRIMARY KEY REFERENCES tests(test_id),
     metrics_json TEXT NOT NULL,
     validation_config_hash TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    passed INTEGER CHECK (passed IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS holdout_events (
@@ -369,11 +372,17 @@ class Ledger:
         """Additive migration: a ledger created before milestone 2.5 has a
         `validation_events` table without `validation_config_hash`. Add it as
         a nullable column rather than dropping or recreating the table (see
-        the research rules and this module's docstring -- no destructive migration)."""
+        the research rules and this module's docstring -- no destructive migration).
+        The table also gained `passed`, the validation verdict: nullable, and
+        never back-filled (old rows stay NULL)."""
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(validation_events)")}
         if "validation_config_hash" not in columns:
             self._conn.execute(
                 "ALTER TABLE validation_events ADD COLUMN validation_config_hash TEXT"
+            )
+        if "passed" not in columns:
+            self._conn.execute(
+                "ALTER TABLE validation_events ADD COLUMN passed INTEGER CHECK (passed IN (0, 1))"
             )
 
     def _migrate_holdout_events_columns(self) -> None:
@@ -543,6 +552,26 @@ class Ledger:
         before validating so a candidate is skipped, never re-validated."""
         row = self._conn.execute(_SELECT_VALIDATED_TEST_ID, (test_id,)).fetchone()
         return row is not None
+
+    def set_validation_verdict(self, test_id: int, passed: bool) -> None:
+        """Record the final validation verdict on `test_id`'s validation event.
+        Called once all the candidate's checks have run (the event itself is
+        inserted before them). Refuses a test with no event."""
+        cur = self._conn.execute(
+            "UPDATE validation_events SET passed = ? WHERE test_id = ?",
+            (1 if passed else 0, test_id),
+        )
+        if cur.rowcount == 0:
+            raise LedgerError(f"test {test_id} has no validation event")
+        self._conn.commit()
+
+    def validation_passed(self, test_id: int) -> bool | None:
+        """True or False once validation recorded its verdict; None if there is
+        no validation event or the row predates the column (never back-filled)."""
+        row = self._conn.execute(
+            "SELECT passed FROM validation_events WHERE test_id = ?", (test_id,)
+        ).fetchone()
+        return None if row is None or row[0] is None else bool(row[0])
 
     def record_holdout_event(
         self,
