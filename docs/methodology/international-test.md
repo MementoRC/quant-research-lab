@@ -168,9 +168,10 @@ The market sets are sealed like the holdout:
 - `check-data` may download and report coverage (first date, gaps, proxy
   coverage per window). It never prints or stores returns or metrics.
 - A run is `run --set <set> --test-id <id> --reason "..." --confirm`, and
-  needs a fresh owner go-ahead. `--test-id` names a ledger test that has a
-  validation event and passed validation; the rule run is that test's
-  strategy and parameters, unchanged. `--reason` is required and recorded.
+  needs a fresh owner go-ahead. `--test-id` names a ledger test whose
+  validation event has `passed = 1` (see Components); the rule run is that
+  test's strategy and parameters, unchanged. `--reason` is required and
+  recorded.
 - The first `--confirm` run pins `international.yaml`'s sha256 in the
   ledger's `config_pins` table (name `international`). Every later run
   refuses if the file's hash differs from the pin. Pins are never
@@ -196,7 +197,11 @@ The market sets are sealed like the holdout:
 - src/qrl/international.py: pure functions. Translate a rule (swap the
   equity ticker, parameters unchanged), score windows, per-market verdict, set
   verdict. No data loading.
-- `qrl.ledger`: new `international_events` table and its check.
+- `qrl.ledger`: new `international_events` table and its check. The
+  existing `validation_events` table gains a `passed` column (0 or 1; NULL on
+  rows written before this change, which are not back-filled). Validation sets
+  it once all its checks have run, so a rejected candidate's row records 0.
+  Until now a validation event only meant "validated", not "passed".
 - scripts/international.py (pixi task `international`): subcommands
   `check-data --set <set>` and
   `run --set <set> --test-id <id> --reason "..." --confirm`.
@@ -215,8 +220,11 @@ The market sets are sealed like the holdout:
 - Translation changes only the equity ticker, never a parameter.
 - A strategy other than `core_trend` or `core_mix`, or a rule with zero or
   two non-defensive tickers, is refused.
-- A test id with no validation event, or one that failed validation, is
-  refused; a run without `--reason` is refused.
+- A test id with no validation event, or whose event has `passed` 0 or
+  NULL, is refused; a run without `--reason` is refused.
+- Validation records `passed = 1` for an accepted candidate and 0 for a
+  rejected one; the migration adds the column to an existing ledger without
+  changing old rows.
 - Uninvested weight goes to `CASH`, and `CASH` returns equal lagged
   DTB3 / 252.
 - `GC=F` is spliced unlagged.
