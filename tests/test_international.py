@@ -271,3 +271,109 @@ def test_cash_close_returns_equal_the_lagged_dtb3_over_252():
         .loc["2001-03-01":"2001-03-30"]
         .equals(p_close["CASH"].shift(1).loc["2001-03-01":"2001-03-30"])
     )
+
+
+from qrl.international import (  # noqa: E402
+    evaluate_market,
+    market_checks,
+    scoring_index,
+    with_cash,
+)
+
+DATA_END = pd.Timestamp("2026-10-19")
+
+
+def _panel(markets, cfg):
+    open_, close, gold, yields = synthetic_raw(markets, cfg.funds, cfg.fred_ids)
+    return build_panel(open_, close, yields, gold, cfg)
+
+
+def test_uninvested_weight_goes_to_the_cash_column():
+    idx = pd.bdate_range("2020-01-01", periods=4)
+    weights = pd.DataFrame(
+        {"EWJ": [0.6, 0.0, np.nan, 1.0], "IEF": [0.3, 0.0, np.nan, 0.0]}, index=idx
+    )
+    out = with_cash(weights)
+    assert out["CASH"].iloc[0] == pytest.approx(0.1)  # weights summing below 1
+    assert out["CASH"].iloc[1] == 1.0  # fully uninvested
+    assert np.isnan(out["CASH"].iloc[2])  # warm-up rows stay NaN
+    assert out["CASH"].iloc[3] == 0.0
+    assert (out.drop(columns="CASH").sum(axis=1) + out["CASH"]).dropna().eq(1.0).all()
+    assert "CASH" not in weights.columns  # the strategy's frame is untouched
+
+
+def test_core_trend_cash_risk_off_holds_cash_below_the_sma():
+    cfg = _cfg()
+    _, close = _panel(["EWJ"], cfg)
+    rule = Rule("core_trend", {"risk_on": "EWJ", "risk_off": "CASH", "lookback": 200})
+    weights = with_cash(REGISTRY[rule.family].weights(close, **rule.params))
+    off = weights["EWJ"] == 0.0
+    assert off.any()
+    assert (weights.loc[off, "CASH"] == 1.0).all()
+    assert (weights.loc[weights["EWJ"] == 1.0, "CASH"] == 0.0).all()
+
+
+def test_scoring_index_never_includes_the_excluded_years():
+    cfg = _cfg()
+    kept = scoring_index(pd.bdate_range("1996-01-01", DATA_END), cfg.windows, DATA_END)
+    assert not ((kept >= "2005-01-01") & (kept <= "2022-12-31")).any()
+    assert kept[0] == pd.Timestamp("1997-01-01")
+    assert kept[-1] == DATA_END
+
+
+def test_scoring_index_stops_at_the_data_end():
+    cfg = _cfg()
+    end = pd.Timestamp("2024-06-28")
+    assert scoring_index(pd.bdate_range("1996-01-01", DATA_END), cfg.windows, end)[-1] == end
+
+
+def test_market_checks_use_the_core_thresholds():
+    cfg = _cfg()
+    bh = {"sharpe": 0.5, "max_drawdown": 0.3, "cagr": 0.06}
+    ok = {"sharpe": 0.56, "max_drawdown": 0.3, "cagr": 0.051}
+    assert market_checks(ok, bh, cfg) == {"sharpe": True, "max_drawdown": True, "cagr": True}
+    assert not market_checks({**ok, "sharpe": 0.549}, bh, cfg)["sharpe"]
+    assert not market_checks({**ok, "max_drawdown": 0.31}, bh, cfg)["max_drawdown"]
+    assert not market_checks({**ok, "cagr": 0.0499}, bh, cfg)["cagr"]
+
+
+def test_evaluate_market_scores_the_joined_windows_only():
+    cfg = _cfg()
+    open_, close = _panel(["EWJ"], cfg)
+    rule = Rule("core_trend", {"risk_on": "EWJ", "risk_off": "IEF", "lookback": 200})
+    res = evaluate_market(open_, close, rule, "EWJ", cfg, DATA_END)
+    assert res["enough_data"]
+    assert res["days"] >= cfg.min_scored_days
+    assert res["days"] == sum(w["days"] for w in res["windows"])
+    assert res["rule"]["start"] >= "1997-01-01"
+    assert res["rule"]["end"] == "2026-10-19"
+    assert [w["end"] for w in res["windows"]] == ["2004-12-31", "2026-10-19"]
+    assert set(res["checks"]) == {"sharpe", "max_drawdown", "cagr"}
+    assert res["passed"] == all(res["checks"].values())
+    assert res["sharpe_gain"] == pytest.approx(
+        res["rule"]["sharpe"] - res["buy_and_hold"]["sharpe"]
+    )
+
+
+def test_late_only_scores_from_2023():
+    cfg = _cfg()
+    open_, close = _panel(["EWJ"], cfg)
+    rule = Rule("core_trend", {"risk_on": "EWJ", "risk_off": "GLD", "lookback": 200})
+    res = evaluate_market(open_, close, rule, "EWJ", cfg, DATA_END, late_only=True)
+    assert res["late_only"]
+    assert res["rule"]["start"] >= "2023-01-01"
+    assert len(res["windows"]) == 1
+
+
+def test_market_with_too_little_data_does_not_pass():
+    cfg = _cfg()
+    open_, close = _panel(["EWZ"], cfg)
+    late = close.index < pd.Timestamp("2004-06-01")
+    open_.loc[late, "EWZ"] = np.nan
+    close.loc[late, "EWZ"] = np.nan
+    end = pd.Timestamp("2023-12-29")  # about 250 late-window days, none early
+    rule = Rule("core_trend", {"risk_on": "EWZ", "risk_off": "IEF", "lookback": 200})
+    res = evaluate_market(open_, close, rule, "EWZ", cfg, end)
+    assert not res["enough_data"]
+    assert not res["passed"]
+    assert res["sharpe_gain"] is None

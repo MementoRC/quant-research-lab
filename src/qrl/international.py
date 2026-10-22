@@ -17,11 +17,15 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
+from .engine import run_backtest
 from .macro import align_to_trading_days, lag_to_availability
-from .metrics import TRADING_DAYS
+from .metrics import TRADING_DAYS, compute_metrics
+from .strategies import REGISTRY
+from .strategies.buy_and_hold import buy_and_hold
 
 
 @dataclass(frozen=True)
@@ -295,3 +299,108 @@ def build_panel(
     close[CASH] = yield_proxy_close(yields[cfg.cash_fred], 0.0, cfg.yield_lag_days, index)
     open_[CASH] = close[CASH].shift(1)
     return open_, close
+
+
+def with_cash(weights: pd.DataFrame) -> pd.DataFrame:
+    """The strategy's weights plus a `CASH` column holding whatever is left
+    uninvested (1 - row sum, floored at 0): weights summing below 1, or
+    `core_trend`'s `risk_off: "CASH"` (the full weight when off). Warm-up rows
+    stay NaN. Done here, not in the engine, which still pays 0% on uninvested
+    weight; after this step there is none."""
+    base = weights.drop(columns=[CASH], errors="ignore")
+    out = base.copy()
+    out[CASH] = (1.0 - base.sum(axis=1, skipna=False)).clip(lower=0.0)
+    return out
+
+
+def _window_stop(end: pd.Timestamp | None, data_end: pd.Timestamp) -> pd.Timestamp:
+    return data_end if end is None else min(end, data_end)
+
+
+def scoring_index(
+    index: pd.DatetimeIndex,
+    windows: tuple[tuple[pd.Timestamp, pd.Timestamp | None], ...],
+    data_end: pd.Timestamp,
+) -> pd.DatetimeIndex:
+    """The dates of `index` inside any scoring window. Nothing else is scored."""
+    keep = np.zeros(len(index), dtype=bool)
+    for start, end in windows:
+        keep |= (index >= start) & (index <= _window_stop(end, data_end))
+    return index[keep]
+
+
+def market_checks(rule_m: dict, bh_m: dict, cfg: InternationalConfig) -> dict[str, bool]:
+    """The core thresholds, one set for every covered rule kind."""
+    return {
+        "sharpe": rule_m["sharpe"] >= bh_m["sharpe"] + cfg.sharpe_margin,
+        "max_drawdown": rule_m["max_drawdown"] <= bh_m["max_drawdown"],
+        "cagr": rule_m["cagr"] >= bh_m["cagr"] - cfg.cagr_tolerance,
+    }
+
+
+def evaluate_market(
+    open_: pd.DataFrame,
+    close: pd.DataFrame,
+    rule: Rule,
+    market: str,
+    cfg: InternationalConfig,
+    data_end: pd.Timestamp,
+    *,
+    late_only: bool = False,
+) -> dict:
+    """Backtest the translated rule (uninvested weight assigned to the priced
+    `CASH` column) and buy-and-hold of `market` on the continuous series
+    (engine default costs), then score both on the same joined window dates.
+    Scoring starts once the rule's lookbacks are filled (the engine's first
+    execution day)."""
+    windows = cfg.windows[-1:] if late_only else cfg.windows
+    empty = {
+        "market": market,
+        "days": 0,
+        "enough_data": False,
+        "passed": False,
+        "sharpe_gain": None,
+        "checks": {},
+        "rule": {},
+        "buy_and_hold": {},
+        "windows": [],
+        "late_only": late_only,
+    }
+    try:
+        weights = with_cash(REGISTRY[rule.family].weights(close, **rule.params))
+        rule_bt = run_backtest(open_, close, weights)
+        bh_bt = run_backtest(open_, close, buy_and_hold(close, market))
+    except ValueError as exc:  # no usable data for this market: it does not pass
+        return {**empty, "error": str(exc)}
+    dates = scoring_index(rule_bt.returns.index, windows, data_end).intersection(
+        bh_bt.returns.index
+    )
+    rule_r = rule_bt.returns.reindex(dates)
+    bh_r = bh_bt.returns.reindex(dates)
+    rule_m = compute_metrics(rule_r, rule_bt.turnover, rule_bt.executed)
+    bh_m = compute_metrics(bh_r)
+    enough = len(dates) >= cfg.min_scored_days
+    checks = market_checks(rule_m, bh_m, cfg) if enough else {}
+    per_window = []
+    for start, end in windows:
+        stop = _window_stop(end, data_end)
+        per_window.append(
+            {
+                "start": str(start.date()),
+                "end": str(stop.date()),
+                "days": int(((dates >= start) & (dates <= stop)).sum()),
+                "rule": compute_metrics(rule_r.loc[start:stop]),
+                "buy_and_hold": compute_metrics(bh_r.loc[start:stop]),
+            }
+        )
+    return {
+        **empty,
+        "days": len(dates),
+        "enough_data": enough,
+        "passed": bool(enough and all(checks.values())),
+        "sharpe_gain": rule_m["sharpe"] - bh_m["sharpe"] if enough else None,
+        "checks": checks,
+        "rule": rule_m,
+        "buy_and_hold": bh_m,
+        "windows": per_window,
+    }
