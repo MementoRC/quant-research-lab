@@ -29,11 +29,21 @@ sys.path.insert(0, str(ROOT / "src"))
 from qrl.data import coverage_report, load_prices  # noqa: E402
 from qrl.international import (  # noqa: E402
     InternationalConfig,
+    NotCovered,
+    Rule,
     build_panel,
+    data_end_before,
+    derive_equity_leg,
+    evaluate_market,
+    freeze,
     gold_correlation,
+    holds_gold,
     load_international_config,
+    render_report,
+    set_verdict,
+    translate,
 )
-from qrl.ledger import DEFAULT_LEDGER_PATH  # noqa: E402  (Task 11 adds Ledger, LedgerError)
+from qrl.ledger import DEFAULT_LEDGER_PATH, Ledger, LedgerError  # noqa: E402
 from qrl.macro import fetch_series  # noqa: E402
 
 CACHE_DIR = ROOT / "data" / "cache"
@@ -121,8 +131,211 @@ def _parser() -> argparse.ArgumentParser:
     return ap
 
 
+def write_snapshot(path: Path, open_: pd.DataFrame, close: pd.DataFrame) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    both = pd.concat({"open": open_, "close": close}, axis=1)
+    both.columns = [f"{field}|{ticker}" for field, ticker in both.columns]
+    both.to_parquet(path)
+
+
+def read_snapshot(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    both = pd.read_parquet(path)
+
+    def part(field: str) -> pd.DataFrame:
+        cols = [c for c in both.columns if c.startswith(f"{field}|")]
+        return both[cols].rename(columns=lambda c: c.split("|", 1)[1])
+
+    return part("open"), part("close")
+
+
+def _rule_refusal(
+    ledger: Ledger, args: argparse.Namespace, cfg: InternationalConfig, cfg_sha: str
+) -> tuple[str | None, Rule | None, str | None]:
+    """(refusal, rule, derived equity leg); the refusal is None when the run may go on."""
+    pinned = ledger.config_pin(PIN_NAME)
+    if pinned is not None and pinned["sha256"] != cfg_sha:
+        return (
+            "config/international.yaml differs from the pinned hash; the spec is void",
+            None,
+            None,
+        )
+    test = ledger.get_test(args.test_id)
+    if test is None:
+        return f"no ledger test {args.test_id}", None, None
+    if not ledger.is_validated(args.test_id):
+        return f"ledger test {args.test_id} has no validation event", None, None
+    if ledger.validation_passed(args.test_id) is not True:  # False, or None on a legacy row
+        return f"ledger test {args.test_id} did not pass validation (passed is not 1)", None, None
+    rule = Rule(test["family"], test["params"])
+    try:
+        leg = derive_equity_leg(rule, cfg)
+        translate(rule, leg, cfg.market_set(args.set).markets[0])
+    except NotCovered as exc:
+        return str(exc), None, None
+    return None, rule, leg
+
+
+def _pin_on_first_run(ledger: Ledger, cfg_sha: str) -> None:
+    """The first confirmed run pins international.yaml's sha256 (never overwritten)."""
+    if ledger.config_pin(PIN_NAME) is None:
+        ledger.pin_config(PIN_NAME, cfg_sha, source="scripts/international.py run")
+
+
+def _order_refusal(events: dict[str, dict], set_name: str, order: list[str]) -> str | None:
+    unused = [s for s in order[: order.index(set_name)] if s not in events]
+    return f"sets run in order: {unused[0]!r} is unused" if unused else None
+
+
+def _start(
+    ledger: Ledger,
+    args: argparse.Namespace,
+    cfg: InternationalConfig,
+    cfg_sha: str,
+    rule: Rule,
+    events: dict[str, dict],
+    snapshot: Path,
+) -> tuple[int, pd.DataFrame, pd.DataFrame, pd.Timestamp, str] | str:
+    """Download, freeze and snapshot the data, then record the event. Returns
+    (event_id, open, close, data_end, data_sha) or a refusal message. Nothing
+    is scored before the event row exists."""
+    refusal = _order_refusal(events, args.set, cfg.set_names)
+    if refusal:
+        return refusal
+    try:
+        fund_open, fund_close, gold, yields = load_raw(cfg, args.set, True, Path(args.cache_dir))
+        open_, close = build_panel(fund_open, fund_close, yields, gold, cfg)
+        data_end = data_end_before(close, cfg.market_set(args.set).markets, pd.Timestamp.now())
+    except (RuntimeError, ValueError, KeyError) as exc:
+        return str(exc)
+    open_, close, data_sha = freeze(open_, close, data_end)
+    write_snapshot(snapshot, open_, close)
+    try:
+        _pin_on_first_run(ledger, cfg_sha)
+        event_id = ledger.record_international_event(
+            set_name=args.set,
+            set_order=cfg.set_names,
+            rule_id=f"ledger test {args.test_id}",
+            rule_sha256=rule.sha256,
+            config_sha256=cfg_sha,
+            data_end=str(data_end.date()),
+            data_sha256=data_sha,
+            reason=args.reason.strip(),
+        )
+    except LedgerError as exc:
+        return str(exc)
+    return event_id, open_, close, data_end, data_sha
+
+
+def _resume(
+    event: dict, args: argparse.Namespace, cfg_sha: str, rule: Rule, snapshot: Path
+) -> tuple[int, pd.DataFrame, pd.DataFrame, pd.Timestamp, str] | str:
+    """Recompute after a crash: the same rule, config and frozen data only."""
+    if event["status"] == "completed":
+        return (
+            f"set {args.set!r} already ran (event {event['event_id']}, "
+            f"{event['created_at']}); each set runs once"
+        )
+    if (event["rule_sha256"], event["config_sha256"]) != (rule.sha256, cfg_sha):
+        return "a rerun after a crash must use the same rule and config"
+    if not snapshot.exists():
+        return f"the frozen data snapshot {snapshot} is missing"
+    data_end = pd.Timestamp(event["data_end"])
+    open_, close, data_sha = freeze(*read_snapshot(snapshot), data_end)
+    if data_sha != event["data_sha256"]:
+        return "the frozen data changed; a rerun must use identical data"
+    return event["event_id"], open_, close, data_end, data_sha
+
+
+def _score_and_record(
+    ledger: Ledger,
+    args: argparse.Namespace,
+    cfg: InternationalConfig,
+    cfg_sha: str,
+    rule: Rule,
+    equity_leg: str,
+    frozen: tuple[int, pd.DataFrame, pd.DataFrame, pd.Timestamp, str],
+) -> str:
+    """Score, write the report and complete the event; returns the markdown.
+    From here the set is spent. A crash leaves the event 'started'; only a
+    recompute with the same rule, config and data can finish it.
+    `evaluate_market` does not catch engine or strategy errors (only thin data
+    is a not-passed, with a `reason`), so a code bug raises here and leaves the
+    event 'started' rather than completing it as a fail."""
+    event_id, open_, close, data_end, data_sha = frozen
+    market_set = cfg.market_set(args.set)
+    corr = None
+    late_only = False
+    if holds_gold(rule, cfg):
+        start, end = cfg.gold_check
+        corr = gold_correlation(close[cfg.gold_ticker], close[cfg.gold_fund], start, end)
+        late_only = corr is None or corr < cfg.gold_min_correlation
+    markets = [
+        evaluate_market(
+            open_,
+            close,
+            translate(rule, equity_leg, market),
+            market,
+            cfg,
+            data_end,
+            late_only=late_only,
+        )
+        for market in market_set.markets
+    ]
+    verdict = set_verdict(markets, market_set)
+    header = {
+        "set": args.set,
+        "event_id": event_id,
+        "rule_id": f"ledger test {args.test_id}",
+        "family": rule.family,
+        "params": rule.params,
+        "equity_leg": equity_leg,  # derived from the rule
+        "config_sha256": cfg_sha,
+        "rule_sha256": rule.sha256,
+        "data_sha256": data_sha,
+        "data_end": str(data_end.date()),
+        "late_only": late_only,
+        "gold_correlation": corr,
+    }
+    markdown = render_report(header, verdict, markets)
+    out = Path(args.out_dir) / f"international_{args.set}.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(markdown, encoding="utf-8")
+    ledger.complete_international_event(
+        event_id,
+        {"verdict": verdict, "markets": markets, "late_only": late_only, "gold_correlation": corr},
+        str(out),
+    )
+    return f"{markdown}\nWrote {out}"
+
+
 def run(args: argparse.Namespace, cfg: InternationalConfig, cfg_sha: str) -> int:
-    raise NotImplementedError  # Task 11
+    reason = args.reason.strip()
+    if not (args.confirm and reason):
+        print("refused: run needs --confirm and a non-empty --reason (the owner's go-ahead)")
+        return 2
+    try:
+        cfg.market_set(args.set)
+    except ValueError as exc:
+        print(f"refused: {exc}")
+        return 1
+    snapshot = Path(args.cache_dir) / "international" / f"{args.set}_frozen.parquet"
+    with Ledger(args.ledger) as ledger:
+        refusal, rule, equity_leg = _rule_refusal(ledger, args, cfg, cfg_sha)
+        if refusal is not None or rule is None or equity_leg is None:
+            print(f"refused: {refusal}")
+            return 1
+        events = {e["set_name"]: e for e in ledger.list_international_events()}
+        event = events.get(args.set)
+        if event is None:
+            frozen = _start(ledger, args, cfg, cfg_sha, rule, events, snapshot)
+        else:
+            frozen = _resume(event, args, cfg_sha, rule, snapshot)
+        if isinstance(frozen, str):
+            print(f"refused: {frozen}")
+            return 1
+        output = _score_and_record(ledger, args, cfg, cfg_sha, rule, equity_leg, frozen)
+    print(output)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
