@@ -448,6 +448,79 @@ def set_verdict(results: list[dict], market_set: MarketSet) -> dict:
     }
 
 
+def _num(value: object, pct: bool = False) -> str:
+    if not isinstance(value, int | float):
+        return "n/a"
+    return f"{value:.1%}" if pct else f"{value:.2f}"
+
+
+def _market_row(m: dict) -> str:
+    rule, bh = m["rule"], m["buy_and_hold"]
+    passed = "yes" if m["passed"] else ("no (too little data)" if not m["enough_data"] else "no")
+    return (
+        f"| {m['market']} | {m['days']} | {_num(rule.get('sharpe'))} | "
+        f"{_num(bh.get('sharpe'))} | {_num(m['sharpe_gain'])} | "
+        f"{_num(rule.get('cagr'), True)} | {_num(bh.get('cagr'), True)} | "
+        f"{_num(rule.get('max_drawdown'), True)} | {_num(bh.get('max_drawdown'), True)} | "
+        f"{passed} |"
+    )
+
+
+def render_report(header: dict, verdict: dict, markets: list[dict]) -> str:
+    """`research/international_<set>.md`: written once per run. Per market it
+    shows only the scored days, the joined-series figures against buy-and-hold,
+    the pass flag and the per-window figures (information only)."""
+    params = json.dumps(header["params"], sort_keys=True)
+    lines = [
+        f"# International final test: set {header['set']}",
+        "",
+        "Spec: docs/methodology/international-test.md. One sealed run; the verdict is final "
+        "for this rule.",
+        "",
+        f"- Rule: {header['rule_id']}, {header['family']} {params}; equity leg "
+        f"{header['equity_leg']} (derived)",
+        f"- Ledger international event {header['event_id']}; data frozen at {header['data_end']}",
+        f"- international.yaml sha256: `{header['config_sha256']}`",
+        f"- Rule fingerprint: `{header['rule_sha256'][:12]}`",
+        f"- Data fingerprint: `{header['data_sha256'][:12]}`",
+        "- Cash: uninvested weight earned the 3-month T-bill rate (FRED DTB3, lagged one "
+        "business day). The US research, validation and holdout results used 0% cash, so a "
+        "rule that holds cash scores somewhat better here than under the US convention.",
+        "",
+        "## Verdict",
+        "",
+        f"{verdict['passed_markets']} of {verdict['markets']} markets passed (need "
+        f"{verdict['required']}); average Sharpe gain {_num(verdict['average_sharpe_gain'])}. "
+        f"Verdict: **{'PASS' if verdict['passed'] else 'FAIL'}**.",
+        "",
+    ]
+    if header["late_only"]:
+        lines += [
+            "This rule can hold gold and the gold check did not pass (GC=F vs GLD "
+            f"correlation {_num(header['gold_correlation'])}), so it is scored on the late "
+            "window only.",
+            "",
+        ]
+    lines += [
+        "## Markets",
+        "",
+        "| Market | Scored days | Sharpe | B&H Sharpe | Gain | CAGR | B&H CAGR | Max DD | "
+        "B&H max DD | Passed |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+        *(_market_row(m) for m in markets),
+        "",
+        "## Per window (information only; the verdict uses the joined series)",
+        "",
+    ]
+    for m in markets:
+        for w in m["windows"]:
+            lines.append(
+                f"- {m['market']} {w['start']} to {w['end']}: {w['days']} days, Sharpe "
+                f"{_num(w['rule'].get('sharpe'))} vs {_num(w['buy_and_hold'].get('sharpe'))}"
+            )
+    return "\n".join(lines) + "\n"
+
+
 def data_end_before(
     close: pd.DataFrame, markets: tuple[str, ...] | list[str], run_time: pd.Timestamp
 ) -> pd.Timestamp:

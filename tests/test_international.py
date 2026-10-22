@@ -496,3 +496,83 @@ def test_freeze_truncates_and_its_hash_is_stable_and_sensitive():
     changed.iloc[3, 0] *= 1.001
     assert freeze(open_, changed, end)[2] != sha
     assert freeze(open_, close, pd.Timestamp("2026-02-26"))[2] != sha
+
+
+from qrl.international import render_report  # noqa: E402
+
+_REPORT_METRICS = {"sharpe": 0.6, "cagr": 0.07, "max_drawdown": 0.2}
+_REPORT_HEADER = {
+    "set": "main",
+    "event_id": 1,
+    "rule_id": "ledger test 7",
+    "family": "core_trend",
+    "params": {"risk_on": "SPY", "risk_off": "IEF", "lookback": 200},
+    "equity_leg": "SPY",
+    "config_sha256": "a" * 64,
+    "rule_sha256": "b" * 64,
+    "data_sha256": "c" * 64,
+    "data_end": "2026-10-19",
+    "late_only": False,
+    "gold_correlation": None,
+}
+_REPORT_VERDICT = {
+    "set": "main",
+    "passed_markets": 5,
+    "markets": 7,
+    "required": 5,
+    "average_sharpe_gain": 0.12,
+    "passed": True,
+}
+
+
+def _report_market(name, **over):
+    row = {
+        "market": name,
+        "days": 3000,
+        "enough_data": True,
+        "passed": True,
+        "sharpe_gain": 0.1,
+        "rule": _REPORT_METRICS,
+        "buy_and_hold": _REPORT_METRICS,
+        "windows": [],
+        "late_only": False,
+    }
+    return {**row, **over}
+
+
+def test_report_has_hashes_verdict_and_one_row_per_market():
+    markets = [_report_market(m) for m in ("EWJ", "EWU", "EWG", "EWC", "EWA", "EWL", "EWQ")]
+    md = render_report(_REPORT_HEADER, _REPORT_VERDICT, markets)
+    assert "- international.yaml sha256: `" + "a" * 64 + "`" in md
+    assert "b" * 64 not in md
+    assert "c" * 64 not in md
+    assert "Verdict: **PASS**" in md
+    assert "0% cash" in md
+    assert "DTB3" in md
+    assert "late window" not in md
+    assert sum(1 for line in md.splitlines() if line.startswith("| EW")) == 7
+
+
+def test_report_states_the_late_window_only_scoring_for_gold_rules():
+    header = {**_REPORT_HEADER, "late_only": True, "gold_correlation": 0.91}
+    md = render_report(header, {**_REPORT_VERDICT, "passed": False}, [_report_market("EWJ")])
+    assert "late window only" in md
+    assert "0.91" in md
+    assert "Verdict: **FAIL**" in md
+
+
+def test_report_shows_a_thin_market_as_too_little_data_and_nothing_else_about_it():
+    thin = _report_market(
+        "EWZ",
+        days=120,
+        enough_data=False,
+        passed=False,
+        sharpe_gain=None,
+        rule={},
+        buy_and_hold={},
+        reason="insufficient data: 120 scored days < 500",
+    )
+    md = render_report(_REPORT_HEADER, _REPORT_VERDICT, [thin])
+    row = next(line for line in md.splitlines() if line.startswith("| EWZ"))
+    assert "no (too little data)" in row
+    assert row.count("n/a") == 7
