@@ -16,6 +16,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -250,7 +251,7 @@ def splice(proxy: pd.Series, fund: pd.Series) -> pd.Series:
     if before.empty or before.index[-1] != first:
         return real
     scaled = before * (real.iloc[0] / before.iloc[-1])
-    return pd.concat([scaled.iloc[:-1], real]).sort_index()
+    return pd.Series(pd.concat([scaled.iloc[:-1], real]).sort_index())
 
 
 def gold_correlation(
@@ -281,7 +282,7 @@ def build_panel(
     from DTB3 over the whole backtest (duration 0: daily return = previous
     yield / 252). The raw gold series is kept as its own close column for the
     gold check."""
-    index = fund_close.index
+    index = pd.DatetimeIndex(fund_close.index)
     close = fund_close.copy()
     open_ = fund_open.reindex(index=index, columns=fund_close.columns).copy()
     proxies = {
@@ -290,7 +291,7 @@ def build_panel(
     }
     proxies[cfg.gold_fund] = gold.reindex(index)
     for fund, proxy in proxies.items():
-        first = fund_close[fund].first_valid_index()
+        first = cast("pd.Timestamp | None", fund_close[fund].first_valid_index())
         close[fund] = splice(proxy, fund_close[fund]).reindex(index)
         proxy_open = close[fund].shift(1)
         open_[fund] = proxy_open if first is None else proxy_open.where(index < first, open_[fund])
@@ -350,8 +351,13 @@ def _scorable_days(
     valid = weights.notna().all(axis=1)
     if not valid.any():
         return 0
-    index = weights.index
-    start = max(index.get_loc(valid.idxmax()) + 1, index.get_loc(first_close) + 1)
+    index = pd.DatetimeIndex(weights.index)
+    # get_indexer is always positional ints (get_loc may return a slice or mask);
+    # identical to get_loc for a unique index, and it raises on duplicates.
+    first_valid, first_priced = index.get_indexer(
+        pd.DatetimeIndex([cast(pd.Timestamp, valid.idxmax()), first_close])
+    )
+    start = int(max(first_valid, first_priced)) + 1
     return len(scoring_index(index[start:], windows, data_end))
 
 
@@ -389,7 +395,7 @@ def evaluate_market(
         return {**empty, "reason": "insufficient data: the market has no prices"}
     # Strategy and engine errors propagate: only thin data is a not-passed.
     weights = with_cash(REGISTRY[rule.family].weights(close, **rule.params))
-    available = _scorable_days(weights, first_close, windows, data_end)
+    available = _scorable_days(weights, cast(pd.Timestamp, first_close), windows, data_end)
     if available < cfg.min_scored_days:
         return {
             **empty,
@@ -397,8 +403,8 @@ def evaluate_market(
         }
     rule_bt = run_backtest(open_, close, weights)
     bh_bt = run_backtest(open_, close, buy_and_hold(close, market))
-    dates = scoring_index(rule_bt.returns.index, windows, data_end).intersection(
-        bh_bt.returns.index
+    dates = scoring_index(pd.DatetimeIndex(rule_bt.returns.index), windows, data_end).intersection(
+        pd.DatetimeIndex(bh_bt.returns.index)
     )
     rule_r = rule_bt.returns.reindex(dates)
     bh_r = bh_bt.returns.reindex(dates)
@@ -529,7 +535,7 @@ def data_end_before(
     rows = rows[rows.index < run_time.normalize()]
     if rows.empty:
         raise ValueError("no day before the run date has a close for every market")
-    return rows.index[-1]
+    return pd.Timestamp(rows.index[-1])
 
 
 def freeze(
