@@ -296,6 +296,67 @@ def test_fixed_loads_the_candidates_own_ticker(tmp_path, monkeypatch):
     assert not set(seen[0]) & {"AAA", "BBB", "CCC", "DDD"}  # universe not loaded
 
 
+CORE_PARAMS = json.dumps({"risk_on": "QQQ", "risk_off": "GLD", "lookback": 200})
+
+
+def _core_seed_argv(tmp_path: Path, universe: Path, pass_rule: str) -> list[str]:
+    return [
+        "--ledger", str(tmp_path / "ledger.sqlite"),
+        "seed", "--lane", "B", "--synthetic", "--universe", str(universe),
+        "--fixed", "--families", "core_trend", "--params", CORE_PARAMS,
+        "--pass-rule", pass_rule,
+    ]  # fmt: skip
+
+
+def _core_fixed_argv(tmp_path: Path, universe: Path) -> list[str]:
+    return [
+        "--ledger", str(tmp_path / "ledger.sqlite"), "fixed", "--run", "1",
+        "--family", "core_trend", "--params", CORE_PARAMS,
+        "--synthetic", "--universe", str(universe),
+    ]  # fmt: skip
+
+
+def test_core_trend_resolves_the_portfolio_core_params():
+    spec = search_mod._spec_for("core_trend")
+    assert sorted(spec.tickers(json.loads(CORE_PARAMS))) == ["GLD", "QQQ"]
+
+
+def test_seed_fixed_core_trend_standalone_records_the_marker(tmp_path):
+    universe = _write_tiny_universe(tmp_path / "universe.yaml")
+    assert search_main(_core_seed_argv(tmp_path, universe, "standalone")) == 0
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        run = ledger.list_runs()[-1]
+    assert _decode_fixed(run["seed_description"]) == {
+        "marker": FIXED_MARKER,
+        "family": "core_trend",
+        "params": json.loads(CORE_PARAMS),
+    }
+    assert run["pass_rule"] == "standalone"
+
+
+def test_fixed_core_trend_standalone_records_one_test_and_refuses_a_second(tmp_path):
+    universe = _write_tiny_universe(tmp_path / "universe.yaml")
+    assert search_main(_core_seed_argv(tmp_path, universe, "standalone")) == 0
+    assert search_main(_core_fixed_argv(tmp_path, universe)) == 0
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        tests = ledger.list_tests(1)
+    assert len(tests) == 1
+    assert tests[0]["family"] == "core_trend"
+    assert search_main(_core_fixed_argv(tmp_path, universe)) == 2
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        assert len(ledger.list_tests(1)) == 1
+
+
+@pytest.mark.parametrize("pass_rule", ["combined", "combined_null"])
+def test_seed_fixed_core_trend_refuses_non_standalone_rules(tmp_path, pass_rule):
+    universe = _write_tiny_universe(tmp_path / "universe.yaml")
+    assert search_main(_core_seed_argv(tmp_path, universe, pass_rule)) == 2
+    assert (
+        not (tmp_path / "ledger.sqlite").exists()
+        or not Ledger(tmp_path / "ledger.sqlite").list_runs()
+    )
+
+
 def test_candidate_tickers_resolves_known_families_and_skips_unknown():
     tests = [
         {"family": "buy_and_hold", "params": {"ticker": "RSP"}, "passed": True},

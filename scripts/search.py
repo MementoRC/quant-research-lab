@@ -12,6 +12,8 @@ Usage:
     python scripts/search.py seed --lane A --factor-config config/factor.yaml --pass-rule combined_null --description "..."
     python scripts/search.py seed --lane B --fixed --families buy_and_hold --params '{"ticker":"RSP"}' --pass-rule combined --combined-config config/combined_fixed.yaml
     python scripts/search.py fixed --run 1 --family buy_and_hold --params '{"ticker":"RSP"}' --combined-config config/combined_fixed.yaml
+    python scripts/search.py seed --lane B --fixed --families core_trend --params '{"risk_on":"QQQ","risk_off":"GLD","lookback":200}' --pass-rule standalone
+    python scripts/search.py fixed --run 2 --family core_trend --params '{"risk_on":"QQQ","risk_off":"GLD","lookback":200}'
     python scripts/search.py batch --run 1 --n 200 --synthetic
     python scripts/search.py batch --run 1 --n 200 --max-seconds 1800
     python scripts/search.py summary --run 1
@@ -55,6 +57,7 @@ from qrl.combined import (  # noqa: E402
     core_tickers,
     load_rule_config,
 )
+from qrl.core_compare import CORE_FAMILIES  # noqa: E402
 from qrl.criteria import load_criteria  # noqa: E402
 from qrl.factor_run import (  # noqa: E402
     FactorRun,
@@ -210,11 +213,14 @@ def _validate_fixed(
     args: argparse.Namespace, families: list[str], factor: FactorRun | None
 ) -> str | None:
     """An error message if a `--fixed` seed request is invalid, else None. Only
-    the declared candidate is checked; buy_and_hold is not in SEARCHABLE_SPACES."""
+    the declared candidate is checked; buy_and_hold is not in SEARCHABLE_SPACES.
+    A core family is graded on its own merits (`standalone`); any other family
+    is a sleeve graded against the held core (`combined`)."""
     if len(families) != 1:
         return "--fixed declares exactly one family."
-    if factor is not None or args.pass_rule != "combined":
-        return "--fixed needs --pass-rule combined and no --factor-config."
+    wanted = "standalone" if families[0] in CORE_FAMILIES else "combined"
+    if factor is not None or args.pass_rule != wanted:
+        return f"--fixed on {families[0]} needs --pass-rule {wanted} and no --factor-config."
     try:
         params = json.loads(args.params or "")
         if not isinstance(params, dict):
@@ -568,7 +574,7 @@ def _test_fixed(
     universe_name: str,
     data: SearchData,
     criteria: dict,
-    combined: tuple[dict, str],
+    combined: tuple[dict, str] | None,
 ) -> bool:
     """The run's one attempt. An error after preflight is recorded as a failed
     test (AGENTS.md: every attempt is logged); never retried silently.
@@ -581,7 +587,7 @@ def _test_fixed(
     except Exception as exc:  # recorded below, not swallowed
         ledger.record_test(
             args.run, criteria_hash, args.family, params, universe_name,
-            {"error": str(exc)}, False, f"error: {exc}", combined_config_hash=combined[1],
+            {"error": str(exc)}, False, f"error: {exc}", combined_config_hash=combined[1] if combined else None,
         )  # fmt: skip
         return False
     return _test_one_candidate(
@@ -607,9 +613,6 @@ def cmd_fixed(args: argparse.Namespace) -> int:
         check_result = _check_data_source(ledger, args.run, data_source)
         if check_result is not None:
             return check_result
-        if combined is None:
-            print(f"Run {args.run} has no combined pass rule; refusing.", file=sys.stderr)
-            return 2
         extra = _spec_for(args.family).tickers(json.loads(args.params))
         needed = sorted(_needed_tickers((), criteria, combined, extra))
         data = SearchData.load(needed, synthetic=args.synthetic)
