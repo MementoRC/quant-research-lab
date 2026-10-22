@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -155,3 +156,118 @@ def test_rule_sha_ignores_key_order():
 def test_holds_gold():
     assert holds_gold(Rule("core_trend", {"risk_on": "SPY", "risk_off": "GLD"}), _cfg())
     assert not holds_gold(TREND, _cfg())
+
+
+FUND_STARTS = {"SHY": "2002-07-30", "IEF": "2002-07-30", "TLT": "2002-07-30", "GLD": "2004-11-18"}
+
+from qrl.data import synthetic_prices  # noqa: E402
+from qrl.international import (  # noqa: E402
+    build_panel,
+    gold_correlation,
+    lagged_close,
+    splice,
+    yield_proxy_close,
+)
+
+
+def synthetic_raw(markets, funds, treasury_ids, end=None):
+    """Synthetic stand-in for the downloads: markets and funds from 1996, each
+    fund NaN before its real first date, GC=F from 2000-08-30, flat 4% yields
+    (`treasury_ids` is `cfg.fred_ids`: the Treasury ids plus DTB3 for cash)."""
+    open_, close = synthetic_prices([*markets, *funds], start="1996-01-01", end=end)
+    for fund, first in FUND_STARTS.items():
+        if fund in close.columns:
+            early = close.index < pd.Timestamp(first)
+            open_.loc[early, fund] = np.nan
+            close.loc[early, fund] = np.nan
+    _, gold = synthetic_prices(["GC=F"], start="2000-08-30", end=end)
+    yields = {fred: pd.Series(4.0, index=close.index) for fred in treasury_ids}
+    return open_, close, gold["GC=F"], yields
+
+
+def test_yield_proxy_follows_the_formula_and_the_lag():
+    idx = pd.bdate_range("2000-01-03", periods=7)
+    y = pd.Series([5.0, 5.0, 6.0, 6.0, 6.0, 6.0, 6.0], index=idx)
+    unlagged = yield_proxy_close(y, 2.0, 0, idx).pct_change(fill_method=None)
+    lagged = yield_proxy_close(y, 2.0, 1, idx).pct_change(fill_method=None)
+    # previous yield / 252 - duration x yield change: the jump moves the price
+    # the day it is observed unlagged, one business day later lagged
+    assert unlagged.iloc[2] == pytest.approx(0.05 / 252 - 2.0 * 0.01)
+    assert lagged.iloc[3] == pytest.approx(0.05 / 252 - 2.0 * 0.01)
+    assert lagged.iloc[4] == pytest.approx(0.06 / 252)
+
+
+def test_lagged_close_shifts_by_business_days():
+    idx = pd.bdate_range("2000-01-03", periods=4)
+    s = pd.Series([1.0, 2.0, 3.0, 4.0], index=idx)
+    out = lagged_close(s, 1, idx)
+    assert np.isnan(out.iloc[0])
+    assert out.iloc[1] == 1.0
+    assert out.iloc[3] == 3.0
+
+
+def test_splice_has_no_jump_and_keeps_the_fund():
+    idx = pd.bdate_range("2002-07-01", periods=10)
+    proxy = pd.Series(np.linspace(100.0, 109.0, 10), index=idx)
+    fund = pd.Series([np.nan] * 5 + [50.0, 51.0, 52.0, 53.0, 54.0], index=idx)
+    out = splice(proxy, fund).reindex(idx)
+    assert (out.iloc[5:] == fund.iloc[5:]).all()
+    assert out.iloc[:5].notna().all()
+    assert out.iloc[4] / out.iloc[5] == pytest.approx(proxy.iloc[4] / proxy.iloc[5])
+
+
+def test_gold_correlation():
+    idx = pd.bdate_range("2004-11-18", "2006-12-29")
+    s = pd.Series(np.cumprod(1 + np.random.default_rng(0).normal(0, 0.01, len(idx))), index=idx)
+    assert gold_correlation(s, s, idx[0], idx[-1]) == pytest.approx(1.0)
+    assert gold_correlation(s, s, idx[0], idx[5]) is None  # too few days
+
+
+def test_build_panel_splices_before_fund_starts_and_keeps_real_data_after():
+    cfg = _cfg()
+    open_, close, gold, yields = synthetic_raw(["EWJ"], cfg.funds, cfg.fred_ids, end="2006-12-29")
+    p_open, p_close = build_panel(open_, close, yields, gold, cfg)
+    assert p_close.loc["1997-01-02":, ["IEF", "TLT", "SHY"]].notna().all().all()
+    gld_first = p_close["GLD"].first_valid_index()
+    # GC=F is unlagged, so the proxy exists from its own first day
+    assert pd.Timestamp("2000-08-30") <= gld_first < pd.Timestamp("2000-09-15")
+    after = close.index >= pd.Timestamp("2004-11-18")
+    assert p_close.loc[after, "GLD"].equals(close.loc[after, "GLD"])
+    assert p_open.loc[after, "GLD"].equals(open_.loc[after, "GLD"])
+    march = slice("2001-03-01", "2001-03-30")  # a proxy day's open is the previous close
+    assert p_open.loc[march, "IEF"].equals(p_close["IEF"].shift(1).loc[march])
+    assert "GC=F" in p_close.columns  # raw, kept for the gold check
+
+
+def test_gc_f_is_spliced_unlagged():
+    cfg = _cfg()
+    open_, close, gold, yields = synthetic_raw(["EWJ"], cfg.funds, cfg.fred_ids, end="2006-12-29")
+    _, p_close = build_panel(open_, close, yields, gold, cfg)
+    before = (p_close.index >= gold.index[0]) & (p_close.index < pd.Timestamp("2004-11-18"))
+    # the spliced proxy moves with GC=F on the same day: the ratio is one constant
+    ratio = (p_close.loc[before, "GLD"] / gold.reindex(p_close.index)[before]).dropna()
+    assert len(ratio) > 1000
+    assert np.allclose(ratio, ratio.iloc[0])
+    assert p_close.loc[before, "GC=F"].equals(gold.reindex(p_close.index)[before])
+
+
+def test_cash_close_returns_equal_the_lagged_dtb3_over_252():
+    cfg = _cfg()
+    idx = pd.bdate_range("2000-01-03", periods=8)
+    dtb3 = pd.Series([4.0, 4.0, 5.0, 5.0, 6.0, 6.0, 6.0, 6.0], index=idx)
+    out = yield_proxy_close(dtb3, 0.0, cfg.yield_lag_days, idx).pct_change(fill_method=None)
+    lagged = dtb3.shift(cfg.yield_lag_days) / 100.0  # known one business day late
+    # return on day t = previous day's lagged yield / 252, decimals
+    assert out.iloc[3:].to_numpy() == pytest.approx((lagged.shift(1) / 252).iloc[3:].to_numpy())
+    open_, close, gold, yields = synthetic_raw(["EWJ"], cfg.funds, cfg.fred_ids, end="2006-12-29")
+    p_open, p_close = build_panel(open_, close, yields, gold, cfg)
+    assert "CASH" in p_close.columns
+    assert p_close["CASH"].loc["1997-01-02":].notna().all()
+    # flat 4% yields: a constant daily return of 0.04 / 252
+    daily = p_close["CASH"].pct_change().dropna().iloc[5:].to_numpy()
+    assert daily == pytest.approx(0.04 / 252)
+    assert (
+        p_open["CASH"]
+        .loc["2001-03-01":"2001-03-30"]
+        .equals(p_close["CASH"].shift(1).loc["2001-03-01":"2001-03-30"])
+    )

@@ -20,6 +20,9 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from .macro import align_to_trading_days, lag_to_availability
+from .metrics import TRADING_DAYS
+
 
 @dataclass(frozen=True)
 class MarketSet:
@@ -210,3 +213,85 @@ def translate(rule: Rule, equity_leg: str, market: str) -> Rule:
 
 def holds_gold(rule: Rule, cfg: InternationalConfig) -> bool:
     return cfg.gold_fund in rule.tickers()
+
+
+CASH = "CASH"  # the strategies' cash sentinel; here a priced column
+
+
+def lagged_close(series: pd.Series, lag_days: int, index: pd.DatetimeIndex) -> pd.Series:
+    """`series` moved `lag_days` business days later and forward-filled onto `index`."""
+    avail = lag_to_availability(series.dropna(), {"unit": "business_days", "value": lag_days})
+    return align_to_trading_days(avail, index)
+
+
+def yield_proxy_close(
+    yields_pct: pd.Series, duration: float, lag_days: int, index: pd.DatetimeIndex
+) -> pd.Series:
+    """Total-return price index from a FRED constant-maturity yield in percent:
+    daily return = previous yield / 252 - duration x yield change, each yield
+    lagged `lag_days` business days (FRED publishes H.15 rates the next day)."""
+    y = lagged_close(yields_pct / 100.0, lag_days, index)
+    returns = (y.shift(1) / TRADING_DAYS - duration * y.diff()).dropna()
+    return (1.0 + returns).cumprod().reindex(index)
+
+
+def splice(proxy: pd.Series, fund: pd.Series) -> pd.Series:
+    """The fund from its first close on; before it, the proxy scaled to meet
+    that close, so the joined price has no jump."""
+    real = fund.dropna()
+    if real.empty:
+        return proxy.copy()
+    first = real.index[0]
+    before = proxy.loc[:first].dropna()
+    if before.empty or before.index[-1] != first:
+        return real
+    scaled = before * (real.iloc[0] / before.iloc[-1])
+    return pd.concat([scaled.iloc[:-1], real]).sort_index()
+
+
+def gold_correlation(
+    gold: pd.Series, fund: pd.Series, start: pd.Timestamp, end: pd.Timestamp
+) -> float | None:
+    """Daily-return correlation of the gold proxy against the gold fund over
+    [start, end]: a data check only. None with fewer than 20 common days."""
+    a = gold.loc[start:end].pct_change(fill_method=None)
+    b = fund.loc[start:end].pct_change(fill_method=None)
+    both = pd.concat([a, b], axis=1, join="inner").dropna()
+    if len(both) < 20:
+        return None
+    return float(both.iloc[:, 0].corr(both.iloc[:, 1]))
+
+
+def build_panel(
+    fund_open: pd.DataFrame,
+    fund_close: pd.DataFrame,
+    yields: dict[str, pd.Series],
+    gold: pd.Series,
+    cfg: InternationalConfig,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Open/close for every market and defensive fund on `fund_close`'s trading
+    days, with proxies spliced in before each fund's first date. A proxy day's
+    open is the previous close (no overnight gap). Yields (Treasury and DTB3)
+    are lagged `yield_lag_days` business days; the GC=F gold proxy is not (a
+    futures settlement is known at the close). A priced `CASH` column is built
+    from DTB3 over the whole backtest (duration 0: daily return = previous
+    yield / 252). The raw gold series is kept as its own close column for the
+    gold check."""
+    index = fund_close.index
+    close = fund_close.copy()
+    open_ = fund_open.reindex(index=index, columns=fund_close.columns).copy()
+    proxies = {
+        fund: yield_proxy_close(yields[fred], duration, cfg.yield_lag_days, index)
+        for fund, (fred, duration) in cfg.treasury.items()
+    }
+    proxies[cfg.gold_fund] = gold.reindex(index)
+    for fund, proxy in proxies.items():
+        first = fund_close[fund].first_valid_index()
+        close[fund] = splice(proxy, fund_close[fund]).reindex(index)
+        proxy_open = close[fund].shift(1)
+        open_[fund] = proxy_open if first is None else proxy_open.where(index < first, open_[fund])
+    close[cfg.gold_ticker] = gold.reindex(index)
+    open_[cfg.gold_ticker] = float("nan")
+    close[CASH] = yield_proxy_close(yields[cfg.cash_fred], 0.0, cfg.yield_lag_days, index)
+    open_[CASH] = close[CASH].shift(1)
+    return open_, close
