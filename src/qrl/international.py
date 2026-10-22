@@ -338,6 +338,23 @@ def market_checks(rule_m: dict, bh_m: dict, cfg: InternationalConfig) -> dict[st
     }
 
 
+def _scorable_days(
+    weights: pd.DataFrame,
+    first_close: pd.Timestamp,
+    windows: tuple[tuple[pd.Timestamp, pd.Timestamp | None], ...],
+    data_end: pd.Timestamp,
+) -> int:
+    """Days the engine could score: from the day after the rule's first valid
+    weights row (and after the market's first close), inside the windows. 0 when
+    the warm-up never completes, so the engine's own errors stay unreachable."""
+    valid = weights.notna().all(axis=1)
+    if not valid.any():
+        return 0
+    index = weights.index
+    start = max(index.get_loc(valid.idxmax()) + 1, index.get_loc(first_close) + 1)
+    return len(scoring_index(index[start:], windows, data_end))
+
+
 def evaluate_market(
     open_: pd.DataFrame,
     close: pd.DataFrame,
@@ -365,13 +382,21 @@ def evaluate_market(
         "buy_and_hold": {},
         "windows": [],
         "late_only": late_only,
+        "reason": None,
     }
-    try:
-        weights = with_cash(REGISTRY[rule.family].weights(close, **rule.params))
-        rule_bt = run_backtest(open_, close, weights)
-        bh_bt = run_backtest(open_, close, buy_and_hold(close, market))
-    except ValueError as exc:  # no usable data for this market: it does not pass
-        return {**empty, "error": str(exc)}
+    first_close = close[market].first_valid_index()
+    if first_close is None:
+        return {**empty, "reason": "insufficient data: the market has no prices"}
+    # Strategy and engine errors propagate: only thin data is a not-passed.
+    weights = with_cash(REGISTRY[rule.family].weights(close, **rule.params))
+    available = _scorable_days(weights, first_close, windows, data_end)
+    if available < cfg.min_scored_days:
+        return {
+            **empty,
+            "reason": f"insufficient data: {available} scored days < {cfg.min_scored_days}",
+        }
+    rule_bt = run_backtest(open_, close, weights)
+    bh_bt = run_backtest(open_, close, buy_and_hold(close, market))
     dates = scoring_index(rule_bt.returns.index, windows, data_end).intersection(
         bh_bt.returns.index
     )

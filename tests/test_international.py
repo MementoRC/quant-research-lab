@@ -377,6 +377,58 @@ def test_market_with_too_little_data_does_not_pass():
     assert not res["enough_data"]
     assert not res["passed"]
     assert res["sharpe_gain"] is None
+    assert "insufficient data" in res["reason"]
+
+
+def test_a_strategy_error_aborts_instead_of_scoring_a_fail(monkeypatch):
+    class Boom:
+        @staticmethod
+        def weights(close, **params):
+            raise ValueError("bug in the strategy")
+
+    monkeypatch.setitem(REGISTRY, "boom", Boom)
+    cfg = _cfg()
+    open_, close = _panel(["EWJ"], cfg)
+    with pytest.raises(ValueError, match="bug in the strategy"):
+        evaluate_market(open_, close, Rule("boom", {}), "EWJ", cfg, DATA_END)
+
+
+def test_an_engine_error_aborts_instead_of_scoring_a_fail(monkeypatch):
+    class Short:
+        @staticmethod
+        def weights(close, **params):
+            return pd.DataFrame({"EWJ": -1.0}, index=close.index)
+
+    monkeypatch.setitem(REGISTRY, "short", Short)
+    cfg = _cfg()
+    open_, close = _panel(["EWJ"], cfg)
+    with pytest.raises(ValueError, match="shorting"):
+        evaluate_market(open_, close, Rule("short", {}), "EWJ", cfg, DATA_END)
+
+
+def test_a_market_with_no_prices_is_insufficient_not_an_error():
+    cfg = _cfg()
+    open_, close = _panel(["EWZ"], cfg)
+    open_["EWZ"] = np.nan
+    close["EWZ"] = np.nan
+    rule = Rule("core_trend", {"risk_on": "EWZ", "risk_off": "IEF", "lookback": 200})
+    res = evaluate_market(open_, close, rule, "EWZ", cfg, DATA_END)
+    assert not res["passed"]
+    assert not res["enough_data"]
+    assert res["reason"].startswith("insufficient data")
+    assert "error" not in res
+
+
+def test_history_shorter_than_the_warm_up_is_insufficient_not_an_engine_error():
+    cfg = _cfg()
+    open_, close = _panel(["EWZ"], cfg)
+    keep = close.index >= pd.Timestamp("2026-06-01")  # about 100 days: under the 200 lookback
+    open_.loc[~keep, "EWZ"] = np.nan
+    close.loc[~keep, "EWZ"] = np.nan
+    rule = Rule("core_trend", {"risk_on": "EWZ", "risk_off": "IEF", "lookback": 200})
+    res = evaluate_market(open_, close, rule, "EWZ", cfg, DATA_END)
+    assert not res["passed"]
+    assert res["reason"].startswith("insufficient data: 0 scored days")
 
 
 from qrl.international import MarketSet, set_verdict  # noqa: E402
