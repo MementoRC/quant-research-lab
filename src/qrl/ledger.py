@@ -71,6 +71,13 @@ verdict and result, passes and failures alike (a crash with no result is
 `error` and does not block a rerun, except for the holdout), bound to the sha256 of
 config/overlay.yaml. Only one holdout row can ever exist: `record_overlay_event`
 refuses a second, and a partial UNIQUE index backs that up.
+International final test addition (docs/methodology/international-test.md):
+`international_events`, a brand-new table (`CREATE TABLE IF NOT EXISTS`). One
+row per market set, ever (UNIQUE set_name), recorded `started` with the rule,
+config and frozen-data fingerprints before anything is scored, then
+`completed` with the result and report path. Sets are used in the config's
+order; `record_international_event` refuses a used set, a skipped set, or an
+empty reason. There is no force option.
 """
 
 from __future__ import annotations
@@ -183,6 +190,23 @@ CREATE TABLE IF NOT EXISTS overlay_events (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_overlay_events_one_holdout
     ON overlay_events(kind) WHERE kind = 'holdout';
+
+CREATE TABLE IF NOT EXISTS international_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    set_name TEXT NOT NULL UNIQUE,
+    rule_id TEXT NOT NULL,
+    rule_sha256 TEXT NOT NULL,
+    config_sha256 TEXT NOT NULL,
+    git_commit TEXT,
+    data_end TEXT NOT NULL,
+    data_sha256 TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('started', 'completed')),
+    report_path TEXT,
+    result_json TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
 
 CREATE TABLE IF NOT EXISTS config_pins (
     name TEXT PRIMARY KEY,
@@ -703,6 +727,95 @@ class Ledger:
             }
             for row in rows
         ]
+
+    def record_international_event(
+        self,
+        set_name: str,
+        set_order: list[str],
+        rule_id: str,
+        rule_sha256: str,
+        config_sha256: str,
+        data_end: str,
+        data_sha256: str,
+        reason: str,
+        git_commit: str | None = None,
+    ) -> int:
+        """Record an international run as `started` before anything is scored.
+        Refuses an unknown or used set, a set whose predecessors in
+        `set_order` are unused, or an empty reason."""
+        if set_name not in set_order:
+            raise LedgerError(f"unknown market set {set_name!r}")
+        if not reason.strip():
+            raise LedgerError("an international run needs a reason (the owner's go-ahead)")
+        used = {e["set_name"] for e in self.list_international_events()}
+        if set_name in used:
+            raise LedgerError(f"market set {set_name!r} is already used; each set runs once")
+        unused = [s for s in set_order[: set_order.index(set_name)] if s not in used]
+        if unused:
+            raise LedgerError(f"sets run in order: {unused[0]!r} is unused")
+        commit = git_commit if git_commit is not None else current_git_commit()
+        try:
+            cur = self._conn.execute(
+                "INSERT INTO international_events (set_name, rule_id, rule_sha256, "
+                "config_sha256, git_commit, data_end, data_sha256, reason, status, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'started', ?)",
+                (
+                    set_name,
+                    rule_id,
+                    rule_sha256,
+                    config_sha256,
+                    commit,
+                    data_end,
+                    data_sha256,
+                    reason,
+                    _utcnow(),
+                ),
+            )
+        except sqlite3.IntegrityError as err:
+            raise LedgerError(str(err)) from err
+        self._conn.commit()
+        return _require_rowid(cur)
+
+    def complete_international_event(self, event_id: int, result: dict, report_path: str) -> None:
+        self._conn.execute(
+            "UPDATE international_events SET status = 'completed', result_json = ?, "
+            "report_path = ?, completed_at = ? WHERE event_id = ?",
+            (_dumps(result), report_path, _utcnow(), event_id),
+        )
+        self._conn.commit()
+
+    def list_international_events(self) -> list[dict]:
+        """Every international run event, oldest first."""
+        rows = self._conn.execute(
+            "SELECT event_id, set_name, rule_id, rule_sha256, config_sha256, git_commit, "
+            "data_end, data_sha256, reason, status, report_path, result_json, created_at, "
+            "completed_at FROM international_events ORDER BY event_id"
+        ).fetchall()
+        return [
+            {
+                **{k: v for k, v in dict(row).items() if k != "result_json"},
+                "result": json.loads(row["result_json"]) if row["result_json"] else None,
+            }
+            for row in rows
+        ]
+
+    def get_test(self, test_id: int) -> dict | None:
+        """One recorded test's identity (family, params, universe), or None."""
+        row = self._conn.execute(
+            "SELECT test_id, run_id, family, params_json, universe, passed "
+            "FROM tests WHERE test_id = ?",
+            (test_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "test_id": row["test_id"],
+            "run_id": row["run_id"],
+            "family": row["family"],
+            "params": json.loads(row["params_json"]),
+            "universe": row["universe"],
+            "passed": bool(row["passed"]),
+        }
 
     def record_meta_test(self, run_id: int, meta: dict, window: str, metrics: dict) -> int:
         """Log one meta-setting combination tried by `qrl.walkforward.tune_meta`
