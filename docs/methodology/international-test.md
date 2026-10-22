@@ -1,11 +1,9 @@
 # International final test (approved 2026-10-21)
 
-Status: Approved by the owner on 2026-10-21 (gold source amended the same
-day, before any run; run arguments, cash, gold lag, pinning and scope
-amended the same day, before any code). Not implemented. No market in any
-set has been run.
-Files named below without backticks (config/international.yaml,
-src/qrl/international.py, scripts/international.py) do not exist yet.
+Status: Implemented (2026-10-22). Approved by the owner on 2026-10-21 (gold
+source amended the same day, before any run; run arguments, cash, gold lag,
+pinning and scope amended the same day, before any code). No market in any
+set has been run; the first confirmed `run` pins `config/international.yaml`.
 
 ## Purpose
 
@@ -72,7 +70,7 @@ that market's early window; it is never filled in from elsewhere.
 
 Minimum data: a market needs at least 500 scored trading days across both
 windows. A market below that counts as not passed (the count's denominator
-stays 7, 6 or 4).
+stays 7, 6 or 4); it is reported with its scored-day count.
 
 Scoring: the rule's daily returns (net of costs) from the two windows are
 joined end to end, in order, and metrics are computed once on that joined
@@ -90,7 +88,7 @@ One mechanical translation, fixed here, no per-market choices:
 
 - The equity leg is the one ticker in the rule's parameters (`risk_on`,
   `risk_off`, and for `core_mix` also `signal`) that is not on the defensive
-  list in config/international.yaml: GLD, IEF, TLT, SHY, CASH. A rule with no
+  list in `config/international.yaml`: GLD, IEF, TLT, SHY, CASH. A rule with no
   such ticker, or more than one, is refused as not covered.
 - The equity leg is replaced by the market's ETF wherever it appears,
   including as `core_mix`'s `signal`. Every other parameter stays as accepted.
@@ -186,15 +184,18 @@ The market sets are sealed like the holdout:
 - A set with an event is used. There is no force option.
 - If a run fails after its event, it may only be re-run with the same rule
   hash, config hash and data hash (a deterministic recompute, not a retry with
-  new data). The row moves to status `completed` with the report path when the
+  new data). The frozen snapshot is stored at
+  `data/cache/international/<set>_frozen.parquet` (the script's cache path),
+  and a `started` event can only be recomputed while that snapshot exists.
+  The row moves to status `completed` with the report path when the
   report is written.
 
 ## Components
 
-- config/international.yaml: sets, windows, warm-up start, pass rule,
+- `config/international.yaml`: sets, windows, warm-up start, pass rule,
   defensive list, proxies, covered strategies. Its sha256 is recorded with
   each event and pinned in `config_pins` on the first confirmed run.
-- src/qrl/international.py: pure functions. Translate a rule (swap the
+- `src/qrl/international.py`: pure functions. Translate a rule (swap the
   equity ticker, parameters unchanged), score windows, per-market verdict, set
   verdict. No data loading.
 - `qrl.ledger`: new `international_events` table and its check. The
@@ -202,7 +203,7 @@ The market sets are sealed like the holdout:
   rows written before this change, which are not back-filled). Validation sets
   it once all its checks have run, so a rejected candidate's row records 0.
   Until now a validation event only meant "validated", not "passed".
-- scripts/international.py (pixi task `international`): subcommands
+- `scripts/international.py` (pixi task `international`): subcommands
   `check-data --set <set>` and
   `run --set <set> --test-id <id> --reason "..." --confirm`.
 - `research/international_<set>.md`: written once per run. Per-market table,
@@ -231,5 +232,5 @@ The market sets are sealed like the holdout:
 - `check-data` output contains no return or metric figures.
 - Hash-change refusal: the first confirmed run pins `international.yaml`;
   a later run with a different hash is refused.
-- scripts/international.py never sets `unseal_holdout=True` (covered by
+- `scripts/international.py` never sets `unseal_holdout=True` (covered by
   `tests/test_holdout.py`'s scripts guard).

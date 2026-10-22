@@ -484,6 +484,7 @@ def validate_survivors(
         daily_returns = val_outcome[series_key].dropna()
         val_sharpe = val_outcome["metrics"].get(sharpe_key)
         if val_sharpe is None or len(daily_returns) < 3:
+            ledger.set_validation_verdict(test_id, False)
             _reject(
                 rejected,
                 candidate,
@@ -507,6 +508,7 @@ def validate_survivors(
             val_sharpe, program_srs, len(daily_returns), skew, kurtosis
         )
         if dsr < min_dsr:
+            ledger.set_validation_verdict(test_id, False)
             _reject(
                 rejected,
                 candidate,
@@ -519,6 +521,7 @@ def validate_survivors(
 
         corr_result = correlation_filter(daily_returns, accepted_returns, max_corr)
         if not corr_result["passed"]:
+            ledger.set_validation_verdict(test_id, False)
             _reject(
                 rejected,
                 candidate,
@@ -528,6 +531,7 @@ def validate_survivors(
                 funnel_order,
             )
             continue
+        ledger.set_validation_verdict(test_id, True)
         funnel["passed_correlation"] += 1
         funnel["accepted"] += 1
 
