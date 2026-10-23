@@ -338,6 +338,72 @@ def build_panel(
     return open_, close
 
 
+def _interior_gap_mask(series: pd.Series, end: pd.Timestamp) -> pd.Series:
+    """NaN days strictly inside the leg's proxy era: after its first valid
+    price and before `end` (the real fund's first date)."""
+    index = pd.DatetimeIndex(series.index)
+    first = series.first_valid_index()
+    if first is None:
+        return pd.Series(False, index=index)
+    start = cast(pd.Timestamp, first)
+    return series.isna() & pd.Series((index > start) & (index < end), index=index)
+
+
+def _longest_run(mask: pd.Series) -> int:
+    """Longest run of consecutive True rows."""
+    if not mask.any():
+        return 0
+    groups = (~mask).cumsum()
+    return int(mask.groupby(groups).sum().max())
+
+
+def proxy_gaps(
+    close: pd.DataFrame, legs: list[str], proxy_end: dict[str, pd.Timestamp]
+) -> dict[str, tuple[list[pd.Timestamp], int]]:
+    """Per leg: (dates, longest run) of interior NaNs in the proxy era. Dates
+    and counts only."""
+    out = {}
+    for leg in legs:
+        mask = _interior_gap_mask(close[leg], proxy_end[leg])
+        out[leg] = ([pd.Timestamp(d) for d in mask.index[mask]], _longest_run(mask))
+    return out
+
+
+def fill_proxy_gaps(
+    open_: pd.DataFrame,
+    close: pd.DataFrame,
+    legs: list[str],
+    proxy_end: dict[str, pd.Timestamp],
+    limit: int = 1,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Forward-fill short interior NaNs of the spliced defensive `legs` in
+    their proxy era (after the leg's first price, before `proxy_end[leg]`, the
+    real fund's first date). A filled day has the previous close, so a zero
+    return, and its open follows the splice convention (open = previous
+    close), as does the next day's. Market columns, real-fund dates and
+    non-NaN values are never touched. A gap longer than `limit` raises
+    ValueError. Returns new frames."""
+    new_open, new_close = open_.copy(), close.copy()
+    index = pd.DatetimeIndex(close.index)
+    for leg in legs:
+        mask = _interior_gap_mask(close[leg], proxy_end[leg])
+        longest = _longest_run(mask)
+        if longest > limit:
+            raise ValueError(
+                f"{leg}: a proxy-era gap of {longest} days exceeds the fill limit of {limit}"
+            )
+        if not mask.any():
+            continue
+        filled = close[leg].ffill(limit=limit).where(mask, close[leg])
+        new_close[leg] = filled
+        prev = new_close[leg].shift(1)
+        touched = (mask | mask.shift(1, fill_value=False)) & pd.Series(
+            index < proxy_end[leg], index=index
+        )
+        new_open[leg] = open_[leg].where(~(touched & open_[leg].isna()), prev)
+    return new_open, new_close
+
+
 def with_cash(weights: pd.DataFrame) -> pd.DataFrame:
     """The strategy's weights plus a `CASH` column holding whatever is left
     uninvested (1 - row sum, floored at 0): weights summing below 1, or

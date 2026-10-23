@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -37,10 +38,12 @@ from qrl.international import (  # noqa: E402
     data_end_before,
     derive_equity_leg,
     evaluate_market,
+    fill_proxy_gaps,
     freeze,
     gold_correlation,
     holds_gold,
     load_international_config,
+    proxy_gaps,
     render_report,
     set_verdict,
     translate,
@@ -50,6 +53,7 @@ from qrl.macro import fetch_series  # noqa: E402
 
 CACHE_DIR = ROOT / "data" / "cache"
 PIN_NAME = "international"
+PROXY_FILL_LIMIT = 1  # spec amendment 2026-10-23: longest proxy-era gap that is filled
 DESIGNATED_STATUS = "designated_unvalidated"
 DESIGNATED_NOTE = (
     "subject not validated (owner-designated; failed fixed standalone attempt, test {test_id})"
@@ -87,6 +91,21 @@ def _span(series: pd.Series) -> str:
     return f"{valid.index[0].date()} to {valid.index[-1].date()}, {len(valid)} bars"
 
 
+def _print_proxy_gaps(
+    fund_close: pd.DataFrame, panel_close: pd.DataFrame, cfg: InternationalConfig
+) -> None:
+    """Interior NaNs of each spliced defensive leg in its proxy era (dates and
+    counts only), against the fill limit."""
+    legs = [f for f in cfg.funds if fund_close[f].first_valid_index() is not None]
+    ends = {f: cast("pd.Timestamp", fund_close[f].first_valid_index()) for f in legs}
+    print(f"Proxy-era interior gaps per defensive leg (fill limit {PROXY_FILL_LIMIT} day):")
+    for leg, (dates, longest) in proxy_gaps(panel_close, legs, ends).items():
+        verdict = "within the fill limit" if longest <= PROXY_FILL_LIMIT else "EXCEEDS the limit"
+        print(f"  {leg}: {len(dates)} gaps, max run {longest} ({verdict})")
+        if dates:
+            print("    " + ", ".join(str(d.date()) for d in dates))
+
+
 def check_data(cfg: InternationalConfig, set_name: str, refresh: bool, cache_dir: Path) -> int:
     try:
         cfg.market_set(set_name)
@@ -104,6 +123,7 @@ def check_data(cfg: InternationalConfig, set_name: str, refresh: bool, cache_dir
     print("Defensive legs with proxies spliced in, first date per leg:")
     for fund in [*cfg.funds, "CASH"]:
         print(f"  {fund}: {panel_close[fund].first_valid_index()}")
+    _print_proxy_gaps(fund_close, panel_close, cfg)
     start, end = cfg.gold_check
     corr = gold_correlation(panel_close[cfg.gold_ticker], panel_close[cfg.gold_fund], start, end)
     ok = corr is not None and corr >= cfg.gold_min_correlation
@@ -320,6 +340,11 @@ def _score_and_record(
     is a not-passed, with a `reason`), so a code bug raises here and leaves the
     event 'started' rather than completing it as a fail."""
     event_id, open_, close, data_end, data_sha = frozen
+    # After the snapshot's sha was verified (data_sha covers the raw frames):
+    # the spec's 2026-10-23 amendment fills 1-day proxy-era gold gaps.
+    open_, close = fill_proxy_gaps(
+        open_, close, [cfg.gold_fund], {cfg.gold_fund: cfg.gold_check[0]}, PROXY_FILL_LIMIT
+    )
     market_set = cfg.market_set(args.set)
     corr = None
     late_only = False
