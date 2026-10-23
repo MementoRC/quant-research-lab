@@ -14,6 +14,7 @@ COMPARE_PATH = "research/core_compare.md"
 REVEAL_PATH = "research/core_reveal.md"
 FRAGILITY_PATH = "research/fragility.md"
 DECISION_PATH = "research/decision.md"
+CORE_A_SECTION_PREFIX = "What the tests say about core A"
 LONGRUN_PATH = "research/longrun.md"
 RSP_PATH = "research/rsp_sleeve.md"
 
@@ -183,8 +184,15 @@ def _build_report(root: Path, rel_path: str) -> dict | None:
 
 def build_decision(root: Path) -> dict | None:
     """The `decision` block for results.json from the committed `research/decision.md`,
-    rendered generically (header bullets, then every `## ` section), or None if absent."""
-    return _build_report(root, DECISION_PATH)
+    rendered generically (header bullets, then every `## ` section), or None if absent.
+    The core A evidence section (docs/methodology/decision-helper.md, note 2026-10-23)
+    stays in the markdown report only: the dashboard block keeps its pinned sections."""
+    block = _build_report(root, DECISION_PATH)
+    if block is not None:
+        block["sections"] = [
+            s for s in block["sections"] if not s["title"].startswith(CORE_A_SECTION_PREFIX)
+        ]
+    return block
 
 
 def build_longrun(root: Path) -> dict | None:

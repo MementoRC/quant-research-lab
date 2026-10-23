@@ -626,3 +626,40 @@ Value after one year as a percentage of the start: (1 + the worse state's scenar
 | E80-CASH20 | 86.0% / 84.3% | 84.7% / 83.0% | 84.0% / 82.3% | 83.0% / 81.3% |
 | F80-CASH20 (risk_on) | 86.1% / 84.4% | 84.8% / 83.2% | 84.1% / 82.5% | 83.1% / 81.5% |
 | G80-CASH20 | 96.6% / 94.7% | 95.3% / 93.4% | 94.6% / 92.7% | 93.6% / 91.8% |
+
+## What the tests say about core A (QQQ/GLD trend, held core)
+
+Evidence from the research ledger, shown as it stands. It is not a recommendation.
+
+### US research period (2005-2018): one fixed attempt
+
+Core A was tried once, with settings fixed in advance (ledger run 8, test 1496: hold QQQ while it is above its 200-day average, otherwise hold GLD). It failed the pass rules. Because it failed, no validation was run.
+
+- Sharpe (return per unit of risk): 0.477; the pass rule needs at least 0.5
+- Compound yearly return: 7.3%
+- Largest peak-to-trough fall: 29.9%
+- Trades: 112
+- It also did not beat QQQ on Sharpe, which the pass rules require
+
+### International final test, main set (seven foreign stock markets)
+
+Core A was owner-designated for this test and is labelled "subject not validated" (it had not passed the US tests). The rule was scored over 2023-01-01 to 2026-10-21 only. Because the gold stand-in check did not pass (0.93, below the 0.95 needed), only the late window could be scored. 0 of 7 markets passed (the test needs 5); the average Sharpe gain over simply holding each market was -0.21. Full report: research/international_main.md.
+
+| Market | Core A rule Sharpe | Buy-and-hold Sharpe | Yearly return: rule vs buy-and-hold | Largest fall: rule vs buy-and-hold |
+|---|---|---|---|---|
+| EWJ | 0.81 | 1.03 | 14.0% vs 19.0% | 21.2% vs 14.7% |
+| EWU | 0.98 | 1.14 | 13.8% vs 16.5% | 14.3% vs 12.6% |
+| EWG | 0.71 | 1.02 | 11.4% vs 17.5% | 22.8% vs 15.8% |
+| EWC | 1.20 | 1.29 | 17.9% vs 20.1% | 15.8% vs 13.0% |
+| EWA | 0.62 | 0.66 | 9.4% vs 11.0% | 22.1% vs 21.9% |
+| EWL | 0.67 | 0.95 | 9.4% vs 13.8% | 14.4% vs 13.5% |
+| EWQ | 0.27 | 0.62 | 3.2% vs 9.7% | 23.3% vs 15.2% |
+
+### What this does and does not tell you
+
+- In the US research period, core A did not meet the pass rules and did not beat the QQQ index on Sharpe.
+- In the international test, core A's risk-adjusted return (Sharpe) was below simply holding the market in 7 of 7 markets.
+- Its largest fall was bigger than buy-and-hold's in 7 of 7 markets: switching to gold did not protect in those mild declines.
+- The international window was mostly rising markets and contains no large crash, so it says little about behaviour in a crash; the stress and withdrawal tables elsewhere in this report cover that.
+- A failed test does not make core A unusable. It means an edge over simply holding the index has not been established.
+- The decision is the owner's.

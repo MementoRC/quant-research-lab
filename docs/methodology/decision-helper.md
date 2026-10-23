@@ -152,6 +152,7 @@ other than gold. The report states this.
 |---|---|
 | `config/decision.yaml` | portfolios, blends, scenarios, rates, start years; sha256-hashed |
 | `src/qrl/decision*.py` | all logic, split into focused modules (config, weights/scenarios, withdrawals, report): `decision_config.py`, `decision.py`, `decision_withdraw.py`, `decision_report.py` |
+| `src/qrl/decision_core_a.py` | the core A evidence section, read from the ledger (note 2026-10-23) |
 | `scripts/decision.py` | IO, wiring, formatting only; no thresholds or logic |
 | `research/decision.md` | committed report |
 | `pixi.toml` | task `decision` |
@@ -197,6 +198,32 @@ hash-bound config (`core_candidates.yaml`, `core_shortlist.yaml`,
 - withdrawal mechanics: depletion stops at 0; an unrecovered drawdown is reported as not recovered
 - CPI lag: a month's index is not used before the last day of the next month
 - dot-com cells report proxied shares, and cells above 25% carry the indicative flag
+
+## Note 2026-10-23: what the tests say about core A
+
+`research/decision.md` ends with a section "What the tests say about core A
+(QQQ/GLD trend, held core)", for the held core A. It presents evidence and
+trade-offs only; it recommends nothing and does not suggest a core switch. It
+is rendered by `src/qrl/decision_core_a.py` (called from `scripts/decision.py`)
+from the ledger, opened read-only, so it regenerates with the report:
+
+- US research period: the one pre-registered fixed attempt (ledger run 8, test
+  1496, family `core_trend`, `tests.metrics_json`): Sharpe against
+  `criteria.yaml` `pass.min_sharpe`, CAGR, max drawdown, trades, the recorded
+  failure reasons, and that no validation followed a failed attempt.
+- International final test, main set: the completed `international_events` row
+  for set `main` (`result_json`: verdict, markets, late-only flag, gold
+  correlation; report `research/international_main.md`; threshold from
+  `config/international.yaml`). Labelled "subject not validated" when the result
+  carries that status. A per-market table gives the rule and buy-and-hold
+  Sharpe, CAGR and max drawdown.
+- A neutral "what this does and does not tell you" list; its counts (markets
+  where the rule trailed, markets with a larger fall) are computed from the same
+  rows.
+
+If the ledger or its rows are missing (a fresh or synthetic ledger), the section
+is a one-line "not available" note. `--ledger` selects another ledger file. No
+other number in the report changes.
 
 ## Delivery
 
