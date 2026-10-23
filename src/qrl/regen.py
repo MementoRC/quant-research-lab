@@ -164,6 +164,9 @@ SPECS: tuple[ReportSpec, ...] = (
 
 SKIPPED: dict[str, str] = {
     "research/core_reveal.md": "one-time reveal; it writes the ledger and has no render-only path",
+    "research/international_main.md": (
+        "sealed one-shot international test (event 1); regenerating is refused by design"
+    ),
     "research/overlay.md": "renderer runs only after ledger writes; a render-only entry is a follow-up",
     "research/rsp_sleeve.md": "needs --validation-note free text that cannot be recovered",
     "research/run5_validation.txt": "captured validation output, a ledger step",
