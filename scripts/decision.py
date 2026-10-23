@@ -21,10 +21,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+import yaml  # noqa: E402
+
 from qrl.criteria import load_criteria  # noqa: E402
 from qrl.data import load_ohlcv  # noqa: E402
 from qrl.decision import data_end, portfolio_tickers, run_decision  # noqa: E402
 from qrl.decision_config import load_decision_config  # noqa: E402
+from qrl.decision_core_a import render_core_a_section  # noqa: E402
 from qrl.decision_report import render_markdown  # noqa: E402
 from qrl.decision_withdraw import CPI_SERIES  # noqa: E402
 from qrl.macro import load_macro  # noqa: E402
@@ -32,10 +35,20 @@ from qrl.periods import period_bounds  # noqa: E402
 from qrl.stress import EQUITY_PROXY, load_stress_config  # noqa: E402
 
 
+def _gold_min_correlation() -> float | None:
+    """The gold stand-in check's threshold from config/international.yaml (read only)."""
+    try:
+        doc = yaml.safe_load((ROOT / "config" / "international.yaml").read_text())
+        return float(doc["proxies"]["gold"]["min_correlation"])
+    except (OSError, KeyError, TypeError, ValueError, yaml.YAMLError):
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default=str(ROOT / "config" / "decision.yaml"))
     ap.add_argument("--out-md", default=str(ROOT / "research" / "decision.md"))
+    ap.add_argument("--ledger", default=str(ROOT / "research" / "ledger.sqlite"))
     args = ap.parse_args(argv)
 
     try:
@@ -66,7 +79,11 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, RuntimeError) as exc:  # spec refusal or failed download: nothing written
         print(f"refused: {exc}")
         return 1
-    markdown = render_markdown(report)
+    markdown = (
+        render_markdown(report)
+        + "\n"
+        + render_core_a_section(args.ledger, criteria, _gold_min_correlation())
+    )
     out = Path(args.out_md)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(markdown, encoding="utf-8")
