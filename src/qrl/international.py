@@ -37,6 +37,16 @@ class MarketSet:
 
 
 @dataclass(frozen=True)
+class DesignatedCore:
+    """The owner-designated, unvalidated subject (spec amendment 2026-10-22)."""
+
+    family: str
+    params: dict
+    failed_attempt_test_id: int
+    reason: str
+
+
+@dataclass(frozen=True)
 class InternationalConfig:
     sets: tuple[MarketSet, ...]
     windows: tuple[tuple[pd.Timestamp, pd.Timestamp | None], ...]
@@ -54,6 +64,7 @@ class InternationalConfig:
     gold_fund: str
     gold_check: tuple[pd.Timestamp, pd.Timestamp]
     gold_min_correlation: float
+    designated_core: DesignatedCore | None = None
 
     @property
     def set_names(self) -> list[str]:
@@ -108,10 +119,32 @@ def _validate(cfg: InternationalConfig) -> None:
         raise ValueError("every proxied fund must be on the defensive list")
 
 
+def _parse_designated(block: object) -> DesignatedCore | None:
+    """The optional `designated_core` block; ValueError if it is malformed."""
+    if block is None:
+        return None
+    if not isinstance(block, dict):
+        raise ValueError("designated_core must be a mapping")
+    test_id = block.get("failed_attempt_test_id")
+    if not isinstance(test_id, int) or isinstance(test_id, bool):
+        raise ValueError("designated_core.failed_attempt_test_id must be an integer")
+    if not isinstance(block.get("params"), dict):
+        raise ValueError("designated_core.params must be a mapping")
+    if not isinstance(block.get("family"), str):
+        raise ValueError("designated_core.family must be a string")
+    return DesignatedCore(
+        family=block["family"],
+        params=dict(block["params"]),
+        failed_attempt_test_id=test_id,
+        reason=str(block.get("reason", "")),
+    )
+
+
 def load_international_config(path: str | Path) -> tuple[InternationalConfig, str]:
     """Load `config/international.yaml`; return it with its full sha256."""
     raw = Path(path).read_bytes()
     doc = yaml.safe_load(raw)
+    designated = _parse_designated(doc.get("designated_core"))
     proxies = doc["proxies"]
     gold = proxies["gold"]
     cfg = InternationalConfig(
@@ -139,8 +172,11 @@ def load_international_config(path: str | Path) -> tuple[InternationalConfig, st
         gold_fund=str(gold["fund"]),
         gold_check=(_ts(gold["check_start"]), _ts(gold["check_end"])),
         gold_min_correlation=float(gold["min_correlation"]),
+        designated_core=designated,
     )
     _validate(cfg)
+    if designated is not None:  # a family derive_equity_leg accepts; NotCovered is a ValueError
+        derive_equity_leg(Rule(designated.family, designated.params), cfg)
     return cfg, hashlib.sha256(raw).hexdigest()
 
 
@@ -489,6 +525,7 @@ def render_report(header: dict, verdict: dict, markets: list[dict]) -> str:
         f"- international.yaml sha256: `{header['config_sha256']}`",
         f"- Rule fingerprint: `{header['rule_sha256'][:12]}`",
         f"- Data fingerprint: `{header['data_sha256'][:12]}`",
+        *([f"- **{header['subject_note']}**"] if header.get("subject_note") else []),
         "- Cash: uninvested weight earned the 3-month T-bill rate (FRED DTB3, lagged one "
         "business day). The US research, validation and holdout results used 0% cash, so a "
         "rule that holds cash scores somewhat better here than under the US convention.",

@@ -2,7 +2,9 @@
 
 Status: Implemented (2026-10-22). Approved by the owner on 2026-10-21 (gold
 source amended the same day, before any run; run arguments, cash, gold lag,
-pinning and scope amended the same day, before any code). No market in any
+pinning and scope amended the same day, before any code). Amended 2026-10-22
+(owner-approved, before any run): an owner-designated, unvalidated subject may
+run through `--designated`, clearly labelled (see Amendments). No market in any
 set has been run; the first confirmed `run` pins `config/international.yaml`.
 
 ## Purpose
@@ -169,7 +171,8 @@ The market sets are sealed like the holdout:
   needs a fresh owner go-ahead. `--test-id` names a ledger test whose
   validation event has `passed = 1` (see Components); the rule run is that
   test's strategy and parameters, unchanged. `--reason` is required and
-  recorded.
+  recorded. The one exception is `--designated`, an owner-approved,
+  labelled path for the held core A (see Amendments, 2026-10-22).
 - The first `--confirm` run pins `international.yaml`'s sha256 in the
   ledger's `config_pins` table (name `international`). Every later run
   refuses if the file's hash differs from the pin. Pins are never
@@ -232,5 +235,48 @@ The market sets are sealed like the holdout:
 - `check-data` output contains no return or metric figures.
 - Hash-change refusal: the first confirmed run pins `international.yaml`;
   a later run with a different hash is refused.
+- `--designated` (Amendments, 2026-10-22): runs and is labelled when the
+  config's `designated_core` matches a failed ledger test; is refused when the
+  block is absent, the test is missing, its family or params differ, or it
+  passed; `--test-id` and `--designated` together, or neither, are refused; a
+  malformed block is rejected by the config loader.
 - `scripts/international.py` never sets `unseal_holdout=True` (covered by
   `tests/test_holdout.py`'s scripts guard).
+
+## Amendments
+
+### 2026-10-22 — a designated, unvalidated subject (before any international run)
+
+No market in any set had been run, and the ledger held no `international_events`
+row and no `international` config pin, when this was made. The owner approved it.
+
+- **Why.** The held core A (`core_trend`, risk_on QQQ, risk_off GLD, lookback
+  200) was given one pre-registered fixed standalone attempt (ledger run 8,
+  test 1496). It failed: Sharpe 0.477 against the 0.5 bar, and it did not beat
+  QQQ. It therefore has no validation event with `passed = 1`, and the
+  `--test-id` gate refuses it. The owner chose to let it be the subject of the
+  international test anyway, labelled as unvalidated, rather than leave the
+  test with no subject.
+- **`designated_core` block.** `config/international.yaml` gains an optional
+  `designated_core` block: `family`, `params`, `failed_attempt_test_id` (1496)
+  and a one-line `reason`. It is part of the file, so it is covered by the
+  config sha256 and the pin like everything else. The config loader rejects a
+  block whose family is not a covered one `derive_equity_leg` accepts, whose
+  params are not a mapping, or whose test id is not an integer.
+- **`run --designated`.** An alternative to `--test-id`; exactly one of the two
+  is required. The rule is built only from `designated_core`. The run is
+  refused if the block is absent, if ledger test `failed_attempt_test_id` does
+  not exist, if its family or params differ from the block, or if it passed (a
+  passed rule goes through `--test-id`). `--set`, `--reason`, `--confirm`, the
+  config pin, the data checks, the coverage gate and the rest are unchanged.
+- **Labelling.** The `international_events` row's `rule_id` reads
+  `designated core: subject not validated (owner-designated; failed fixed
+  standalone attempt, test 1496)`, and the completed event's `result` carries
+  `subject_status: designated_unvalidated` and the same text as
+  `subject_note`. The report `research/international_<set>.md` and the
+  printed output carry the same sentence. No schema change. Rows written
+  through `--test-id` are unchanged and carry no such field.
+- **Unchanged.** The pass rule, the market sets and their order, the windows,
+  the gold late-window rule, the sealing rules and the `--test-id` gate (a
+  validation event with `passed = 1`) are as before. A pass here does not turn
+  core A into a validated rule; the label stays with the result.

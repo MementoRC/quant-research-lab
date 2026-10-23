@@ -13,6 +13,8 @@ Usage:
     python scripts/international.py check-data --set main
     python scripts/international.py run --set main --test-id 123 \\
         --reason "owner go-ahead <date>" --confirm
+    python scripts/international.py run --set main --designated \\
+        --reason "owner go-ahead <date>" --confirm   # unvalidated subject, labelled
 """
 
 from __future__ import annotations
@@ -48,6 +50,10 @@ from qrl.macro import fetch_series  # noqa: E402
 
 CACHE_DIR = ROOT / "data" / "cache"
 PIN_NAME = "international"
+DESIGNATED_STATUS = "designated_unvalidated"
+DESIGNATED_NOTE = (
+    "subject not validated (owner-designated; failed fixed standalone attempt, test {test_id})"
+)
 
 
 def load_raw(
@@ -125,7 +131,14 @@ def _parser() -> argparse.ArgumentParser:
     p_check.add_argument("--refresh", action="store_true")
     p_run = sub.add_parser("run", parents=[common])
     p_run.add_argument("--set", required=True)
-    p_run.add_argument("--test-id", type=int, required=True)
+    subject = p_run.add_mutually_exclusive_group(required=True)
+    subject.add_argument("--test-id", type=int)
+    subject.add_argument(
+        "--designated",
+        action="store_true",
+        help="the owner-designated, unvalidated core from config's designated_core "
+        "(spec amendment 2026-10-22)",
+    )
     p_run.add_argument("--reason", default="", help="the owner's go-ahead and acceptance evidence")
     p_run.add_argument("--confirm", action="store_true")
     return ap
@@ -175,6 +188,51 @@ def _rule_refusal(
     return None, rule, leg
 
 
+def _designated_refusal(
+    ledger: Ledger, args: argparse.Namespace, cfg: InternationalConfig, cfg_sha: str
+) -> tuple[str | None, Rule | None, str | None]:
+    """Like `_rule_refusal`, for `--designated`: the rule comes only from the
+    config's designated_core, whose referenced attempt must be a recorded,
+    identical, failed test."""
+    pinned = ledger.config_pin(PIN_NAME)
+    if pinned is not None and pinned["sha256"] != cfg_sha:
+        return (
+            "config/international.yaml differs from the pinned hash; the spec is void",
+            None,
+            None,
+        )
+    designated = cfg.designated_core
+    if designated is None:
+        return "config/international.yaml has no designated_core", None, None
+    test_id = designated.failed_attempt_test_id
+    test = ledger.get_test(test_id)
+    if test is None:
+        return f"no ledger test {test_id} (designated_core.failed_attempt_test_id)", None, None
+    if (test["family"], test["params"]) != (designated.family, designated.params):
+        return f"ledger test {test_id} is not the designated core's family and params", None, None
+    if test["passed"]:
+        return f"ledger test {test_id} passed; a passed rule must go through --test-id", None, None
+    rule = Rule(designated.family, designated.params)
+    try:
+        leg = derive_equity_leg(rule, cfg)
+        translate(rule, leg, cfg.market_set(args.set).markets[0])
+    except NotCovered as exc:
+        return str(exc), None, None
+    return None, rule, leg
+
+
+def _rule_id(args: argparse.Namespace, cfg: InternationalConfig) -> str:
+    """The ledger's rule_id; a designated subject carries its label here."""
+    note = _subject_note(args, cfg)
+    return f"ledger test {args.test_id}" if note is None else f"designated core: {note}"
+
+
+def _subject_note(args: argparse.Namespace, cfg: InternationalConfig) -> str | None:
+    if args.designated and cfg.designated_core is not None:
+        return DESIGNATED_NOTE.format(test_id=cfg.designated_core.failed_attempt_test_id)
+    return None
+
+
 def _pin_on_first_run(ledger: Ledger, cfg_sha: str) -> None:
     """The first confirmed run pins international.yaml's sha256 (never overwritten)."""
     if ledger.config_pin(PIN_NAME) is None:
@@ -214,7 +272,7 @@ def _start(
         event_id = ledger.record_international_event(
             set_name=args.set,
             set_order=cfg.set_names,
-            rule_id=f"ledger test {args.test_id}",
+            rule_id=_rule_id(args, cfg),
             rule_sha256=rule.sha256,
             config_sha256=cfg_sha,
             data_end=str(data_end.date()),
@@ -285,7 +343,8 @@ def _score_and_record(
     header = {
         "set": args.set,
         "event_id": event_id,
-        "rule_id": f"ledger test {args.test_id}",
+        "rule_id": _rule_id(args, cfg),
+        "subject_note": _subject_note(args, cfg),
         "family": rule.family,
         "params": rule.params,
         "equity_leg": equity_leg,  # derived from the rule
@@ -300,11 +359,16 @@ def _score_and_record(
     out = Path(args.out_dir) / f"international_{args.set}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(markdown, encoding="utf-8")
-    ledger.complete_international_event(
-        event_id,
-        {"verdict": verdict, "markets": markets, "late_only": late_only, "gold_correlation": corr},
-        str(out),
-    )
+    result = {
+        "verdict": verdict,
+        "markets": markets,
+        "late_only": late_only,
+        "gold_correlation": corr,
+    }
+    note = _subject_note(args, cfg)
+    if note is not None:
+        result |= {"subject_status": DESIGNATED_STATUS, "subject_note": note}
+    ledger.complete_international_event(event_id, result, str(out))
     return f"{markdown}\nWrote {out}"
 
 
@@ -320,7 +384,8 @@ def run(args: argparse.Namespace, cfg: InternationalConfig, cfg_sha: str) -> int
         return 1
     snapshot = Path(args.cache_dir) / "international" / f"{args.set}_frozen.parquet"
     with Ledger(args.ledger) as ledger:
-        refusal, rule, equity_leg = _rule_refusal(ledger, args, cfg, cfg_sha)
+        check = _designated_refusal if args.designated else _rule_refusal
+        refusal, rule, equity_leg = check(ledger, args, cfg, cfg_sha)
         if refusal is not None or rule is None or equity_leg is None:
             print(f"refused: {refusal}")
             return 1
