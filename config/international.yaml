@@ -35,6 +35,17 @@ defensive: [GLD, IEF, TLT, SHY, CASH]
 # Strategies (REGISTRY names) the test covers; any other is refused.
 covered_strategies: [core_trend, core_mix]
 
+# Amendment 2026-10-22 (owner-approved, spec docs/methodology/international-test.md,
+# made before any international run): the held core A may be the subject of
+# `run --designated` although it did not pass validation. Its one pre-registered
+# fixed standalone attempt (ledger test 1496) failed. Results for it are labelled
+# "subject not validated". The --test-id gate is unchanged.
+designated_core:
+  family: core_trend
+  params: {risk_on: QQQ, risk_off: GLD, lookback: 200}
+  failed_attempt_test_id: 1496
+  reason: "held core A; failed fixed standalone attempt (ledger run 8, test 1496); owner-designated subject, not validated"
+
 proxies:
   yield_lag_business_days: 1  # FRED yields only; GC=F is a market price, not lagged
   treasury:
