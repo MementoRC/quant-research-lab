@@ -4,8 +4,12 @@ Status: Implemented (2026-10-22). Approved by the owner on 2026-10-21 (gold
 source amended the same day, before any run; run arguments, cash, gold lag,
 pinning and scope amended the same day, before any code). Amended 2026-10-22
 (owner-approved, before any run): an owner-designated, unvalidated subject may
-run through `--designated`, clearly labelled (see Amendments). No market in any
-set has been run; the first confirmed `run` pins `config/international.yaml`.
+run through `--designated`, clearly labelled (see Amendments). Event 1 (set
+`main`, designated core) started on 2026-10-23, pinned the config and froze the
+data, then crashed before any result: single-day gaps in the proxy-era gold
+series. Amended 2026-10-23 (owner-approved, before any result): those gaps are
+forward-filled at scoring time and event 1 is resumed (see Amendments). No
+market has a result; the first confirmed `run` pinned `config/international.yaml`.
 
 ## Purpose
 
@@ -280,3 +284,49 @@ row and no `international` config pin, when this was made. The owner approved it
   the gold late-window rule, the sealing rules and the `--test-id` gate (a
   validation event with `passed = 1`) are as before. A pass here does not turn
   core A into a validated rule; the label stays with the result.
+
+### 2026-10-23 — proxy-era gold gaps (after event 1 crashed, before any result)
+
+Event 1 (set `main`, the designated core) had started, pinned the config and
+frozen `data/cache/international/main_frozen.parquet` when the engine stopped
+with "Missing price for a held position at (2000-11-24, 'GLD')". No market had
+been scored and no result existed. The owner approved this amendment.
+
+- **What crashed.** The spliced `GLD` close in the `GC=F` proxy era (before
+  2004-11-18) has eight interior NaNs, each a single day (longest run 1), on US
+  half-sessions where `GC=F` has no bar: 2000-11-24, 2001-11-23, 2001-12-24,
+  2002-07-05, 2002-11-29, 2003-11-28, 2003-12-26 and 2004-01-02. `GLD`'s open
+  (the previous close on proxy days) is NaN on the following day. Every other
+  leg (the markets, `IEF`, `SHY`, `TLT`, `CASH`) has no interior NaN. The
+  Treasury proxies were forward-filled by `align_to_trading_days`; the gold
+  proxy was only reindexed.
+- **The fill.** `fill_proxy_gaps` (`qrl.international`) forward-fills the close
+  of a spliced defensive leg on a NaN day that is after the leg's first price
+  and before the real fund's first date, with a limit of 1 day. A filled day
+  has the previous close, so a zero return; its open, and the next day's open,
+  follow the splice convention (open = previous close). It never touches a
+  market column, a real-fund date or a value that is not NaN. A gap longer than
+  1 day raises `ValueError`: longer gaps still refuse, they are never filled.
+  It is applied to `GLD` (real fund from 2004-11-18) in `_score_and_record`,
+  after the snapshot has been read and its sha256 verified, for a fresh run
+  and for a resume alike. `build_panel` and the snapshot are unchanged: the
+  snapshot holds the raw data, with the NaNs.
+- **Why it cannot change the verdict.** (1) The gold check (`GC=F` vs `GLD`
+  daily-return correlation, 2004-11-18 to 2006-12-31, a gold-data-only
+  comparison) is 0.934 on the frozen snapshot, below 0.95, so a gold-holding
+  rule is scored on the late window (2023 onward) only (`late_only`,
+  `scripts/international.py:354`; `evaluate_market` uses `cfg.windows[-1:]`,
+  `src/qrl/international.py:480`). All eight gaps are 2000-2004, outside it,
+  and the fill touches nothing from 2004-11-18 on. (2) `core_trend`'s signal
+  uses only the `risk_on` equity leg's prices (`price = close[risk_on]`,
+  `src/qrl/strategies/core_trend.py:16`); `GLD` enters only as the held leg
+  and in the warm-up mask (`:28`), so the weights from 2023 on do not depend
+  on the proxy-era gold prices. The fill only lets the full-history backtest
+  run to the scored window.
+- **Identity.** The rule hash, the config hash and the data hash
+  (`data_sha256`, computed over the raw snapshot) are unchanged. Event 1 is
+  resumed from its own frozen snapshot, not a new attempt; it keeps its
+  designated, unvalidated label. No market set is used up by this.
+- **`check-data`.** It also prints, per spliced defensive leg, the interior NaNs
+  in the proxy era: count, longest run and the dates, and whether the longest
+  run is within the 1-day fill limit. Dates and counts only, no returns.
