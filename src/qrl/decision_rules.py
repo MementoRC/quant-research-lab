@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from .decision_withdraw import DEPLETED
+from .decision_withdraw import DEPLETED, usable_cpi
 
 _KEYS = ("version", "decision_sha256", "longrun_sha256", "rules", "income_lines", "portfolios")
 RULE_PARAMS: dict[str, tuple[str, ...]] = {
@@ -371,3 +371,70 @@ def run_rule(
         growth = growth * (1.0 + r[:, t])
         values[:, t] = value
     return RuleRun(values, paid, depleted)
+
+
+# ---- views: decision points and CPI factors
+
+
+def historical_cpi(months: pd.PeriodIndex, cpi: pd.Series) -> dict[int, float]:
+    """Historical decisions: every January after the path's first month, keyed
+    by 0-based month position. The factor is the CPI usable on 1 January over
+    the CPI usable on the previous 1 January (`usable_cpi`), written
+    `1 + (ratio - 1)` exactly as `monthly_withdrawals` applies it, so the
+    fixed rule matches it bit for bit."""
+    out: dict[int, float] = {}
+    for m, period in enumerate(months):
+        if m and period.month == 1:
+            now = pd.Timestamp(year=period.year, month=1, day=1)
+            before = pd.Timestamp(year=period.year - 1, month=1, day=1)
+            out[m] = 1 + (usable_cpi(cpi, now) / usable_cpi(cpi, before) - 1)
+    return out
+
+
+def historical_run(
+    returns: pd.Series,
+    cpi: pd.Series,
+    rates: list[float],
+    rule: str,
+    params: Mapping[str, float],
+) -> tuple[RuleRun, pd.PeriodIndex]:
+    """One start year's daily path at every rate (one row per rate, same
+    returns), and the path's calendar months. `cpi` must already be cut."""
+    idx = pd.DatetimeIndex(returns.index)
+    months = pd.PeriodIndex(idx.to_period("M").unique())
+    paths = np.tile(returns.to_numpy(dtype=float), (len(rates), 1))
+    run = run_rule(
+        rule,
+        params,
+        paths,
+        month_starts(idx),
+        historical_cpi(months, cpi),
+        np.asarray(rates, dtype=float),
+    )
+    return run, months
+
+
+def month_label(depleted: int, months: pd.PeriodIndex) -> str | None:
+    """ "YYYY-MM" of a 1-based depletion month (as `withdrawal_path`), None for 0."""
+    return None if depleted == 0 else str(months[depleted - 1])
+
+
+def longrun_cpi(pi: np.ndarray) -> tuple[dict[int, np.ndarray], np.ndarray]:
+    """From the paths' monthly inflation (n_paths, n_months): the CPI factor at
+    each 12-month decision (0-based months 12, 24, ...; spec months 13,
+    25, ...), the product of the previous 12 months' inflation; and the
+    cumulative price level after each month. Both are multiplied in the order
+    `run_paths` uses, so the fixed rule and the real values match it exactly."""
+    n_paths, n_months = pi.shape
+    level = np.ones(n_paths)
+    year = np.ones(n_paths)
+    levels = np.empty((n_paths, n_months))
+    cpi_at: dict[int, np.ndarray] = {}
+    for t in range(n_months):
+        if t and t % 12 == 0:
+            cpi_at[t] = year
+            year = np.ones(n_paths)
+        level = level * (1.0 + pi[:, t])
+        year = year * (1.0 + pi[:, t])
+        levels[:, t] = level
+    return cpi_at, levels

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
+from decision_helpers import cpi as cpi_series
 
 from qrl.decision_config import load_decision_config
 from qrl.decision_rules import (
@@ -21,14 +22,18 @@ from qrl.decision_rules import (
     fixed,
     floor_ceiling,
     guardrails,
+    historical_cpi,
+    historical_run,
     load_rules_config,
+    longrun_cpi,
+    month_label,
     month_starts,
     pct_of_balance,
     run_rule,
     skip_raise_after_loss,
 )
-from qrl.decision_withdraw import DEPLETED
-from qrl.longrun import load_longrun_config
+from qrl.decision_withdraw import DEPLETED, monthly_withdrawals, withdrawal_path
+from qrl.longrun import block_starts, load_longrun_config, month_indices, run_paths
 
 D_SHA, L_SHA = "aa" * 32, "bb" * 32
 IDS = ["A", "B", "C", "D", "E", "F", "G", "CASH", "G-EW"]
@@ -630,3 +635,90 @@ def test_a_value_exactly_at_depleted_after_the_return_is_depleted(monkeypatch):
     assert (run.values == 0.0).all()
     monkeypatch.setattr(dr, "DEPLETED", np.nextafter(0.25, 0.0))
     assert _monthly([-0.5], {}, 6.0).depleted[0] == 0  # one ulp above: survives
+
+
+# ---- views, and exact equality with the existing code
+
+
+def _daily(seed, mu=0.0003, sigma=0.01, start="2005-01-03", end="2008-12-31") -> pd.Series:
+    idx = pd.bdate_range(start, end)
+    return pd.Series(np.random.default_rng(seed).normal(mu, sigma, len(idx)), index=idx)
+
+
+def test_historical_decisions_are_every_january_after_the_first_month():
+    index = cpi_series()
+    assert sorted(historical_cpi(pd.period_range("2005-01", "2007-03", freq="M"), index)) == [
+        12,
+        24,
+    ]
+    assert sorted(historical_cpi(pd.period_range("2005-06", "2007-03", freq="M"), index)) == [
+        7,
+        19,
+    ]
+
+
+def test_historical_cpi_factor_is_the_one_monthly_withdrawals_applies():
+    index = cpi_series()
+    amounts = monthly_withdrawals(0.12, 2005, 2006, index)
+    factor = historical_cpi(pd.period_range("2005-01", "2006-12", freq="M"), index)[12]
+    assert amounts[2005] * factor == amounts[2006]
+
+
+def test_fixed_rule_equals_withdrawal_path_exactly():
+    # Compares the value series and the depletion month only, not the income in
+    # the depletion month. Random returns never land in the 1e-9 window where
+    # run_paths and the spec differ (Open question 1).
+    rets, index = _daily(1), cpi_series()
+    rates = [0.04, 0.5]
+    run, months = historical_run(rets, index, rates, "fixed", {})
+    ran_out = []
+    for i, rate in enumerate(rates):
+        path = withdrawal_path(rets, monthly_withdrawals(rate, 2005, 2008, index))
+        np.testing.assert_array_equal(run.values[i], path.values.to_numpy())
+        assert month_label(int(run.depleted[i]), months) == path.depleted
+        ran_out.append(path.depleted is not None)
+    assert ran_out == [False, True]  # both the surviving and the depleting branch are compared
+
+
+def test_longrun_decisions_are_every_12_months_from_month_13():
+    cpi_at, levels = longrun_cpi(np.full((2, 36), 0.01))
+    assert sorted(cpi_at) == [12, 24]
+    np.testing.assert_allclose(cpi_at[12], 1.01**12, rtol=1e-12)
+    np.testing.assert_allclose(levels[:, -1], 1.01**36, rtol=1e-12)
+
+
+def test_fixed_rule_equals_run_paths_exactly():
+    rng = np.random.default_rng(2)
+    returns = rng.normal(0.004, 0.06, 168)
+    inflation = rng.normal(0.002, 0.003, 168)
+    idx = month_indices(block_starts(7, 200, 30, 168), 12, 168)
+    paths = run_paths(returns, inflation, idx, 0.08)
+    cpi_at, levels = longrun_cpi(inflation[idx])
+    run = run_rule("fixed", {}, returns[idx], np.ones(360, dtype=bool), cpi_at, 0.08)
+    assert (paths.depleted > 0).any()  # the depletion branch is compared
+    assert (paths.depleted == 0).any()  # and the surviving branch
+    np.testing.assert_array_equal(run.values, paths.nominal)
+    np.testing.assert_array_equal(run.depleted, paths.depleted)
+    np.testing.assert_array_equal(run.values / levels, paths.real)
+
+
+@pytest.mark.parametrize("rule", list(PARAMS))
+def test_one_path_through_the_vectorised_code_equals_its_own_run(rule):
+    rng = np.random.default_rng(4)
+    r = rng.normal(0.003, 0.08, (6, 60))
+    rates = np.array([0.02, 0.033, 0.04, 0.05, 0.08, 0.15])
+    cpi_at = {m: rng.uniform(0.97, 1.08, 6) for m in (12, 24, 36, 48)}
+    starts = np.ones(60, dtype=bool)
+    together = run_rule(rule, PARAMS[rule], r, starts, cpi_at, rates)
+    for i in range(6):
+        alone = run_rule(
+            rule,
+            PARAMS[rule],
+            r[i : i + 1],
+            starts,
+            {m: f[i : i + 1] for m, f in cpi_at.items()},
+            rates[i : i + 1],
+        )
+        np.testing.assert_array_equal(alone.values[0], together.values[i])
+        np.testing.assert_array_equal(alone.paid[0], together.paid[i])
+        assert alone.depleted[0] == together.depleted[i]
