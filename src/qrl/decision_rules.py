@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from .decision_withdraw import DEPLETED, usable_cpi
+from .decision_withdraw import DEPLETED, WithdrawalPath, path_metrics, usable_cpi
 
 _KEYS = ("version", "decision_sha256", "longrun_sha256", "rules", "income_lines", "portfolios")
 RULE_PARAMS: dict[str, tuple[str, ...]] = {
@@ -438,3 +438,79 @@ def longrun_cpi(pi: np.ndarray) -> tuple[dict[int, np.ndarray], np.ndarray]:
         year = year * (1.0 + pi[:, t])
         levels[:, t] = level
     return cpi_at, levels
+
+
+# ---- measures (spec "Measures"). Income is a fraction of the starting income
+# (rate x starting value; the starting value is 1.0): 1.0 = 100%.
+
+
+def historical_measures(
+    values: pd.Series,
+    paid: np.ndarray,
+    depleted: int,
+    months: pd.PeriodIndex,
+    cpi: pd.Series,
+    rate: float,
+    lines: list[float],
+) -> tuple[dict, np.ndarray]:
+    """One start year's path: `path_metrics`' depletion month, real ending
+    value and lowest value. Each calendar year's real income is the year's
+    payments deflated by the CPI usable on 1 January of that year over the
+    CPI usable on the start date, as a fraction of the starting income. Its
+    lowest and total, and a (years, lines) array: year below each line. A year
+    in or after the depletion year is below every line. `cpi` must already be
+    cut."""
+    label = month_label(depleted, months)
+    metrics = path_metrics(WithdrawalPath(values, label), cpi)
+    start = usable_cpi(cpi, pd.Timestamp(values.index[0]))
+    years = np.asarray(months.year)
+    calendar = sorted({int(y) for y in years})
+    income = np.array(
+        [
+            paid[years == y].sum()
+            / (usable_cpi(cpi, pd.Timestamp(year=y, month=1, day=1)) / start)
+            / rate
+            for y in calendar
+        ]
+    )
+    gone = np.array(calendar) >= (months[depleted - 1].year if depleted else calendar[-1] + 1)
+    below = (income[:, None] < np.asarray(lines)[None, :]) | gone[:, None]
+    return {
+        "depleted": label,
+        "end_real": metrics["end_real"],
+        "lowest": metrics["lowest"],
+        "income_low": float(income.min()),
+        "income_total": float(income.sum()),
+    }, below
+
+
+def longrun_measures(
+    run: RuleRun, levels: np.ndarray, rate: float, lines: list[float], horizon_years: int
+) -> dict:
+    """Over all paths: share depleted by `horizon_years`; real ending value
+    (deflated by the path's own level), lowest nominal value, lowest yearly
+    and total real income, each as median and 5th percentile; and per income
+    line the share of paths whose real income is below it in any year
+    (depleted paths count as below). Each 12-month period's payments are
+    deflated by the path's cumulative inflation at the start of that period;
+    a depleted path counts 0 after depletion."""
+    n_paths = run.paid.shape[0]
+    yearly = run.paid.reshape(n_paths, -1, 12).sum(axis=2)
+    start = np.concatenate([np.ones((n_paths, 1)), levels[:, 11::12][:, :-1]], axis=1)
+    income = yearly / start / rate
+    gone = run.depleted > 0
+    end_real = run.values[:, -1] / levels[:, -1]
+    lowest = run.values.min(axis=1)
+    low, total = income.min(axis=1), income.sum(axis=1)
+    return {
+        "depleted": float(np.mean(gone & (run.depleted <= 12 * horizon_years))),
+        "end_real_median": float(np.median(end_real)),
+        "end_real_p5": float(np.quantile(end_real, 0.05)),
+        "lowest_median": float(np.median(lowest)),
+        "lowest_p5": float(np.quantile(lowest, 0.05)),
+        "income_low_median": float(np.median(low)),
+        "income_low_p5": float(np.quantile(low, 0.05)),
+        "income_total_median": float(np.median(total)),
+        "income_total_p5": float(np.quantile(total, 0.05)),
+        "ever_below": {line: float(np.mean((income < line).any(axis=1) | gone)) for line in lines},
+    }

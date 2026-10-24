@@ -18,14 +18,17 @@ from qrl.decision_config import load_decision_config
 from qrl.decision_rules import (
     RULE_PARAMS,
     RULES,
+    RuleRun,
     RulesConfig,
     fixed,
     floor_ceiling,
     guardrails,
     historical_cpi,
+    historical_measures,
     historical_run,
     load_rules_config,
     longrun_cpi,
+    longrun_measures,
     month_label,
     month_starts,
     pct_of_balance,
@@ -734,3 +737,102 @@ def test_one_path_through_the_vectorised_code_equals_its_own_run(rule):
         np.testing.assert_array_equal(alone.values[0], together.values[i])
         np.testing.assert_array_equal(alone.paid[0], together.paid[i])
         assert alone.depleted[0] == together.depleted[i]
+
+
+# ---- measures
+
+MONTHS = pd.period_range("2005-01", "2006-12", freq="M")
+DAYS = pd.bdate_range("2005-01-03", "2006-12-29")
+
+
+def _values(zero_from: str | None = None) -> pd.Series:
+    v = pd.Series(1.0, index=DAYS)
+    if zero_from is not None:
+        v[v.index >= zero_from] = 0.0
+    return v
+
+
+def test_historical_measures_by_hand_with_flat_cpi():
+    m, below = historical_measures(
+        _values(), np.full(24, 0.01), 0, MONTHS, cpi_series(monthly_growth=0.0), 0.12, [0.9, 0.5]
+    )
+    assert m["depleted"] is None
+    assert m["income_low"] == pytest.approx(1.0)
+    assert m["income_total"] == pytest.approx(2.0)
+    np.testing.assert_array_equal(below, [[False, False], [False, False]])
+
+
+def test_historical_depleted_year_counts_what_was_received_and_is_below_every_line():
+    # depleted 2006-06 (month 18): 2006 received 5 x 0.01 + 0.004 = 0.054 = 45% of 0.12
+    paid = np.r_[np.full(17, 0.01), 0.004, np.zeros(6)]
+    m, below = historical_measures(
+        _values("2006-06-01"), paid, 18, MONTHS, cpi_series(monthly_growth=0.0), 0.12, [0.9, 0.3]
+    )
+    assert m["depleted"] == "2006-06"
+    assert m["end_real"] == 0.0
+    assert m["lowest"] == 0.0
+    assert m["income_low"] == pytest.approx(0.45)
+    assert m["income_total"] == pytest.approx(1.45)
+    # 45% is above the 30% line, but 2006 is the depletion year: below every line
+    np.testing.assert_array_equal(below, [[False, False], [True, True]])
+
+
+def test_historical_measures_deflate_each_year_by_the_cpi_usable_on_1_january():
+    index = _varying_cpi()
+
+    def usable(day: str) -> float:  # independent of usable_cpi
+        return float(index.loc[: pd.Timestamp(day)].iloc[-1])
+
+    deflator = usable("2006-01-01") / usable("2005-01-03")
+    m, _ = historical_measures(_values(), np.full(24, 0.01), 0, MONTHS, index, 0.12, [0.9])
+    assert deflator != pytest.approx(1.0, abs=1e-3)
+    assert m["income_low"] == pytest.approx(min(1.0, 1 / deflator), rel=1e-12)
+    assert m["income_total"] == pytest.approx(1 + 1 / deflator, rel=1e-12)
+
+
+def test_longrun_measures_by_hand():
+    full = np.full(24, 0.01)
+    short = np.r_[np.full(18, 0.01), 0.004, np.zeros(5)]  # emptied in month 19
+    run = RuleRun(
+        np.vstack([np.ones(24), np.r_[np.ones(18), np.zeros(6)]]),
+        np.vstack([full, short]),
+        np.array([0, 19]),
+    )
+    m = longrun_measures(run, np.ones((2, 24)), 0.12, [0.9, 0.5], 2)
+    low = 0.064 / 0.12  # year 2 of the short path: 6 x 0.01 + 0.004
+    assert m["depleted"] == 0.5
+    assert m["income_low_median"] == pytest.approx((1.0 + low) / 2)
+    assert m["income_low_p5"] == pytest.approx(low + 0.05 * (1.0 - low))
+    assert m["income_total_median"] == pytest.approx((2.0 + 1.0 + low) / 2)
+    # 53% is above the 50% line, but the path ran out: it counts as below
+    assert m["ever_below"] == {0.9: 0.5, 0.5: 0.5}
+    assert m["end_real_median"] == pytest.approx(0.5)
+    assert m["lowest_median"] == pytest.approx(0.5)
+
+
+def test_longrun_measures_deflate_each_period_by_inflation_to_its_start():
+    # level after month t (0-based) is 1 + 0.01 (t + 1): year 2 starts at 1.12
+    levels = (1.0 + 0.01 * np.arange(1, 25))[None, :]
+    run = RuleRun(np.ones((1, 24)), np.full((1, 24), 0.01), np.array([0]))
+    m = longrun_measures(run, levels, 0.12, [0.9, 0.8], 2)
+    assert m["income_low_median"] == pytest.approx(1 / 1.12)  # year 1 is not deflated
+    assert m["income_total_median"] == pytest.approx(1 + 1 / 1.12)
+    assert m["ever_below"] == {0.9: 1.0, 0.8: 0.0}  # 89.3% < 90%, > 80%
+    assert m["end_real_median"] == pytest.approx(1 / 1.24)
+
+
+def test_fixed_rule_keeps_real_income_at_the_starting_income_in_both_views():
+    rets, index = _daily(5, mu=0.0004, sigma=0.0), _varying_cpi()
+    run, months = historical_run(rets, index, [0.04], "fixed", {})
+    m, _ = historical_measures(
+        pd.Series(run.values[0], index=rets.index), run.paid[0], 0, months, index, 0.04, [0.9]
+    )
+    assert m["income_low"] == pytest.approx(1.0, rel=1e-9)
+    assert m["income_total"] == pytest.approx(4.0, rel=1e-9)
+    pi = np.random.default_rng(6).normal(0.003, 0.004, (3, 360))
+    cpi_at, levels = longrun_cpi(pi)
+    lr = run_rule("fixed", {}, np.full((3, 360), 0.005), np.ones(360, dtype=bool), cpi_at, 0.04)
+    lm = longrun_measures(lr, levels, 0.04, [0.9], 30)
+    assert lm["depleted"] == 0.0
+    assert lm["income_low_median"] == pytest.approx(1.0, rel=1e-9)
+    assert lm["income_total_median"] == pytest.approx(30.0, rel=1e-9)
