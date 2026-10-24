@@ -817,9 +817,7 @@ def test_historical_depletion_year_income_is_deflated_under_varying_cpi():
         return float(index.loc[: pd.Timestamp(day)].iloc[-1])
 
     paid = np.r_[np.full(17, 0.01), 0.004, np.zeros(6)]  # depleted 2006-06
-    m, below = historical_measures(
-        _values("2006-06-01"), paid, 18, MONTHS, index, 0.12, [0.9, 0.3]
-    )
+    m, below = historical_measures(_values("2006-06-01"), paid, 18, MONTHS, index, 0.12, [0.9, 0.3])
     deflator = usable("2006-01-01") / usable("2005-01-03")
     income_2006 = 0.054 / deflator / 0.12
     assert deflator != pytest.approx(1.0, abs=1e-3)
