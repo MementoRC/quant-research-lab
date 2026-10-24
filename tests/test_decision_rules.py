@@ -23,6 +23,7 @@ from qrl.decision_rules import (
     RULES,
     RuleRun,
     RulesConfig,
+    _historical_row,
     fixed,
     floor_ceiling,
     guardrails,
@@ -1061,17 +1062,76 @@ def test_fixed_rule_historical_rows_equal_decision_withdrawal_rows(setup, report
         assert row["worst"]["end_real"] == other["worst_end_real"]
 
 
-def test_fixed_rule_longrun_rows_equal_run_longrun_on_the_same_paths(report, setup):
+@pytest.mark.parametrize("varying", [False, True])
+def test_fixed_rule_longrun_rows_equal_run_longrun_on_the_same_paths(setup, report, varying):
+    # run_longrun's other row fields (median_depletion_year, below_floor) have no
+    # counterpart in these rows; the shared ones are compared, with the real values
+    # deflated by the cumulative inflation, so the CPI alignment is exercised.
     dcfg, data, index = setup
+    rows = report["longrun"]
+    if varying:
+        index = _varying_cpi()
+        rows = run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), data, index, criteria())["longrun"]
     theirs = {
         (r["portfolio"], r["rate"]): r
         for r in run_longrun(_lcfg(), dcfg, data, index, criteria())["rows"]
     }
-    for row in (r for r in report["longrun"] if r["rule"] == "fixed"):
+    fixed_rows = [r for r in rows if r["rule"] == "fixed"]
+    assert len(fixed_rows) == len(PIDS) * len(RATES)
+    for row in fixed_rows:
         other = theirs[(row["portfolio"], row["rate"])]
         assert row["depleted"] == other["depleted_by"][30]
         assert row["end_real_median"] == other["end_real_median"]
         assert row["end_real_p5"] == other["end_real_p5"]
+
+
+def _measures(end_real: float, lowest: float, income_low: float) -> dict:
+    return {
+        "depleted": None,
+        "end_real": end_real,
+        "lowest": lowest,
+        "income_low": income_low,
+        "income_total": 10.0,
+    }
+
+
+def test_historical_row_pools_years_across_start_years_with_unequal_counts():
+    lines = [0.9, 0.8]
+    three = np.array([[True, False], [False, False], [True, True]])  # 3 calendar years
+    one = np.array([[False, True]])  # 1 calendar year
+    per_year = {2000: (_measures(1.0, 0.5, 0.5), three), 2003: (_measures(1.1, 0.6, 0.6), one)}
+    row = _historical_row("A", "fixed", 0.04, per_year, lines)
+    # Pooled over 4 years: line 0.9 below in 2 of 4, line 0.8 below in 2 of 4.
+    # (Mean of per-start-year means would give (2/3 + 0)/2 = 1/3 and (1/3 + 1)/2 = 2/3.)
+    assert row["years_pooled"] == 4
+    assert row["below"] == {0.9: 0.5, 0.8: 0.5}
+
+
+def test_historical_row_worst_start_year_is_the_lowest_real_ending_value():
+    below = np.array([[False]])
+    # The lowest `lowest` is 2000 and the lowest `income_low` is 2002; the lowest
+    # end_real is 2001.
+    per_year = {
+        2000: (_measures(1.5, 0.4, 0.5), below),
+        2001: (_measures(0.9, 0.8, 0.6), below),
+        2002: (_measures(1.2, 0.9, 0.1), below),
+    }
+    row = _historical_row("A", "fixed", 0.04, per_year, [0.9])
+    assert row["first_year"] == 2000
+    assert (row["worst_year"], row["worst"]["end_real"]) == (2001, 0.9)
+    assert row["worst"] is per_year[2001][0]
+
+
+def test_historical_row_worst_start_year_tie_goes_to_the_earlier_year():
+    below = np.array([[False]])
+    per_year = {  # later year inserted first, so dict order cannot decide
+        2003: (_measures(0.9, 0.2, 0.2), below),
+        2001: (_measures(0.9, 0.8, 0.8), below),
+        2002: (_measures(1.3, 0.9, 0.9), below),
+    }
+    row = _historical_row("A", "fixed", 0.04, per_year, [0.9])
+    assert row["worst_year"] == 2001
+    assert row["first_year"] == 2001
 
 
 def test_run_is_repeatable_and_draws_block_starts_once(report, setup):

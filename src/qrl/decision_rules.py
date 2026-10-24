@@ -585,6 +585,8 @@ def _historical_rule(
     rates: list[float],
     lines: list[float],
 ) -> list[dict]:
+    """One portfolio and rule: a row per rate (in `rates` order) over every
+    start year's daily path. `cpi` must already be cut."""
     per_rate: dict[float, dict[int, tuple[dict, np.ndarray]]] = {rate: {} for rate in rates}
     for year, rets in returns.items():
         run, months = historical_run(rets, cpi, rates, rule, params)
