@@ -452,14 +452,18 @@ def historical_measures(
     cpi: pd.Series,
     rate: float,
     lines: list[float],
-) -> tuple[dict, np.ndarray]:
-    """One start year's path: `path_metrics`' depletion month, real ending
-    value and lowest value. Each calendar year's real income is the year's
-    payments deflated by the CPI usable on 1 January of that year over the
-    CPI usable on the start date, as a fraction of the starting income. Its
-    lowest and total, and a (years, lines) array: year below each line. A year
-    in or after the depletion year is below every line. `cpi` must already be
-    cut."""
+) -> tuple[dict[str, float | str | None], np.ndarray]:
+    """One start year's path. Returns a dict and an array. The dict has
+    `path_metrics`' depletion month ("YYYY-MM" or None), real ending value
+    and lowest value, plus the lowest yearly real income and the total real
+    income. Each calendar year's real income is the year's payments deflated
+    by the CPI usable on 1 January of that year over the CPI usable on the
+    start date, as a fraction of the starting income. Years are calendar
+    years, so a start or end part-way through a year gives a partial first or
+    last year (its income is just the payments made in it). The array is
+    (years, lines) booleans: whether that year's income is below each line. A
+    year in or after the depletion year is below every line. `cpi` must
+    already be cut."""
     label = month_label(depleted, months)
     metrics = path_metrics(WithdrawalPath(values, label), cpi)
     start = usable_cpi(cpi, pd.Timestamp(values.index[0]))
@@ -486,15 +490,25 @@ def historical_measures(
 
 def longrun_measures(
     run: RuleRun, levels: np.ndarray, rate: float, lines: list[float], horizon_years: int
-) -> dict:
+) -> dict[str, float | dict[float, float]]:
     """Over all paths: share depleted by `horizon_years`; real ending value
     (deflated by the path's own level), lowest nominal value, lowest yearly
     and total real income, each as median and 5th percentile; and per income
     line the share of paths whose real income is below it in any year
     (depleted paths count as below). Each 12-month period's payments are
     deflated by the path's cumulative inflation at the start of that period;
-    a depleted path counts 0 after depletion."""
-    n_paths = run.paid.shape[0]
+    a depleted path counts 0 after depletion. `depleted` only counts
+    depletion within `horizon_years`, while `ever_below` counts a depletion
+    in any year of the path, with no horizon limit; the two differ only if
+    the path is longer than the horizon. Raises ValueError if the months are
+    not a whole number of years or `horizon_years` is longer than the path."""
+    n_paths, n_months = run.paid.shape
+    if n_months % 12:
+        raise ValueError(f"months must be a multiple of 12, got {n_months}")
+    if 12 * horizon_years > n_months:
+        raise ValueError(
+            f"horizon_years {horizon_years} is longer than the path's {n_months // 12} years"
+        )
     yearly = run.paid.reshape(n_paths, -1, 12).sum(axis=2)
     start = np.concatenate([np.ones((n_paths, 1)), levels[:, 11::12][:, :-1]], axis=1)
     income = yearly / start / rate
