@@ -1372,6 +1372,141 @@ def test_each_rule_is_described_with_its_configured_parameters(hand):
     )
 
 
+def test_every_rule_text_is_written_out_in_full(hand):
+    md = render_markdown(hand)
+    rules = md[md.index("## Rules") : md.index("## Notes")]
+    bullets = [x for x in rules.splitlines() if x.startswith("- ")]
+    assert bullets == [
+        "- fixed: last year's monthly amount raised by CPI each year; the rule every other "
+        "report uses.",
+        "- skip_raise_after_loss: as fixed, but no CPI raise after a year in which the "
+        "portfolio's own return (before withdrawals) was negative.",
+        "- guardrails: take the fixed amount; if 12 x amount / value is above 120.0% of the "
+        "rate, cut it by 10.0%; if below 80.0% of the rate, raise it by 10.0%. "
+        "Guyton-Klinger's capital preservation and prosperity rules with their published "
+        "bands and steps, with one deviation: no 15-year exception (the original stops the "
+        "cuts late in life). Their inflation rule is replaced by the fixed rule's CPI step.",
+        "- pct_of_balance: each year 12 x amount = rate x value.",
+        "- floor_ceiling: rate x value / 12, kept within -2.5% and +5.0% of last year's "
+        "amount after CPI (Vanguard's published bands, not fitted).",
+    ]
+
+
+def test_rules_and_notes_sections_are_written_out_in_full(hand):
+    md = render_markdown(hand)
+    assert md[md.index("## Rules") : md.index("## Historical view")] == (
+        "## Rules\n"
+        "\n"
+        "Every rule starts at rate x starting value / 12 a month and changes the amount "
+        "once a year: on the first trading day of each January in the historical view, and "
+        "every 12 months (months 13, 25, ...) in the long run, where resampled paths start "
+        "in any calendar month. The first year has no change. All parameters are the same "
+        "at every rate, and a rule uses only values known at the decision point.\n"
+        "\n"
+        "- fixed: last year's monthly amount raised by CPI each year; the rule every other "
+        "report uses.\n"
+        "- skip_raise_after_loss: as fixed, but no CPI raise after a year in which the "
+        "portfolio's own return (before withdrawals) was negative.\n"
+        "- guardrails: take the fixed amount; if 12 x amount / value is above 120.0% of the "
+        "rate, cut it by 10.0%; if below 80.0% of the rate, raise it by 10.0%. "
+        "Guyton-Klinger's capital preservation and prosperity rules with their published "
+        "bands and steps, with one deviation: no 15-year exception (the original stops the "
+        "cuts late in life). Their inflation rule is replaced by the fixed rule's CPI step.\n"
+        "- pct_of_balance: each year 12 x amount = rate x value.\n"
+        "- floor_ceiling: rate x value / 12, kept within -2.5% and +5.0% of last year's "
+        "amount after CPI (Vanguard's published bands, not fitted).\n"
+        "\n"
+        "## Notes\n"
+        "\n"
+        "- This is a comparison. It has no pass/fail rule, adds no trials to any search "
+        "run, selects nothing and recommends nothing.\n"
+        "- The rules are published or textbook rules with fixed parameters; the bands are "
+        "the published ones, not fitted to these data.\n"
+        "- The long-run decision point is every 12 months, not January.\n"
+        "- Income is real: each year's payments in starting-date money (historical: "
+        "deflated by the CPI usable on 1 January of that year; long run: by the path's own "
+        "inflation to the start of that 12-month period), as a percentage of the starting "
+        "income (rate x starting value). A path that ran out counts 0 for every later year "
+        "and, in the year it ran out, what it received.\n"
+        "- Years below a line: historical, the share of all calendar years of all start "
+        "years (pooled), a year in or after running out counting as below every line; long "
+        "run, the share of paths whose real income is below the line in any year, paths "
+        "that ran out counting as below.\n"
+        "- The historical view has 2 overlapping start years, so it is 2 related "
+        "paths, not 2 independent tests. Its worst start year is the one with the lowest "
+        "real value at the end.\n"
+        "- Each month the withdrawal is taken first, then the day's (or month's) return. It "
+        "is taken proportionally from all holdings at no extra cost, as in the decision "
+        "helper. A path is empty once its value is at or below one billionth of the start; "
+        "in a month emptied by the withdrawal the income is what was left.\n"
+        "- Typical is the median path; bad case (worst 5%) is the value 1 path in 20 is "
+        "below. Lowest value is the lowest nominal value, as a percentage of the starting "
+        "value.\n"
+        "\n"
+    )
+
+
+def test_header_block_is_written_out_in_full(hand):
+    md = render_markdown(hand)
+    assert md[: md.index("## Rules")] == (
+        "# Withdrawal rules: the fixed withdrawal against flexible rules\n"
+        "\n"
+        "Compares the fixed CPI-indexed withdrawal with rules that can cut income after a "
+        "bad year, per portfolio, rule and withdrawal rate. A comparison only: no pass/fail "
+        "rule and no search trial; it selects nothing and recommends nothing. Spec: "
+        "docs/methodology/withdrawal-rules.md.\n"
+        "\n"
+        "- data: up to 2018-12-31 only (validation and holdout stay sealed)\n"
+        f"- withdrawal_rules.yaml sha256: `{'ef' * 32}`\n"
+        f"- decision.yaml sha256: `{'cd' * 32}` (read unchanged)\n"
+        f"- longrun.yaml sha256: `{'ab' * 32}` (read unchanged)\n"
+        "- historical view: start years 2005 to 2013, each to 2018-12-31\n"
+        "- long run: 50 paths of 30 years, 12-month blocks drawn from 168 months "
+        "(2005-01 to 2018-12, circular), seed 7; the same paths as the long-run report\n"
+        "- trading costs: 5 bps per unit traded\n"
+        "- 2 portfolios x 5 rules x 2 withdrawal rates = 20 rows per view\n"
+        "- portfolios: A (Growth core); CASH (All cash)\n"
+        "\n"
+    )
+
+
+def test_a_none_measure_renders_n_a(hand):
+    one = {**hand, "rates": [0.04], "portfolios": hand["portfolios"][:1]}
+    one["rules"] = {"fixed": {}}
+    one["historical"] = [_hist_row("A", "fixed", 0.04)]
+    one["historical"][0]["first"] = {**DEFAULT_FIRST, "end_real": None}
+    one["historical"][0]["below"] = {0.9: None, 0.8: 0.1}
+    one["longrun"] = [_long_row("A", "fixed", 0.04)]
+    one["longrun"][0]["end_real_p5"] = None
+    md = render_markdown(one)
+    assert (
+        "| A | fixed | - | n/a | 50.0% | 95.0% | 1400.0% | 2013 | - | 75.0% | 25.0% | 85.0% "
+        "| 1200.0% | n/a | 10.0% |"
+    ) in md.splitlines()
+    assert (
+        "| A | fixed | 2.0% | 150.0% | n/a | 80.0% | 40.0% | 100.0% | 85.0% | 3000.0% "
+        "| 2750.0% | 5.0% | 0.0% |"
+    ) in md.splitlines()
+
+
+def test_a_negative_measure_renders_with_a_minus_sign(hand):
+    one = {**hand, "rates": [0.04], "portfolios": hand["portfolios"][:1]}
+    one["rules"] = {"fixed": {}}
+    one["historical"] = [_hist_row("A", "fixed", 0.04)]
+    one["historical"][0]["worst"] = {**DEFAULT_WORST, "income_low": -0.05}
+    one["longrun"] = [_long_row("A", "fixed", 0.04)]
+    one["longrun"][0]["lowest_median"] = -0.25
+    lines = render_markdown(one).splitlines()
+    assert (
+        "| A | fixed | - | 125.0% | 50.0% | 95.0% | 1400.0% | 2013 | - | 75.0% | 25.0% | -5.0% "
+        "| 1200.0% | 25.0% | 10.0% |"
+    ) in lines
+    assert (
+        "| A | fixed | 2.0% | 150.0% | 60.0% | -25.0% | 40.0% | 100.0% | 85.0% | 3000.0% "
+        "| 2750.0% | 5.0% | 0.0% |"
+    ) in lines
+
+
 def test_changed_parameters_change_the_rule_text(hand):
     other = {
         **hand,
