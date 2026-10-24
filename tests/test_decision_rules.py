@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
 
@@ -21,9 +22,12 @@ from qrl.decision_rules import (
     floor_ceiling,
     guardrails,
     load_rules_config,
+    month_starts,
     pct_of_balance,
+    run_rule,
     skip_raise_after_loss,
 )
+from qrl.decision_withdraw import DEPLETED
 from qrl.longrun import load_longrun_config
 
 D_SHA, L_SHA = "aa" * 32, "bb" * 32
@@ -316,3 +320,128 @@ def test_pct_of_balance_ignores_prev_cpi_and_prior():
     a = pct_of_balance(_a(0.01), _a(1.1), _a(0.9), _a(-0.3), _a(0.04), {})
     b = pct_of_balance(_a(7.0), _a(0.5), _a(0.9), _a(0.4), _a(0.04), {})
     np.testing.assert_array_equal(a, b)
+
+
+# ---- runner
+
+HAND_R = np.zeros(37)
+HAND_R[[11, 23, 35]] = [-0.2, 0.5, 1.0]  # a loss in year 1, gains in years 2 and 3
+HAND_CPI = {12: 1.1, 24: 1.1, 36: 1.1}  # CPI +10% each year
+# Rate 12% (0.01 a month). Returns are zero except the last month of each year,
+# so the value at a decision is (V_before - 12 x w) x (1 + that month's return):
+# V at month 12 = (1 - 0.12) x 0.8 = 0.704.
+HAND = {
+    "fixed": [0.01 * 1.1, 0.01 * 1.1**2, 0.01 * 1.1**3],
+    # year 1 lost 20%: no raise; years 2 and 3 gained: normal raise
+    "skip_raise_after_loss": [0.01, 0.01 * 1.1, 0.01 * 1.1**2],
+    # month 12: q = 12 x 0.011 / 0.704 = 0.1875 > 0.144, cut;
+    # month 24: V = (0.704 - 12 x 0.0099) x 1.5 = 0.8778, q = 12 x 0.01089 / 0.8778 = 0.1489 > 0.144, cut;
+    # month 36: V = (0.8778 - 12 x 0.009801) x 2 = 1.520376, q = 12 x 0.0107811 / 1.520376 = 0.0851 < 0.096, raise
+    "guardrails": [0.01 * 1.1 * 0.9, 0.01 * (1.1 * 0.9) ** 2, 0.01 * (1.1 * 0.9) ** 2 * 1.1 * 1.1],
+    # w = 0.12 x V / 12: V12 = 0.704; V24 = (0.704 - 0.08448) x 1.5 = 0.92928;
+    # V36 = (0.92928 - 0.1115136) x 2 = 1.6355328
+    "pct_of_balance": [0.00704, 0.0092928, 0.016355328],
+    # month 12: 0.00704 < floor 0.011 x 0.975; month 24: V = 0.86295, 0.0086295 < floor
+    # 0.0117975 x 0.975; month 36: V = 1.4498385, 0.0144984 > ceiling 0.01265282 x 1.05
+    "floor_ceiling": [
+        0.01 * 1.1 * 0.975,
+        0.01 * (1.1 * 0.975) ** 2,
+        0.01 * (1.1 * 0.975) ** 2 * 1.1 * 1.05,
+    ],
+}
+
+
+def _monthly(r, cpi_at, rate, rule="fixed"):
+    paths = np.atleast_2d(np.asarray(r, dtype=float))
+    return run_rule(rule, PARAMS[rule], paths, np.ones(paths.shape[1], dtype=bool), cpi_at, rate)
+
+
+@pytest.mark.parametrize("rule", list(HAND))
+def test_january_amounts_worked_by_hand(rule):
+    run = _monthly(HAND_R, HAND_CPI, 0.12, rule)
+    np.testing.assert_allclose(run.paid[0, :12], 0.01, rtol=1e-12)  # the first year has no decision
+    np.testing.assert_allclose(run.paid[0, [12, 24, 36]], HAND[rule], rtol=1e-9)
+    np.testing.assert_array_equal(run.paid[0, 12:24], run.paid[0, 12])  # one amount per year
+    assert run.depleted[0] == 0
+
+
+def test_value_at_the_threshold_after_the_withdrawal_is_depleted_with_no_return():
+    # w = 1 - 5e-10 leaves 5e-10 <= DEPLETED: depleted in month 1, the +900% return is
+    # never applied, and the income that month is the whole remaining balance (1.0)
+    run = _monthly([9.0, 0.0], {}, 12 * (1 - 5e-10))
+    assert run.depleted[0] == 1
+    assert (run.values == 0.0).all()
+    np.testing.assert_array_equal(run.paid[0], [1.0, 0.0])
+
+
+def test_value_just_above_the_threshold_survives():
+    run = _monthly([0.0], {}, 12 * (1 - 4e-9))
+    assert run.depleted[0] == 0
+    assert run.values[0, 0] > DEPLETED
+
+
+def test_depletion_by_the_withdrawal_pays_only_the_remaining_balance():
+    # month 1: 1.0 - 0.6 = 0.4; month 2: 0.4 - 0.6 < 0 -> depleted, income 0.4
+    run = _monthly([0.0, 0.0, 0.0], {}, 7.2)
+    assert run.depleted[0] == 2
+    np.testing.assert_allclose(run.paid[0], [0.6, 0.4, 0.0], rtol=1e-12)
+    np.testing.assert_array_equal(run.values[0, 1:], [0.0, 0.0])
+
+
+def test_depletion_by_the_return_pays_the_full_amount():
+    # month 1: (1.0 - 0.5) x (1 - 1.0) = 0 -> depleted by the return; 0.5 was paid in full
+    run = _monthly([-1.0, 0.5], {}, 6.0)
+    assert run.depleted[0] == 1
+    np.testing.assert_array_equal(run.paid[0], [0.5, 0.0])
+    np.testing.assert_array_equal(run.values[0], [0.0, 0.0])
+
+
+def test_nothing_is_paid_after_depletion_even_at_a_decision():
+    run = _monthly(np.r_[-1.0, np.zeros(24)], {12: 1.1, 24: 1.1}, 0.12)
+    assert run.depleted[0] == 1
+    assert (run.paid[0, 1:] == 0.0).all()
+    assert (run.values[0] == 0.0).all()
+
+
+def test_a_rule_is_never_called_on_a_depleted_path(monkeypatch):
+    seen = []
+
+    def spy(prev, cpi, value, prior, rate, params):
+        seen.append(value.copy())
+        return prev * cpi
+
+    monkeypatch.setitem(RULES, "fixed", spy)
+    r = np.zeros((2, 13))
+    r[0, 0] = -1.0  # path 0 is emptied in month 1; path 1 survives to the decision
+    run = run_rule("fixed", {}, r, np.ones(13, dtype=bool), {12: 1.1}, 0.12)
+    assert list(run.depleted) == [1, 0]
+    assert len(seen) == 1
+    np.testing.assert_allclose(seen[0], [0.88])
+    np.testing.assert_allclose(run.paid[1, 12], 0.011, rtol=1e-12)
+
+
+def test_daily_steps_withdraw_on_each_months_first_trading_day_and_count_months():
+    idx = pd.bdate_range("2005-01-03", "2005-03-31")
+    starts = month_starts(idx)
+    assert list(idx[starts]) == list(pd.to_datetime(["2005-01-03", "2005-02-01", "2005-03-01"]))
+    r = np.zeros(len(idx))
+    r[idx.get_loc(pd.Timestamp("2005-02-15"))] = -1.0
+    run = run_rule("fixed", {}, r[None, :], starts, {}, 0.12)
+    assert run.values[0, idx.get_loc(pd.Timestamp("2005-02-14"))] == pytest.approx(0.98)
+    assert run.depleted[0] == 2  # emptied by a day's return in February: month 2
+    np.testing.assert_allclose(run.paid[0], [0.01, 0.01, 0.0], rtol=1e-12)
+
+
+def test_run_rule_refuses_a_nan_return():
+    with pytest.raises(ValueError, match="NaN"):
+        _monthly([0.0, np.nan], {}, 0.04)
+
+
+def test_run_rule_refuses_a_first_step_that_is_not_a_month_start():
+    with pytest.raises(ValueError, match="month_start"):
+        run_rule("fixed", {}, np.zeros((1, 2)), np.array([False, True]), {}, 0.04)
+
+
+def test_run_rule_refuses_an_unknown_rule():
+    with pytest.raises(ValueError, match="unknown rule"):
+        run_rule("nope", {}, np.zeros((1, 2)), np.ones(2, dtype=bool), {}, 0.04)

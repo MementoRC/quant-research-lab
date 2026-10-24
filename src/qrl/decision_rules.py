@@ -19,7 +19,10 @@ from pathlib import Path
 from typing import Protocol
 
 import numpy as np
+import pandas as pd
 import yaml
+
+from .decision_withdraw import DEPLETED
 
 _KEYS = ("version", "decision_sha256", "longrun_sha256", "rules", "income_lines", "portfolios")
 RULE_PARAMS: dict[str, tuple[str, ...]] = {
@@ -261,3 +264,88 @@ RULES: dict[str, JanuaryRule] = {
     "pct_of_balance": pct_of_balance,
     "floor_ceiling": floor_ceiling,
 }
+
+
+# ---- runner (spec "Computation")
+
+
+@dataclass(frozen=True)
+class RuleRun:
+    values: np.ndarray  # (n_paths, n_steps): value after each step, start = 1.0
+    paid: np.ndarray  # (n_paths, n_months): amount received in each month
+    depleted: np.ndarray  # (n_paths,): month 1..n_months the path emptied, 0 if never
+
+
+def month_starts(index: pd.DatetimeIndex) -> np.ndarray:
+    """True on the first trading day of each calendar month (as `withdrawal_path`)."""
+    months = index.to_period("M")
+    flags = np.ones(len(index), dtype=bool)
+    flags[1:] = np.asarray(months[1:] != months[:-1])
+    return flags
+
+
+def _check_inputs(r: np.ndarray, starts: np.ndarray) -> None:
+    if r.ndim != 2 or starts.shape != (r.shape[1],) or not starts[0]:
+        raise ValueError(
+            "returns must be (paths, steps) and month_start one flag per step, the first set"
+        )
+    if np.isnan(r).any():
+        raise ValueError("NaN return (a NaN is never turned into cash)")
+
+
+def run_rule(
+    rule: str,
+    params: Mapping[str, float],
+    returns: np.ndarray,
+    month_start: np.ndarray,
+    cpi_at: Mapping[int, np.ndarray | float],
+    rate: np.ndarray | float,
+) -> RuleRun:
+    """One rule over every path; both views use it. A step is a trading day
+    (historical) or a calendar month (long run); `month_start` flags the
+    first step of each month, step 0 included. At the first step of month m
+    (0-based): if m is a key of `cpi_at` (a decision; its value is that
+    year's CPI factor), the rule sets the monthly amount from the amount paid
+    so far, the CPI factor, the value before the withdrawal and the
+    portfolio's own compounded return since the last decision (or the start).
+    The rule is called on the paths still alive only. Then the month's amount
+    is withdrawn, and each step's return applies after (spec:
+    withdrawal-edge-cases.md). At or below DEPLETED after the withdrawal, the
+    path is depleted that month with no return applied, and the month's
+    income is the remaining balance. At or below DEPLETED after the step's
+    return, it is depleted that month, and the income was the full amount. A
+    depleted path stays at 0 and is paid nothing."""
+    if rule not in RULES:
+        raise ValueError(f"unknown rule {rule!r}")
+    r = np.asarray(returns, dtype=float)
+    starts = np.asarray(month_start, dtype=bool)
+    _check_inputs(r, starts)
+    n_paths, n_steps = r.shape
+    rates = np.broadcast_to(np.asarray(rate, dtype=float), (n_paths,))
+    w = rates / 12
+    value = np.ones(n_paths)
+    growth = np.ones(n_paths)
+    depleted = np.zeros(n_paths, dtype=int)
+    values = np.empty((n_paths, n_steps))
+    paid = np.zeros((n_paths, int(starts.sum())))
+    month = -1
+    for t in range(n_steps):
+        alive = depleted == 0
+        after = value
+        if starts[t]:
+            month += 1
+            if month in cpi_at and alive.any():
+                cpi = np.broadcast_to(np.asarray(cpi_at[month], dtype=float), (n_paths,))
+                w[alive] = RULES[rule](
+                    w[alive], cpi[alive], value[alive], growth[alive] - 1.0, rates[alive], params
+                )
+                growth = np.ones(n_paths)
+            after = value - w
+            paid[:, month] = np.where(alive, np.where(after <= DEPLETED, value, w), 0.0)
+        value = np.where(alive & (after > DEPLETED), after * (1.0 + r[:, t]), 0.0)
+        emptied = alive & (value <= DEPLETED)
+        value[emptied] = 0.0
+        depleted[emptied] = month + 1
+        growth = growth * (1.0 + r[:, t])
+        values[:, t] = value
+    return RuleRun(values, paid, depleted)
