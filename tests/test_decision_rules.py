@@ -1610,3 +1610,48 @@ def test_percentages_round_and_never_show_negative_zero(hand):
     md = render_markdown(tiny)
     assert "| 80.0% | 0.0% | 100.0% |" in md
     assert "-0.0%" not in md
+
+
+# ---- sealing: nothing after 2018-12-31 is read
+
+
+def _scaled(frame: pd.DataFrame, mask: np.ndarray, rng: np.random.Generator) -> pd.DataFrame:
+    """Multiply the masked rows of every column by its own wild factors."""
+    return frame * np.where(mask[:, None], rng.uniform(0.2, 5.0, frame.shape), 1.0)
+
+
+def test_report_ignores_prices_and_cpi_after_2018(report, setup):
+    dcfg, data, index = setup
+    rng = np.random.default_rng(3)
+    after = np.asarray(data["close"].index > END)
+    poisoned = {k: _scaled(v, after, rng) for k, v in data.items()}
+    poisoned_cpi = index * np.where(
+        np.asarray(index.index > END), rng.uniform(0.2, 5.0, len(index)), 1.0
+    )
+    assert not poisoned["close"].equals(data["close"])
+    assert not poisoned_cpi.equals(index)
+    again = run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), poisoned, poisoned_cpi, criteria())
+    assert again == report
+    assert render_markdown(again) == render_markdown(report)
+
+
+def test_report_equals_the_one_from_data_truncated_at_2018(report, setup):
+    dcfg, data, index = setup
+    truncated = {k: v.loc[:END] for k, v in data.items()}
+    again = run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), truncated, index.loc[:END], criteria())
+    assert again == report
+
+
+def test_report_detects_a_change_on_or_before_2018(report, setup):
+    """The checks above can fail: altering the data-end close changes the report."""
+    dcfg, data, index = setup
+    altered = {k: v.copy() for k, v in data.items()}
+    altered["close"].loc[END, :] *= 0.5
+    again = run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), altered, index, criteria())
+    assert render_markdown(again) != render_markdown(report)
+
+
+@pytest.mark.parametrize("module", ["decision_rules.py", "withdrawal_rules_report.py"])
+def test_new_modules_never_unseal_or_slice_a_sealed_period(module):
+    source = (ROOT / "src" / "qrl" / module).read_text()
+    assert not re.search(r"unseal|slice_period", source)
