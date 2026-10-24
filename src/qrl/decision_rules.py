@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 _KEYS = ("version", "decision_sha256", "longrun_sha256", "rules", "income_lines", "portfolios")
@@ -152,3 +153,98 @@ def load_rules_config(
         portfolios=portfolios,
         sha256=hashlib.sha256(raw).hexdigest(),
     )
+
+
+# ---- January functions (spec "Rules"). Inputs are arrays across paths: last
+# year's monthly amount as paid, the year's CPI factor, the value at the
+# decision point before that month's withdrawal, the portfolio's own return
+# over the prior 12 months (before withdrawals), and the rate. Output: the new
+# monthly amount. The scalar case is a length-1 array.
+
+JanuaryRule = Callable[
+    [np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Mapping[str, float]], np.ndarray
+]
+
+
+def fixed(
+    prev: np.ndarray,
+    cpi: np.ndarray,
+    value: np.ndarray,
+    prior: np.ndarray,
+    rate: np.ndarray,
+    params: Mapping[str, float],
+) -> np.ndarray:
+    """`prev x cpi`, the existing `monthly_withdrawals` / `run_paths` step."""
+    return np.asarray(prev * cpi)
+
+
+def skip_raise_after_loss(
+    prev: np.ndarray,
+    cpi: np.ndarray,
+    value: np.ndarray,
+    prior: np.ndarray,
+    rate: np.ndarray,
+    params: Mapping[str, float],
+) -> np.ndarray:
+    """As `fixed`, but `prev` (no CPI raise) after a negative prior-year return."""
+    return np.asarray(np.where(prior < 0, prev, prev * cpi))
+
+
+def guardrails(
+    prev: np.ndarray,
+    cpi: np.ndarray,
+    value: np.ndarray,
+    prior: np.ndarray,
+    rate: np.ndarray,
+    params: Mapping[str, float],
+) -> np.ndarray:
+    """Guyton-Klinger capital preservation and prosperity, without the 15-year
+    exception: take the fixed amount; q = 12 x amount / value; above
+    upper x rate cut it by `cut`, below lower x rate raise it by `raise`."""
+    amount = prev * cpi
+    with np.errstate(divide="ignore", invalid="ignore"):  # depleted paths (value 0) are unused
+        q = 12 * amount / value
+    return np.asarray(
+        np.where(
+            q > params["upper"] * rate,
+            amount * (1 - params["cut"]),
+            np.where(q < params["lower"] * rate, amount * (1 + params["raise"]), amount),
+        )
+    )
+
+
+def pct_of_balance(
+    prev: np.ndarray,
+    cpi: np.ndarray,
+    value: np.ndarray,
+    prior: np.ndarray,
+    rate: np.ndarray,
+    params: Mapping[str, float],
+) -> np.ndarray:
+    """12 x amount = rate x value."""
+    return np.asarray(rate * value / 12)
+
+
+def floor_ceiling(
+    prev: np.ndarray,
+    cpi: np.ndarray,
+    value: np.ndarray,
+    prior: np.ndarray,
+    rate: np.ndarray,
+    params: Mapping[str, float],
+) -> np.ndarray:
+    """rate x value / 12, clamped to [prev x cpi x (1 - max_real_cut),
+    prev x cpi x (1 + max_real_raise)] (Vanguard's published real bands)."""
+    base = prev * cpi
+    low = base * (1 - params["max_real_cut"])
+    high = base * (1 + params["max_real_raise"])
+    return np.asarray(np.minimum(np.maximum(rate * value / 12, low), high))
+
+
+RULES: dict[str, JanuaryRule] = {
+    "fixed": fixed,
+    "skip_raise_after_loss": skip_raise_after_loss,
+    "guardrails": guardrails,
+    "pct_of_balance": pct_of_balance,
+    "floor_ceiling": floor_ceiling,
+}

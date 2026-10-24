@@ -8,11 +8,22 @@ import hashlib
 import re
 from pathlib import Path
 
+import numpy as np
 import pytest
 from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
 
 from qrl.decision_config import load_decision_config
-from qrl.decision_rules import RULE_PARAMS, RulesConfig, load_rules_config
+from qrl.decision_rules import (
+    RULE_PARAMS,
+    RULES,
+    RulesConfig,
+    fixed,
+    floor_ceiling,
+    guardrails,
+    load_rules_config,
+    pct_of_balance,
+    skip_raise_after_loss,
+)
 from qrl.longrun import load_longrun_config
 
 D_SHA, L_SHA = "aa" * 32, "bb" * 32
@@ -145,3 +156,89 @@ def test_shipped_config_loads_against_the_shipped_decision_and_longrun_files():
     assert list(cfg.rules) == list(RULE_PARAMS)
     assert cfg.income_lines == [0.9, 0.8, 0.7]
     assert cfg.portfolios == ["A", "B", "C", "D", "E", "F", "G", "CASH"]
+
+
+# ---- January functions
+
+GUARD = {"upper": 1.2, "lower": 0.8, "cut": 0.1, "raise": 0.1}
+BANDS = {"max_real_cut": 0.025, "max_real_raise": 0.05}
+PARAMS: dict[str, dict[str, float]] = {
+    "fixed": {},
+    "skip_raise_after_loss": {},
+    "guardrails": GUARD,
+    "pct_of_balance": {},
+    "floor_ceiling": BANDS,
+}
+
+
+def _a(*xs: float) -> np.ndarray:
+    return np.array(xs, dtype=float)
+
+
+def test_rules_and_parameters_are_the_spec_set_in_spec_order():
+    assert list(RULES) == list(PARAMS)
+    assert list(RULE_PARAMS) == list(PARAMS)
+    assert {k: set(v) for k, v in RULE_PARAMS.items()} == {k: set(v) for k, v in PARAMS.items()}
+
+
+def test_fixed_raises_last_years_amount_by_cpi():
+    out = fixed(_a(0.01, 0.02), _a(1.03, 1.0), _a(1.0, 0.5), _a(-0.2, 0.1), _a(0.12, 0.12), {})
+    np.testing.assert_allclose(out, [0.0103, 0.02], rtol=1e-12)
+
+
+def test_skip_raise_after_loss_keeps_the_amount_only_after_a_negative_year():
+    # prior-year returns -1% (skip), 0% (not negative: raise), +20% (raise)
+    out = skip_raise_after_loss(
+        _a(0.01, 0.01, 0.01),
+        _a(1.05, 1.05, 1.05),
+        _a(1, 1, 1),
+        _a(-0.01, 0.0, 0.2),
+        _a(0.12, 0.12, 0.12),
+        {},
+    )
+    np.testing.assert_allclose(out, [0.01, 0.0105, 0.0105], rtol=1e-12)
+
+
+def test_guardrails_cut_keep_and_raise():
+    # q = 12 x 0.01 / V = 0.12 / V against 1.2 x 0.12 = 0.144 and 0.8 x 0.12 = 0.096:
+    # V 0.7 -> q 0.171 (cut 10%), V 1.0 -> q 0.12 (keep), V 1.6 -> q 0.075 (raise 10%)
+    out = guardrails(
+        _a(0.01, 0.01, 0.01),
+        _a(1, 1, 1),
+        _a(0.7, 1.0, 1.6),
+        _a(0, 0, 0),
+        _a(0.12, 0.12, 0.12),
+        GUARD,
+    )
+    np.testing.assert_allclose(out, [0.009, 0.01, 0.011], rtol=1e-12)
+
+
+def test_guardrails_test_the_cpi_raised_amount():
+    # fixed amount 0.01 x 1.25 = 0.0125; V 1.0: q = 0.15 > 0.144 -> cut to 0.01125
+    out = guardrails(_a(0.01), _a(1.25), _a(1.0), _a(0.0), _a(0.12), GUARD)
+    np.testing.assert_allclose(out, [0.01125], rtol=1e-12)
+
+
+def test_pct_of_balance_is_rate_times_value_over_twelve():
+    out = pct_of_balance(_a(0.01, 0.01), _a(1.1, 1.1), _a(0.9, 1.2), _a(0, 0), _a(0.04, 0.05), {})
+    np.testing.assert_allclose(out, [0.003, 0.005], rtol=1e-12)
+
+
+def test_floor_ceiling_lower_clamp_inside_and_upper_clamp():
+    # prev x cpi = 0.0102: floor 0.0102 x 0.975 = 0.009945, ceiling 0.0102 x 1.05 = 0.01071;
+    # rate x V / 12 = 0.005 (below the floor), 0.0103 (inside), 0.02 (above the ceiling)
+    out = floor_ceiling(
+        _a(0.01, 0.01, 0.01),
+        _a(1.02, 1.02, 1.02),
+        _a(0.5, 1.03, 2.0),
+        _a(0, 0, 0),
+        _a(0.12, 0.12, 0.12),
+        BANDS,
+    )
+    np.testing.assert_allclose(out, [0.009945, 0.0103, 0.01071], rtol=1e-12)
+
+
+@pytest.mark.parametrize("rule", list(PARAMS))
+def test_every_rule_takes_the_scalar_case_as_a_length_one_array(rule):
+    out = RULES[rule](_a(0.01), _a(1.02), _a(1.0), _a(0.05), _a(0.04), PARAMS[rule])
+    assert out.shape == (1,)
