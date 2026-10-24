@@ -5,6 +5,7 @@ docs/methodology/withdrawal-rules.md ("Tests")."""
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 import pytest
@@ -61,8 +62,8 @@ def test_load_rules_config_reads_rules_lines_and_portfolios_in_order(tmp_path):
 
 REFUSALS = [
     ("version: 1\n", "version: 2\n", "unsupported version"),
-    ("portfolios:", "extra: 1\nportfolios:", "unknown key"),
-    ("income_lines: [0.9, 0.8, 0.7]\n", "", "missing key"),
+    ("portfolios:", "extra: 1\nportfolios:", r"unknown key\(s\) \['extra'\]"),
+    ("income_lines: [0.9, 0.8, 0.7]\n", "", r"missing key\(s\) \['income_lines'\]"),
     ("  pct_of_balance: {}\n", "  pct_of_wealth: {}\n", "unknown rule"),
     ("  fixed: {}\n", "  fixed: {cut: 0.1}\n", "needs parameters"),
     ("  fixed: {}\n", "  fixed: 1\n", "needs parameters"),
@@ -78,10 +79,28 @@ REFUSALS = [
     (RULES_BLOCK, "rules: {}\n", "non-empty mapping"),
     ("income_lines: [0.9, 0.8, 0.7]", "income_lines: []", "non-empty list"),
     ("portfolios: [A, B, C, D, E, F, G, CASH]", "portfolios: []", "non-empty list"),
-    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.9, 0.9]", "duplicate"),
-    ("portfolios: [A, B, C, D, E, F, G, CASH]", "portfolios: [A, A]", "duplicate"),
-    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.9, 1.0]", "income line"),
-    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.0, 0.8]", "income line"),
+    ("upper: 1.2", "upper: .nan", "must be finite"),
+    ("upper: 1.2", "upper: .inf", "must be finite"),
+    ("lower: 0.8", "lower: -.inf", "must be finite"),
+    ("max_real_cut: 0.025", "max_real_cut: .inf", "must be finite"),
+    ("upper: 1.2", "upper: true", "must be numbers"),
+    ("upper: 1.2", 'upper: "1.2"', "must be numbers"),
+    ("upper: 1.2", "upper: null", "must be numbers"),
+    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.9, abc]", r"income_lines.*numbers"),
+    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.9, true]", r"income_lines.*numbers"),
+    ("income_lines: [0.9, 0.8, 0.7]", 'income_lines: [0.9, "0.8"]', r"income_lines.*numbers"),
+    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.9, .nan]", r"income_lines.*finite"),
+    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: 0.9", r"`income_lines` must be a non-empty"),
+    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.9, 0.9]", r"duplicate `income_lines`"),
+    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.5, 0.50]", r"duplicate `income_lines`"),
+    ("portfolios: [A, B, C, D, E, F, G, CASH]", "portfolios: [A, A]", r"duplicate `portfolios`"),
+    (
+        "portfolios: [A, B, C, D, E, F, G, CASH]",
+        "portfolios: A",
+        r"`portfolios` must be a non-empty",
+    ),
+    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.9, 1.0]", r"income line\(s\) \[1\.0\]"),
+    ("income_lines: [0.9, 0.8, 0.7]", "income_lines: [0.0, 0.8]", r"income line\(s\) \[0\.0\]"),
     ("portfolios: [A, B, C, D, E, F, G, CASH]", "portfolios: [A, ZZ]", "not in decision.yaml"),
 ]
 
@@ -105,12 +124,12 @@ def test_load_rules_config_refuses_a_missing_file(tmp_path):
 
 
 def test_load_rules_config_refuses_a_changed_decision_yaml(tmp_path):
-    with pytest.raises(ValueError, match="decision.yaml changed"):
+    with pytest.raises(ValueError, match=re.escape("decision.yaml changed")):
         _load_rules(tmp_path, d_sha="cc" * 32)
 
 
 def test_load_rules_config_refuses_a_changed_longrun_yaml(tmp_path):
-    with pytest.raises(ValueError, match="longrun.yaml changed"):
+    with pytest.raises(ValueError, match=re.escape("longrun.yaml changed")):
         _load_rules(tmp_path, l_sha="cc" * 32)
 
 

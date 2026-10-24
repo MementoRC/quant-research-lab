@@ -12,6 +12,7 @@ code and every number it publishes are unchanged.
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,32 +79,37 @@ def _rules(raw: object) -> dict[str, dict[str, float]]:
                 f"{_WHERE}: rule {rule} needs parameters {sorted(RULE_PARAMS[rule])}, "
                 f"got {params!r}"
             )
-        try:
-            values = {str(k): float(v) for k, v in params.items()}
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{_WHERE}: rule {rule} parameters must be numbers ({exc})") from exc
+        values = {str(k): _number(v, f"rule {rule} parameters") for k, v in params.items()}
         _check_params(rule, values)
         out[str(rule)] = values
     return out
 
 
-def _unique_list(doc: dict, key: str) -> list:
+def _number(value: object, what: str) -> float:
+    """A real, finite YAML number: not a bool, a string or null."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{_WHERE}: {what} must be numbers, got {value!r}")
+    if not math.isfinite(value):
+        raise ValueError(f"{_WHERE}: {what} must be finite, got {value!r}")
+    return float(value)
+
+
+def _list(doc: dict, key: str) -> list:
     value = doc[key]
     if not isinstance(value, list) or not value:
         raise ValueError(f"{_WHERE}: `{key}` must be a non-empty list")
-    dupes = sorted({str(v) for v in value if value.count(v) > 1})
-    if dupes:
-        raise ValueError(f"{_WHERE}: duplicate `{key}` entries {dupes}")
     return value
 
 
+def _no_duplicates(key: str, values: list) -> None:
+    dupes = sorted({str(v) for v in values if values.count(v) > 1})
+    if dupes:
+        raise ValueError(f"{_WHERE}: duplicate `{key}` entries {dupes}")
+
+
 def _income_lines(doc: dict) -> list[float]:
-    try:
-        lines = [float(x) for x in _unique_list(doc, "income_lines")]
-    except (TypeError, ValueError) as exc:
-        if "income_lines" in str(exc):
-            raise
-        raise ValueError(f"{_WHERE}: income lines must be numbers ({exc})") from exc
+    lines = [_number(x, "`income_lines` entries") for x in _list(doc, "income_lines")]
+    _no_duplicates("income_lines", lines)
     bad = [x for x in lines if not 0 < x < 1]
     if bad:
         raise ValueError(f"{_WHERE}: income line(s) {bad} must be strictly between 0 and 1")
@@ -135,7 +141,8 @@ def load_rules_config(
     if doc["longrun_sha256"] != longrun_sha256:
         raise ValueError(f"longrun.yaml changed: its sha256 does not match {_WHERE}'s pin")
     known = set(portfolio_ids)
-    portfolios = [str(p) for p in _unique_list(doc, "portfolios")]
+    portfolios = [str(p) for p in _list(doc, "portfolios")]
+    _no_duplicates("portfolios", portfolios)
     strangers = [p for p in portfolios if p not in known]
     if strangers:
         raise ValueError(f"{_WHERE}: portfolio(s) {strangers} not in decision.yaml")
