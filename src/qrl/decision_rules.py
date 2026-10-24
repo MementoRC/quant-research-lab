@@ -22,7 +22,23 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from .decision_withdraw import DEPLETED, WithdrawalPath, path_metrics, usable_cpi
+from .decision import data_end, portfolio_returns, research_start, start_dates
+from .decision_config import DecisionConfig
+from .decision_withdraw import (
+    DEPLETED,
+    WithdrawalPath,
+    monthly_inflation,
+    path_metrics,
+    usable_cpi,
+)
+from .longrun import (
+    LongrunConfig,
+    block_starts,
+    check_withdrawal_rates,
+    month_indices,
+    monthly_returns,
+)
+from .periods import period_bounds
 
 _KEYS = ("version", "decision_sha256", "longrun_sha256", "rules", "income_lines", "portfolios")
 RULE_PARAMS: dict[str, tuple[str, ...]] = {
@@ -527,4 +543,191 @@ def longrun_measures(
         "income_total_median": float(np.median(total)),
         "income_total_p5": float(np.quantile(total, 0.05)),
         "ever_below": {line: float(np.mean((income < line).any(axis=1) | gone)) for line in lines},
+    }
+
+
+# ---- orchestration
+
+
+def _historical_row(
+    pid: str,
+    rule: str,
+    rate: float,
+    per_year: dict[int, tuple[dict, np.ndarray]],
+    lines: list[float],
+) -> dict:
+    """The first start year's and the worst start year's (lowest real ending
+    value; ties to the earlier year, as `decision.withdrawal_rows`) figures,
+    and the share of years below each line pooled over every start year's
+    calendar years."""
+    first = min(per_year)
+    worst = min(per_year, key=lambda y: (per_year[y][0]["end_real"], y))
+    below = np.concatenate([b for _, b in per_year.values()])
+    return {
+        "portfolio": pid,
+        "rule": rule,
+        "rate": rate,
+        "first_year": first,
+        "first": per_year[first][0],
+        "worst_year": worst,
+        "worst": per_year[worst][0],
+        "years_pooled": int(below.shape[0]),
+        "below": {line: float(below[:, i].mean()) for i, line in enumerate(lines)},
+    }
+
+
+def _historical_rule(
+    pid: str,
+    rule: str,
+    params: Mapping[str, float],
+    returns: dict[int, pd.Series],
+    cpi: pd.Series,
+    rates: list[float],
+    lines: list[float],
+) -> list[dict]:
+    per_rate: dict[float, dict[int, tuple[dict, np.ndarray]]] = {rate: {} for rate in rates}
+    for year, rets in returns.items():
+        run, months = historical_run(rets, cpi, rates, rule, params)
+        for i, rate in enumerate(rates):
+            values = pd.Series(run.values[i], index=rets.index)
+            per_rate[rate][year] = historical_measures(
+                values, run.paid[i], int(run.depleted[i]), months, cpi, rate, lines
+            )
+    return [_historical_row(pid, rule, rate, per_rate[rate], lines) for rate in rates]
+
+
+def historical_rows(
+    rcfg: RulesConfig,
+    dcfg: DecisionConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+) -> list[dict]:
+    """Per portfolio, rule and rate (in that order): daily paths from the
+    first trading day of each start year to the data end, returns from
+    `decision.portfolio_returns` (unchanged, criteria cost_bps). Price and CPI
+    frames are cut at the data end first."""
+    end = data_end(criteria)
+    cut = {k: v.loc[:end] for k, v in data.items()}
+    known_cpi = cpi.loc[:end]
+    cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
+    starts = start_dates(pd.DatetimeIndex(cut["close"].index), dcfg.start_years, end)
+    by_id = {p.id: p for p in dcfg.portfolios}
+    rows: list[dict] = []
+    for pid in rcfg.portfolios:
+        returns = {
+            y: portfolio_returns(by_id[pid], cut, day, cost_bps) for y, day in starts.items()
+        }
+        for rule, params in rcfg.rules.items():
+            rows += _historical_rule(
+                pid, rule, params, returns, known_cpi, dcfg.rates, rcfg.income_lines
+            )
+    return rows
+
+
+def longrun_indices(lcfg: LongrunConfig, n_months: int) -> np.ndarray:
+    """The long run's month positions: the same seed, `block_starts` and
+    `month_indices` as `run_longrun`, so the paths are the same paths."""
+    n_blocks = lcfg.horizon_years * 12 // lcfg.block_months
+    idx = month_indices(
+        block_starts(lcfg.seed, lcfg.n_paths, n_blocks, n_months), lcfg.block_months, n_months
+    )
+    if idx.shape[1] != lcfg.horizon_years * 12:
+        raise ValueError(
+            f"paths are {idx.shape[1]} months long, expected {lcfg.horizon_years * 12}"
+        )
+    return idx
+
+
+def longrun_rows(
+    rcfg: RulesConfig,
+    dcfg: DecisionConfig,
+    lcfg: LongrunConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+) -> tuple[list[dict], dict]:
+    """Per rate, portfolio and rule (in that order) over the long run's paths:
+    calendar-month returns (`monthly_returns` of `portfolio_returns` from the
+    first research trading day) and `monthly_inflation`, the same draws for
+    every portfolio and rule. Also the month span for the header. Price and
+    CPI frames are cut at the data end first."""
+    end = data_end(criteria)
+    begin, _ = period_bounds(criteria, "research")
+    if begin is None:
+        raise ValueError("criteria: the research period has no start")
+    cut = {k: v.loc[:end] for k, v in data.items()}
+    known_cpi = cpi.loc[:end]
+    cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
+    first = research_start(pd.DatetimeIndex(cut["close"].index), criteria)
+    by_id = {p.id: p for p in dcfg.portfolios}
+    months = pd.period_range(begin, end, freq="M")
+    monthly: dict[str, np.ndarray] = {}
+    for pid in rcfg.portfolios:
+        series = monthly_returns(portfolio_returns(by_id[pid], cut, first, cost_bps))
+        if not series.index.equals(months):
+            raise ValueError(
+                f"portfolio {pid}: months must run {months[0]}..{months[-1]} ({len(months)} months)"
+            )
+        monthly[pid] = series.to_numpy()
+    idx = longrun_indices(lcfg, len(months))
+    cpi_at, levels = longrun_cpi(monthly_inflation(known_cpi, months).to_numpy()[idx])
+    every = np.ones(idx.shape[1], dtype=bool)
+    rows = [
+        {
+            "portfolio": pid,
+            "rule": rule,
+            "rate": rate,
+            **longrun_measures(
+                run_rule(rule, params, monthly[pid][idx], every, cpi_at, rate),
+                levels,
+                rate,
+                rcfg.income_lines,
+                lcfg.horizon_years,
+            ),
+        }
+        for rate in dcfg.rates
+        for pid in rcfg.portfolios
+        for rule, params in rcfg.rules.items()
+    ]
+    span = {"first_month": str(months[0]), "last_month": str(months[-1]), "n_months": len(months)}
+    return rows, span
+
+
+def run_withdrawal_rules(
+    rcfg: RulesConfig,
+    dcfg: DecisionConfig,
+    lcfg: LongrunConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+) -> dict:
+    """The whole report as plain data (rendered by
+    `qrl.withdrawal_rules_report`). Rates and start years come from
+    decision.yaml, the paths from longrun.yaml, the cost from criteria.yaml.
+    Raises ValueError on any refusal."""
+    check_withdrawal_rates(lcfg, dcfg)
+    labels = {p.id: p.label for p in dcfg.portfolios}
+    strangers = [pid for pid in rcfg.portfolios if pid not in labels]
+    if strangers:
+        raise ValueError(f"withdrawal_rules portfolio(s) {strangers} not in decision.yaml")
+    longrun, span = longrun_rows(rcfg, dcfg, lcfg, data, cpi, criteria)
+    return {
+        "data_end": str(data_end(criteria).date()),
+        "rules_sha256": rcfg.sha256,
+        "decision_sha256": dcfg.sha256,
+        "longrun_sha256": lcfg.sha256,
+        "cost_bps": float(criteria["costs"]["bps_per_unit_turnover"]),
+        "seed": lcfg.seed,
+        "n_paths": lcfg.n_paths,
+        "block_months": lcfg.block_months,
+        "horizon_years": lcfg.horizon_years,
+        **span,
+        "rates": dcfg.rates,
+        "start_years": dcfg.start_years,
+        "rules": rcfg.rules,
+        "income_lines": rcfg.income_lines,
+        "portfolios": [{"id": pid, "label": labels[pid]} for pid in rcfg.portfolios],
+        "historical": historical_rows(rcfg, dcfg, data, cpi, criteria),
+        "longrun": longrun,
     }

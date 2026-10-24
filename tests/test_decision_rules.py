@@ -6,14 +6,17 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
-from decision_helpers import CANDIDATES, END, ROOT, stress_cfg
+from decision_helpers import CANDIDATES, END, ROOT, criteria, load, prices, stress_cfg
 from decision_helpers import cpi as cpi_series
 
+from qrl.decision import withdrawal_rows
 from qrl.decision_config import load_decision_config
 from qrl.decision_rules import (
     RULE_PARAMS,
@@ -33,10 +36,18 @@ from qrl.decision_rules import (
     month_starts,
     pct_of_balance,
     run_rule,
+    run_withdrawal_rules,
     skip_raise_after_loss,
 )
 from qrl.decision_withdraw import DEPLETED, monthly_withdrawals, withdrawal_path
-from qrl.longrun import block_starts, load_longrun_config, month_indices, run_paths
+from qrl.longrun import (
+    LongrunConfig,
+    block_starts,
+    load_longrun_config,
+    month_indices,
+    run_longrun,
+    run_paths,
+)
 
 D_SHA, L_SHA = "aa" * 32, "bb" * 32
 IDS = ["A", "B", "C", "D", "E", "F", "G", "CASH", "G-EW"]
@@ -943,3 +954,148 @@ def test_fixed_rule_keeps_real_income_at_the_starting_income_in_both_views():
     assert lm["depleted"] == 0.0
     assert lm["income_low_median"] == pytest.approx(1.0, rel=1e-9)
     assert lm["income_total_median"] == pytest.approx(30.0, rel=1e-9)
+
+
+# ---- run_withdrawal_rules on the offline decision-helper fixtures
+
+RATES = [0.04, 0.05]
+YEARS = [2005, 2013]
+PIDS = ("A", "CASH")
+
+
+def _lcfg() -> LongrunConfig:
+    return LongrunConfig(
+        seed=7,
+        n_paths=50,
+        block_months=12,
+        horizon_years=30,
+        real_floor=0.5,
+        rates=RATES,
+        cash_real_yield=0.01,
+        sha256="ab" * 32,
+    )
+
+
+def _rcfg(portfolios: tuple[str, ...] = PIDS) -> RulesConfig:
+    return RulesConfig(
+        rules={k: dict(v) for k, v in PARAMS.items()},
+        income_lines=[0.9, 0.8, 0.7],
+        portfolios=list(portfolios),
+        sha256="ef" * 32,
+    )
+
+
+@pytest.fixture(scope="module")
+def setup(tmp_path_factory):
+    full = load(tmp_path_factory.mktemp("rules"))
+    by_id = {p.id: p for p in full.portfolios}
+    dcfg = replace(full, portfolios=[by_id[pid] for pid in PIDS], rates=RATES, start_years=YEARS)
+    return dcfg, prices(), cpi_series()
+
+
+@pytest.fixture(scope="module")
+def report(setup):
+    dcfg, data, index = setup
+    return run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), data, index, criteria())
+
+
+def test_rows_one_per_portfolio_rule_and_rate_in_config_order(report):
+    hist = [(r["portfolio"], r["rule"], r["rate"]) for r in report["historical"]]
+    assert hist == [(p, rule, rate) for p in PIDS for rule in PARAMS for rate in RATES]
+    long = [(r["portfolio"], r["rule"], r["rate"]) for r in report["longrun"]]
+    assert long == [(p, rule, rate) for rate in RATES for p in PIDS for rule in PARAMS]
+
+
+def test_report_header_fields(report, setup):
+    dcfg, _, _ = setup
+    assert report["data_end"] == "2018-12-31"
+    assert report["rules_sha256"] == "ef" * 32
+    assert report["decision_sha256"] == dcfg.sha256
+    assert report["longrun_sha256"] == "ab" * 32
+    assert report["cost_bps"] == 5.0
+    assert (report["seed"], report["n_paths"], report["block_months"], report["horizon_years"]) == (
+        7,
+        50,
+        12,
+        30,
+    )
+    assert (report["first_month"], report["last_month"], report["n_months"]) == (
+        "2005-01",
+        "2018-12",
+        168,
+    )
+    assert report["rates"] == RATES
+    assert report["start_years"] == YEARS
+    assert [p["id"] for p in report["portfolios"]] == list(PIDS)
+
+
+def test_historical_below_shares_pool_every_start_years_calendar_years(report):
+    # 2005 start: calendar years 2005..2018 (14); 2013 start: 2013..2018 (6)
+    for row in report["historical"]:
+        assert row["years_pooled"] == 20
+        assert set(row["below"]) == {0.9, 0.8, 0.7}
+        assert all(0.0 <= share <= 1.0 for share in row["below"].values())
+        assert row["below"][0.7] <= row["below"][0.8] <= row["below"][0.9]
+        assert (row["first_year"], row["worst"]["end_real"] <= row["first"]["end_real"]) == (
+            2005,
+            True,
+        )
+
+
+@pytest.mark.parametrize("varying", [False, True])
+def test_fixed_rule_historical_rows_equal_decision_withdrawal_rows(setup, report, varying):
+    dcfg, data, index = setup
+    rows = report["historical"]
+    if varying:
+        index = _varying_cpi()
+        rows = run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), data, index, criteria())["historical"]
+    theirs = {
+        (r["portfolio"], r["rate"]): r for r in withdrawal_rows(dcfg, data, index, criteria())
+    }
+    for row in (r for r in rows if r["rule"] == "fixed"):
+        other = theirs[(row["portfolio"], row["rate"])]
+        assert row["first_year"] == other["first_year"]
+        for key in ("end_real", "lowest", "depleted"):
+            assert row["first"][key] == other["first"][key]
+        assert row["worst_year"] == other["worst_year"]
+        assert row["worst"]["end_real"] == other["worst_end_real"]
+
+
+def test_fixed_rule_longrun_rows_equal_run_longrun_on_the_same_paths(report, setup):
+    dcfg, data, index = setup
+    theirs = {
+        (r["portfolio"], r["rate"]): r
+        for r in run_longrun(_lcfg(), dcfg, data, index, criteria())["rows"]
+    }
+    for row in (r for r in report["longrun"] if r["rule"] == "fixed"):
+        other = theirs[(row["portfolio"], row["rate"])]
+        assert row["depleted"] == other["depleted_by"][30]
+        assert row["end_real_median"] == other["end_real_median"]
+        assert row["end_real_p5"] == other["end_real_p5"]
+
+
+def test_run_is_repeatable_and_draws_block_starts_once(report, setup):
+    dcfg, data, index = setup
+    with patch("qrl.decision_rules.block_starts", wraps=block_starts) as spy:
+        again = run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), data, index, criteria())
+    assert spy.call_count == 1  # one draw shared by every portfolio and rule (paired)
+    assert again == report
+
+
+def test_run_refuses_unequal_withdrawal_rates(setup):
+    dcfg, data, index = setup
+    with pytest.raises(ValueError, match="differ"):
+        run_withdrawal_rules(_rcfg(), replace(dcfg, rates=[0.04]), _lcfg(), data, index, criteria())
+
+
+def test_run_refuses_a_portfolio_not_in_decision_yaml(setup):
+    dcfg, data, index = setup
+    with pytest.raises(ValueError, match="not in decision.yaml"):
+        run_withdrawal_rules(_rcfg(("A", "ZZ")), dcfg, _lcfg(), data, index, criteria())
+
+
+def test_run_refuses_partial_months(setup):
+    dcfg, data, index = setup
+    short = {k: v.loc[: END - pd.offsets.MonthEnd(1)] for k, v in data.items()}
+    with pytest.raises(ValueError, match="months must run"):
+        run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), short, index, criteria())
