@@ -49,6 +49,7 @@ from qrl.longrun import (
     run_longrun,
     run_paths,
 )
+from qrl.withdrawal_rules_report import render_markdown
 
 D_SHA, L_SHA = "aa" * 32, "bb" * 32
 IDS = ["A", "B", "C", "D", "E", "F", "G", "CASH", "G-EW"]
@@ -1159,3 +1160,318 @@ def test_run_refuses_partial_months(setup):
     short = {k: v.loc[: END - pd.offsets.MonthEnd(1)] for k, v in data.items()}
     with pytest.raises(ValueError, match="months must run"):
         run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), short, index, criteria())
+
+
+# ---- report: rendered from a small hand-built report dict, compared with strings
+# written out by hand (the renderer never produces its own expectations).
+
+# The same pattern as HASH_LINE in tests/test_docs_freshness.py.
+HASH_LINE = re.compile(
+    r"^- (?:config/)?([\w.]+\.yaml) (?:config )?(?:sha256|hash): `([0-9a-f]{12,64})`"
+)
+HAND_RATES = [0.04, 0.05]
+DEFAULT_FIRST = {
+    "depleted": None,
+    "end_real": 1.25,
+    "lowest": 0.5,
+    "income_low": 0.95,
+    "income_total": 14.0,
+}
+DEFAULT_WORST = {
+    "depleted": None,
+    "end_real": 0.75,
+    "lowest": 0.25,
+    "income_low": 0.85,
+    "income_total": 12.0,
+}
+DEFAULT_LONG = {
+    "depleted": 0.02,
+    "end_real_median": 1.5,
+    "end_real_p5": 0.6,
+    "lowest_median": 0.8,
+    "lowest_p5": 0.4,
+    "income_low_median": 1.0,
+    "income_low_p5": 0.85,
+    "income_total_median": 30.0,
+    "income_total_p5": 27.5,
+    "ever_below": {0.9: 0.05, 0.8: 0.0},
+}
+ODD_HIST = ("A", "guardrails", 0.05)
+ODD_LONG = ("CASH", "pct_of_balance", 0.04)
+DEFAULT_HIST_ROW = (
+    "| {p} | {r} | - | 125.0% | 50.0% | 95.0% | 1400.0% | 2013 | - | 75.0% | 25.0% | 85.0% "
+    "| 1200.0% | 25.0% | 10.0% |"
+)
+ODD_HIST_ROW = (
+    "| A | guardrails | 2010-06 | 125.0% | 50.0% | 95.0% | 1400.0% | 2005 | 2016-03 | 0.0% "
+    "| 0.0% | 0.0% | 300.0% | 50.0% | 45.0% |"
+)
+DEFAULT_LONG_ROW = (
+    "| {p} | {r} | 2.0% | 150.0% | 60.0% | 80.0% | 40.0% | 100.0% | 85.0% | 3000.0% "
+    "| 2750.0% | 5.0% | 0.0% |"
+)
+ODD_LONG_ROW = (
+    "| CASH | pct_of_balance | 0.0% | 90.0% | 30.0% | 35.0% | 10.0% | 50.0% | 25.0% "
+    "| 2000.0% | 1500.0% | 100.0% | 12.5% |"
+)
+
+
+def _hist_row(pid: str, rule: str, rate: float) -> dict:
+    row = {
+        "portfolio": pid,
+        "rule": rule,
+        "rate": rate,
+        "first_year": 2005,
+        "first": dict(DEFAULT_FIRST),
+        "worst_year": 2013,
+        "worst": dict(DEFAULT_WORST),
+        "years_pooled": 20,
+        "below": {0.9: 0.25, 0.8: 0.1},
+    }
+    if (pid, rule, rate) == ODD_HIST:
+        row["first"] = {**DEFAULT_FIRST, "depleted": "2010-06"}
+        row["worst_year"] = 2005
+        row["worst"] = {
+            "depleted": "2016-03",
+            "end_real": 0.0,
+            "lowest": 0.0,
+            "income_low": 0.0,
+            "income_total": 3.0,
+        }
+        row["below"] = {0.9: 0.5, 0.8: 0.45}
+    return row
+
+
+def _long_row(pid: str, rule: str, rate: float) -> dict:
+    row = {"portfolio": pid, "rule": rule, "rate": rate, **DEFAULT_LONG}
+    if (pid, rule, rate) == ODD_LONG:
+        row.update(
+            depleted=0.0,
+            end_real_median=0.9,
+            end_real_p5=0.3,
+            lowest_median=0.35,
+            lowest_p5=0.1,
+            income_low_median=0.5,
+            income_low_p5=0.25,
+            income_total_median=20.0,
+            income_total_p5=15.0,
+            ever_below={0.9: 1.0, 0.8: 0.125},
+        )
+    return row
+
+
+@pytest.fixture(scope="module")
+def hand():
+    return {
+        "data_end": "2018-12-31",
+        "rules_sha256": "ef" * 32,
+        "decision_sha256": "cd" * 32,
+        "longrun_sha256": "ab" * 32,
+        "cost_bps": 5.0,
+        "seed": 7,
+        "n_paths": 50,
+        "block_months": 12,
+        "horizon_years": 30,
+        "first_month": "2005-01",
+        "last_month": "2018-12",
+        "n_months": 168,
+        "rates": HAND_RATES,
+        "start_years": YEARS,
+        "rules": {k: dict(v) for k, v in PARAMS.items()},
+        "income_lines": [0.9, 0.8],
+        "portfolios": [
+            {"id": "A", "label": "Growth core"},
+            {"id": "CASH", "label": "All cash"},
+        ],
+        "historical": [_hist_row(p, r, k) for p in PIDS for r in PARAMS for k in HAND_RATES],
+        "longrun": [_long_row(p, r, k) for k in HAND_RATES for p in PIDS for r in PARAMS],
+    }
+
+
+def _sections(md: str) -> dict[str, list[str]]:
+    """Lines of the historical and the long-run section."""
+    lines = md.splitlines()
+    hist = next(i for i, x in enumerate(lines) if x.startswith("## Historical view"))
+    long = next(i for i, x in enumerate(lines) if x.startswith("## Long-run view"))
+    return {"hist": lines[hist:long], "long": lines[long:]}
+
+
+def _tables(lines: list[str]) -> list[list[str]]:
+    """Per '### Withdrawal rate' heading: the header line, then the body rows."""
+    tables: list[list[str]] = []
+    for line in lines:
+        if line.startswith("### Withdrawal rate"):
+            tables.append([line])
+        elif tables and line.startswith("| "):
+            tables[-1].append(line)
+    return tables
+
+
+def _hashes(md: str) -> dict[str, str]:
+    return {m.group(1): m.group(2) for line in md.splitlines() if (m := HASH_LINE.match(line))}
+
+
+def test_header_hash_lines_parse_like_the_freshness_check(hand):
+    assert _hashes(render_markdown(hand)) == {
+        "withdrawal_rules.yaml": "ef" * 32,
+        "decision.yaml": "cd" * 32,
+        "longrun.yaml": "ab" * 32,
+    }
+
+
+def test_header_lines_are_written_out(hand):
+    lines = render_markdown(hand).splitlines()
+    assert lines[0] == "# Withdrawal rules: the fixed withdrawal against flexible rules"
+    for line in (
+        "- data: up to 2018-12-31 only (validation and holdout stay sealed)",
+        "- historical view: start years 2005 to 2013, each to 2018-12-31",
+        "- long run: 50 paths of 30 years, 12-month blocks drawn from 168 months "
+        "(2005-01 to 2018-12, circular), seed 7; the same paths as the long-run report",
+        "- trading costs: 5 bps per unit traded",
+        "- 2 portfolios x 5 rules x 2 withdrawal rates = 20 rows per view",
+        "- portfolios: A (Growth core); CASH (All cash)",
+    ):
+        assert line in lines, line
+
+
+def test_counts_are_computed_not_hard_coded(hand):
+    one_rate = {**hand, "rates": [0.04], "portfolios": hand["portfolios"][:1]}
+    assert "- 1 portfolios x 5 rules x 1 withdrawal rates = 5 rows per view" in render_markdown(
+        one_rate
+    )
+
+
+def test_notes_carry_the_plain_words(hand):
+    md = render_markdown(hand)
+    for text in (
+        "recommends nothing",
+        "no 15-year exception",
+        "not fitted",
+        "The long-run decision point is every 12 months, not January.",
+        "counts 0 for every later year",
+        "The historical view has 2 overlapping start years, so it is 2 related paths, "
+        "not 2 independent tests.",
+        "taken proportionally from all holdings at no extra cost",
+        "bad case (worst 5%) is the value 1 path in 20 is below",
+    ):
+        assert text in " ".join(md.split()), text
+
+
+def test_each_rule_is_described_with_its_configured_parameters(hand):
+    md = render_markdown(hand)
+    assert "- fixed: last year's monthly amount raised by CPI each year;" in md
+    assert "- skip_raise_after_loss: as fixed, but no CPI raise after a year" in md
+    assert (
+        "if 12 x amount / value is above 120.0% of the rate, cut it by 10.0%; "
+        "if below 80.0% of the rate, raise it by 10.0%." in md
+    )
+    assert "- pct_of_balance: each year 12 x amount = rate x value." in md
+    assert (
+        "- floor_ceiling: rate x value / 12, kept within -2.5% and +5.0% of last "
+        "year's amount after CPI" in md
+    )
+
+
+def test_changed_parameters_change_the_rule_text(hand):
+    other = {
+        **hand,
+        "rules": {"guardrails": {"upper": 1.5, "lower": 0.5, "cut": 0.2, "raise": 0.05}},
+    }
+    md = render_markdown(other)
+    assert "above 150.0% of the rate, cut it by 20.0%; if below 50.0% of the rate" in md
+    assert "raise it by 5.0%." in md
+
+
+def test_an_unknown_rule_is_refused(hand):
+    with pytest.raises(ValueError, match="unknown rule 'mystery'"):
+        render_markdown({**hand, "rules": {"mystery": {}}})
+
+
+def test_sections_come_historical_then_long_run_one_table_per_rate(hand):
+    md = render_markdown(hand)
+    assert md.index("## Rules") < md.index("## Notes") < md.index("## Historical view")
+    assert md.index("## Historical view") < md.index("## Long-run view")
+    assert "## Historical view: start years 2005 to 2013, each to 2018-12-31" in md
+    assert "## Long-run view: 30-year resampled paths" in md
+    sections = _sections(md)
+    for key in ("hist", "long"):
+        headings = [t[0] for t in _tables(sections[key])]
+        assert headings == [
+            "### Withdrawal rate 4.0% per year",
+            "### Withdrawal rate 5.0% per year",
+        ]
+
+
+def test_historical_table_header_and_separator_are_written_out(hand):
+    table = next(
+        i
+        for i, x in enumerate(_sections(render_markdown(hand))["hist"])
+        if x.startswith("| portfolio")
+    )
+    lines = _sections(render_markdown(hand))["hist"]
+    assert lines[table] == (
+        "| portfolio | rule | 2005: ran out | 2005: real value at end | 2005: lowest value "
+        "| 2005: lowest yearly real income | 2005: total real income | worst start year "
+        "| worst: ran out | worst: real value at end | worst: lowest value "
+        "| worst: lowest yearly real income | worst: total real income "
+        "| years below 90.0% | years below 80.0% |"
+    )
+    assert lines[table + 1] == "|" + "---|" * 15
+
+
+def test_longrun_table_header_and_separator_are_written_out(hand):
+    lines = _sections(render_markdown(hand))["long"]
+    table = next(i for i, x in enumerate(lines) if x.startswith("| portfolio"))
+    assert lines[table] == (
+        "| portfolio | rule | ran out by year 30 | real value at year 30: typical "
+        "| real value at year 30: bad case (worst 5%) | lowest value: typical "
+        "| lowest value: bad case (worst 5%) | lowest yearly real income: typical "
+        "| lowest yearly real income: bad case (worst 5%) | total real income: typical "
+        "| total real income: bad case (worst 5%) | ever below 90.0% | ever below 80.0% |"
+    )
+    assert lines[table + 1] == "|" + "---|" * 13
+
+
+def test_historical_rows_are_grouped_by_portfolio_rules_in_config_order(hand):
+    tables = _tables(_sections(render_markdown(hand))["hist"])
+    for rate, table in zip(HAND_RATES, tables, strict=True):
+        expected = []
+        for p in PIDS:
+            for r in PARAMS:
+                if (p, r, rate) == ODD_HIST:
+                    expected.append(ODD_HIST_ROW)
+                else:
+                    expected.append(DEFAULT_HIST_ROW.format(p=p, r=r))
+        assert table[2:] == expected  # [heading, header, rows...]
+
+
+def test_longrun_rows_are_grouped_by_portfolio_rules_in_config_order(hand):
+    tables = _tables(_sections(render_markdown(hand))["long"])
+    for rate, table in zip(HAND_RATES, tables, strict=True):
+        expected = []
+        for p in PIDS:
+            for r in PARAMS:
+                if (p, r, rate) == ODD_LONG:
+                    expected.append(ODD_LONG_ROW)
+                else:
+                    expected.append(DEFAULT_LONG_ROW.format(p=p, r=r))
+        assert table[2:] == expected
+
+
+def test_output_ends_with_one_newline_and_is_repeatable(hand):
+    md = render_markdown(hand)
+    assert md.endswith("|\n")
+    assert not md.endswith("\n\n")
+    assert render_markdown(hand) == md
+
+
+def test_percentages_round_and_never_show_negative_zero(hand):
+    tiny = {**hand, "longrun": [_long_row("A", "fixed", 0.04)]}
+    tiny["longrun"][0]["lowest_p5"] = -0.0001
+    tiny["rates"] = [0.04]
+    tiny["portfolios"] = hand["portfolios"][:1]
+    tiny["rules"] = {"fixed": {}}
+    tiny["historical"] = [_hist_row("A", "fixed", 0.04)]
+    md = render_markdown(tiny)
+    assert "| 80.0% | 0.0% | 100.0% |" in md
+    assert "-0.0%" not in md
