@@ -242,3 +242,77 @@ def test_floor_ceiling_lower_clamp_inside_and_upper_clamp():
 def test_every_rule_takes_the_scalar_case_as_a_length_one_array(rule):
     out = RULES[rule](_a(0.01), _a(1.02), _a(1.0), _a(0.05), _a(0.04), PARAMS[rule])
     assert out.shape == (1,)
+
+
+PREV = np.array([[0.01, 0.012, 0.02], [0.005, 0.01, 0.03]])
+CPI = np.array([[1.02, 1.05, 1.0], [1.03, 1.01, 1.04]])
+VALUE = np.array([[0.7, 1.0, 1.6], [0.4, 2.0, 0.9]])
+PRIOR = np.array([[-0.1, 0.0, 0.2], [0.05, -0.02, 0.3]])
+RATE2D = np.array([[0.12, 0.12, 0.12], [0.04, 0.06, 0.12]])
+
+
+def _one_by_one(rule, prev, cpi, value, prior, rate):
+    """Each element through the rule as a length-1 array, the scalar case."""
+    return np.array(
+        [
+            RULES[rule](_a(p), _a(c), _a(v), _a(r), _a(t), PARAMS[rule])[0]
+            for p, c, v, r, t in zip(
+                prev.ravel(), cpi.ravel(), value.ravel(), prior.ravel(), rate.ravel(), strict=True
+            )
+        ]
+    ).reshape(prev.shape)
+
+
+@pytest.mark.parametrize("rule", list(PARAMS))
+def test_every_rule_keeps_the_shape_and_matches_the_scalar_case(rule):
+    for prev, cpi, value, prior, rate in [
+        (PREV[0], CPI[0], VALUE[0], PRIOR[0], RATE2D[0]),  # (n,)
+        (PREV, CPI, VALUE, PRIOR, RATE2D),  # (paths, n)
+        (PREV, CPI, VALUE, PRIOR, np.full(PREV.shape, 0.05)),
+    ]:
+        out = RULES[rule](prev, cpi, value, prior, rate, PARAMS[rule])
+        assert out.shape == prev.shape
+        np.testing.assert_allclose(
+            out, _one_by_one(rule, prev, cpi, value, prior, rate), rtol=1e-12
+        )
+
+
+@pytest.mark.parametrize("rule", list(PARAMS))
+def test_every_rule_takes_a_scalar_rate_with_array_inputs(rule):
+    out = RULES[rule](PREV, CPI, VALUE, PRIOR, 0.05, PARAMS[rule])  # type: ignore[arg-type]
+    assert out.shape == PREV.shape
+    np.testing.assert_allclose(
+        out, _one_by_one(rule, PREV, CPI, VALUE, PRIOR, np.full(PREV.shape, 0.05)), rtol=1e-12
+    )
+
+
+def test_guardrails_cuts_when_the_value_is_zero():
+    # amount > 0 over value 0 is q = inf, above the upper rail: cut, no warning
+    with np.errstate(all="raise"):
+        out = guardrails(_a(0.01), _a(1.0), _a(0.0), _a(0.0), _a(0.12), GUARD)
+    np.testing.assert_allclose(out, [0.009], rtol=1e-12)
+
+
+def test_guardrails_does_not_hide_a_nan_value():
+    out = guardrails(_a(0.01), _a(1.0), _a(np.nan), _a(0.0), _a(0.12), GUARD)
+    assert out[0] == 0.01  # NaN q fails both strict comparisons; it is not turned into a cut
+
+
+def test_guardrails_keep_the_amount_exactly_on_either_rail():
+    # amount 1, value 12: q = 1.0; upper x rate = 2.0 x 0.5 = 1.0, lower x rate = 0.5 x 2.0 = 1.0
+    on_upper = {"upper": 2.0, "lower": 0.1, "cut": 0.1, "raise": 0.1}
+    on_lower = {"upper": 9.0, "lower": 0.5, "cut": 0.1, "raise": 0.1}
+    assert guardrails(_a(1), _a(1), _a(12), _a(0), _a(0.5), on_upper)[0] == 1.0
+    assert guardrails(_a(1), _a(1), _a(12), _a(0), _a(2.0), on_lower)[0] == 1.0
+
+
+def test_floor_ceiling_keeps_a_target_exactly_on_a_band_edge():
+    bands = {"max_real_cut": 0.5, "max_real_raise": 0.5}  # edges 0.5 and 1.5 around 1.0
+    out = floor_ceiling(_a(1, 1), _a(1, 1), _a(12, 12), _a(0, 0), _a(0.5, 1.5), bands)
+    np.testing.assert_array_equal(out, [0.5, 1.5])
+
+
+def test_pct_of_balance_ignores_prev_cpi_and_prior():
+    a = pct_of_balance(_a(0.01), _a(1.1), _a(0.9), _a(-0.3), _a(0.04), {})
+    b = pct_of_balance(_a(7.0), _a(0.5), _a(0.9), _a(0.4), _a(0.04), {})
+    np.testing.assert_array_equal(a, b)

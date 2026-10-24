@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 import yaml
@@ -161,9 +162,17 @@ def load_rules_config(
 # over the prior 12 months (before withdrawals), and the rate. Output: the new
 # monthly amount. The scalar case is a length-1 array.
 
-JanuaryRule = Callable[
-    [np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Mapping[str, float]], np.ndarray
-]
+
+class JanuaryRule(Protocol):
+    def __call__(
+        self,
+        prev: np.ndarray,
+        cpi: np.ndarray,
+        value: np.ndarray,
+        prior: np.ndarray,
+        rate: np.ndarray,
+        params: Mapping[str, float],
+    ) -> np.ndarray: ...
 
 
 def fixed(
@@ -187,7 +196,7 @@ def skip_raise_after_loss(
     params: Mapping[str, float],
 ) -> np.ndarray:
     """As `fixed`, but `prev` (no CPI raise) after a negative prior-year return."""
-    return np.asarray(np.where(prior < 0, prev, prev * cpi))
+    return np.asarray(np.where(prior < 0, prev, fixed(prev, cpi, value, prior, rate, params)))
 
 
 def guardrails(
@@ -200,10 +209,14 @@ def guardrails(
 ) -> np.ndarray:
     """Guyton-Klinger capital preservation and prosperity, without the 15-year
     exception: take the fixed amount; q = 12 x amount / value; above
-    upper x rate cut it by `cut`, below lower x rate raise it by `raise`."""
-    amount = prev * cpi
-    with np.errstate(divide="ignore", invalid="ignore"):  # depleted paths (value 0) are unused
-        q = 12 * amount / value
+    upper x rate cut it by `cut`, below lower x rate raise it by `raise`.
+    The path runner never calls a rule on a depleted path; a value of 0 with a
+    positive amount is q = inf, which cuts. NaN inputs propagate (neither
+    comparison holds, so the amount is kept)."""
+    amount = fixed(prev, cpi, value, prior, rate, params)
+    q = np.divide(
+        12 * amount, value, out=np.full_like(amount, np.inf, dtype=float), where=value != 0
+    )
     return np.asarray(
         np.where(
             q > params["upper"] * rate,
@@ -235,7 +248,7 @@ def floor_ceiling(
 ) -> np.ndarray:
     """rate x value / 12, clamped to [prev x cpi x (1 - max_real_cut),
     prev x cpi x (1 + max_real_raise)] (Vanguard's published real bands)."""
-    base = prev * cpi
+    base = fixed(prev, cpi, value, prior, rate, params)
     low = base * (1 - params["max_real_cut"])
     high = base * (1 + params["max_real_raise"])
     return np.asarray(np.minimum(np.maximum(rate * value / 12, low), high))
