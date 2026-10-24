@@ -271,13 +271,17 @@ RULES: dict[str, JanuaryRule] = {
 
 @dataclass(frozen=True)
 class RuleRun:
+    """The result of `run_rule` for every path."""
+
     values: np.ndarray  # (n_paths, n_steps): value after each step, start = 1.0
     paid: np.ndarray  # (n_paths, n_months): amount received in each month
-    depleted: np.ndarray  # (n_paths,): month 1..n_months the path emptied, 0 if never
+    depleted: np.ndarray  # (n_paths,) int64: month 1..n_months the path emptied; 0 = never
 
 
 def month_starts(index: pd.DatetimeIndex) -> np.ndarray:
     """True on the first trading day of each calendar month (as `withdrawal_path`)."""
+    if not index.is_monotonic_increasing:
+        raise ValueError("index must be sorted ascending")
     months = index.to_period("M")
     flags = np.ones(len(index), dtype=bool)
     flags[1:] = np.asarray(months[1:] != months[:-1])
@@ -285,12 +289,29 @@ def month_starts(index: pd.DatetimeIndex) -> np.ndarray:
 
 
 def _check_inputs(r: np.ndarray, starts: np.ndarray) -> None:
-    if r.ndim != 2 or starts.shape != (r.shape[1],) or not starts[0]:
+    if r.ndim != 2:
+        raise ValueError(f"returns must be (paths, steps), got shape {r.shape}")
+    if r.shape[1] == 0:
+        raise ValueError("returns need at least one step")
+    if starts.shape != (r.shape[1],):
         raise ValueError(
-            "returns must be (paths, steps) and month_start one flag per step, the first set"
+            f"month_start must be one flag per step: got shape {starts.shape} "
+            f"for returns of shape {r.shape}"
         )
+    if not starts[0]:
+        raise ValueError("month_start must be set on the first step")
     if np.isnan(r).any():
         raise ValueError("NaN return (a NaN is never turned into cash)")
+
+
+def _per_path(value: object, n_paths: int, name: str) -> np.ndarray:
+    """A finite scalar or (n_paths,) input as a read-only (n_paths,) view."""
+    a = np.asarray(value, dtype=float)
+    if a.ndim > 1 or (a.ndim == 1 and a.shape[0] != n_paths):
+        raise ValueError(f"{name} must be a scalar or (n_paths,), got shape {a.shape}")
+    if not np.isfinite(a).all():
+        raise ValueError(f"{name} must be finite")
+    return np.broadcast_to(a, (n_paths,))
 
 
 def run_rule(
@@ -321,11 +342,12 @@ def run_rule(
     starts = np.asarray(month_start, dtype=bool)
     _check_inputs(r, starts)
     n_paths, n_steps = r.shape
-    rates = np.broadcast_to(np.asarray(rate, dtype=float), (n_paths,))
+    rates = _per_path(rate, n_paths, "rate")
+    cpis = {m: _per_path(c, n_paths, f"cpi (month {m})") for m, c in cpi_at.items()}
     w = rates / 12
     value = np.ones(n_paths)
     growth = np.ones(n_paths)
-    depleted = np.zeros(n_paths, dtype=int)
+    depleted = np.zeros(n_paths, dtype=np.int64)
     values = np.empty((n_paths, n_steps))
     paid = np.zeros((n_paths, int(starts.sum())))
     month = -1
@@ -334,8 +356,8 @@ def run_rule(
         after = value
         if starts[t]:
             month += 1
-            if month in cpi_at and alive.any():
-                cpi = np.broadcast_to(np.asarray(cpi_at[month], dtype=float), (n_paths,))
+            if month in cpis and alive.any():
+                cpi = cpis[month]
                 w[alive] = RULES[rule](
                     w[alive], cpi[alive], value[alive], growth[alive] - 1.0, rates[alive], params
                 )

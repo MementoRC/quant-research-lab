@@ -445,3 +445,188 @@ def test_run_rule_refuses_a_first_step_that_is_not_a_month_start():
 def test_run_rule_refuses_an_unknown_rule():
     with pytest.raises(ValueError, match="unknown rule"):
         run_rule("nope", {}, np.zeros((1, 2)), np.ones(2, dtype=bool), {}, 0.04)
+
+
+# ---- runner input checks
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_run_rule_refuses_a_non_finite_rate(bad):
+    with pytest.raises(ValueError, match="rate must be finite"):
+        _monthly([0.0, 0.0], {}, bad)
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf])
+def test_run_rule_refuses_a_non_finite_cpi(bad):
+    with pytest.raises(ValueError, match="cpi.*finite"):
+        _monthly([0.0, 0.0], {1: bad}, 0.04)
+
+
+def test_run_rule_refuses_a_wrong_length_rate_or_cpi():
+    r = np.zeros((3, 2))
+    ones = np.ones(2, dtype=bool)
+    with pytest.raises(ValueError, match=r"rate must be a scalar or \(n_paths,\)"):
+        run_rule("fixed", {}, r, ones, {}, np.array([0.04, 0.05]))
+    with pytest.raises(ValueError, match=r"cpi.*must be a scalar or \(n_paths,\)"):
+        run_rule("fixed", {}, r, ones, {1: np.array([1.0, 1.1])}, 0.04)
+    with pytest.raises(ValueError, match=r"rate must be a scalar or \(n_paths,\)"):
+        run_rule("fixed", {}, r, ones, {}, np.full((3, 1), 0.04))
+
+
+def test_run_rule_shape_errors_name_the_shapes():
+    with pytest.raises(ValueError, match=r"\(paths, steps\).*\(3,\)"):
+        run_rule("fixed", {}, np.zeros(3), np.ones(3, dtype=bool), {}, 0.04)
+    with pytest.raises(ValueError, match=r"one flag per step.*\(3,\).*\(2, 2\)"):
+        run_rule("fixed", {}, np.zeros((2, 2)), np.ones(3, dtype=bool), {}, 0.04)
+
+
+def test_run_rule_refuses_zero_steps_cleanly():
+    with pytest.raises(ValueError, match="at least one step"):
+        run_rule("fixed", {}, np.zeros((1, 0)), np.zeros(0, dtype=bool), {}, 0.04)
+
+
+def test_month_starts_refuses_an_unsorted_index():
+    idx = pd.DatetimeIndex(["2005-01-04", "2005-01-03"])
+    with pytest.raises(ValueError, match="sorted"):
+        month_starts(idx)
+
+
+def test_month_starts_on_a_weekend_first_and_a_holiday_skipped_first_day():
+    # 2005-02-01 is a (skipped) holiday, 2005-05-01 is a Sunday; March is absent
+    idx = pd.DatetimeIndex(
+        ["2005-01-28", "2005-01-31", "2005-02-02", "2005-02-03", "2005-04-29", "2005-05-02"]
+        + ["2005-05-03"]
+    )
+    starts = month_starts(idx)
+    assert list(starts) == [True, False, True, False, True, True, False]
+    assert list(idx[starts]) == list(
+        pd.to_datetime(["2005-01-28", "2005-02-02", "2005-04-29", "2005-05-02"])
+    )
+    run = run_rule("fixed", {}, np.zeros((1, len(idx))), starts, {}, 0.12)
+    assert run.paid.shape == (1, 4)
+
+
+def test_run_rule_does_not_mutate_its_inputs():
+    r = np.array([[0.01, -0.02, 0.03, 0.0], [0.0, 0.0, -1.0, 0.0]])
+    rate = np.array([0.12, 0.06])
+    cpi = np.array([1.1, 1.2])
+    r0, rate0, cpi0 = r.copy(), rate.copy(), cpi.copy()
+    starts = np.ones(4, dtype=bool)
+    run_rule("guardrails", GUARD, r, starts, {2: cpi}, rate)
+    np.testing.assert_array_equal(r, r0)
+    np.testing.assert_array_equal(rate, rate0)
+    np.testing.assert_array_equal(cpi, cpi0)
+
+
+def test_run_rule_depleted_is_an_int64_with_zero_meaning_never():
+    run = _monthly([-1.0, 0.0], {}, 0.12)
+    assert run.depleted.dtype == np.int64
+    assert run.depleted[0] == 1
+    assert _monthly([0.0, 0.0], {}, 0.12).depleted[0] == 0
+
+
+# ---- runner: dead paths are masked, mixed paths equal their single-path runs
+
+
+def test_a_rule_gets_only_the_surviving_paths_values_and_a_dead_path_stays_zero(monkeypatch):
+    calls = []
+
+    def spy(prev, cpi, value, prior, rate, params):
+        calls.append((prev.copy(), cpi.copy(), value.copy(), prior.copy(), rate.copy()))
+        return value * 0.01  # depends on the value
+
+    monkeypatch.setitem(RULES, "fixed", spy)
+    r = np.zeros((2, 13))
+    r[0, 0] = -1.0  # path 0 is paid in month 1, then emptied; path 1 survives
+    run = run_rule(
+        "fixed",
+        {},
+        r,
+        np.ones(13, dtype=bool),
+        {12: np.array([1.3, 1.1])},
+        np.array([0.12, 0.24]),
+    )
+    assert list(run.depleted) == [1, 0]
+    assert len(calls) == 1
+    prev, cpi, value, prior, rate = calls[0]
+    assert all(len(a) == 1 for a in calls[0])
+    np.testing.assert_allclose(prev, [0.02])
+    np.testing.assert_allclose(cpi, [1.1])
+    np.testing.assert_allclose(value, [1.0 - 12 * 0.02])
+    np.testing.assert_allclose(prior, [0.0], atol=1e-15)
+    np.testing.assert_allclose(rate, [0.24])
+    np.testing.assert_allclose(run.paid[1, 12], 0.76 * 0.01, rtol=1e-12)
+    assert run.paid[0, 0] == pytest.approx(0.01)
+    assert (run.paid[0, 1:] == 0.0).all()
+    assert (run.values[0] == 0.0).all()
+
+
+def _mixed_returns():
+    rng = np.random.default_rng(7)
+    r = rng.normal(0.004, 0.04, size=(4, 40))
+    r[2, :6] = -0.1  # rate 1.0 below: path 2 is emptied before the decision at month 12
+    r[3] = -1.0  # path 3 is emptied in month 1
+    return r
+
+
+MIXED_RATE = np.array([0.04, 0.12, 1.0, 0.08])
+MIXED_CPI = {
+    12: np.array([1.02, 1.03, 1.04, 1.05]),
+    24: np.array([1.01, 1.06, 1.02, 1.03]),
+    36: np.array([1.03, 1.02, 1.01, 1.04]),
+}
+
+
+@pytest.mark.parametrize("rule", list(PARAMS))
+def test_a_mixed_run_equals_each_paths_single_run(rule):
+    r = _mixed_returns()
+    starts = np.ones(40, dtype=bool)
+    both = run_rule(rule, PARAMS[rule], r, starts, MIXED_CPI, MIXED_RATE)
+    assert both.depleted[2] in range(1, 12)  # gone before the first decision
+    assert both.depleted[3] == 1
+    assert both.depleted[0] == 0
+    for i in range(len(r)):
+        cpi_i = {m: v[i] for m, v in MIXED_CPI.items()}
+        one = run_rule(rule, PARAMS[rule], r[i : i + 1], starts, cpi_i, MIXED_RATE[i])
+        np.testing.assert_array_equal(both.values[i], one.values[0])
+        np.testing.assert_array_equal(both.paid[i], one.paid[0])
+        assert both.depleted[i] == one.depleted[0]
+
+
+@pytest.mark.parametrize("rule", list(PARAMS))
+def test_every_path_depleted_before_a_decision_is_fine(rule):
+    r = np.zeros((2, 14))
+    r[:, 0] = -1.0
+    run = run_rule(rule, PARAMS[rule], r, np.ones(14, dtype=bool), {12: 1.1}, [0.12, 0.2])
+    assert list(run.depleted) == [1, 1]
+    assert (run.values == 0.0).all()
+    assert (run.paid[:, 1:] == 0.0).all()
+    np.testing.assert_allclose(run.paid[:, 0], [0.01, 0.2 / 12])
+
+
+# ---- runner: values exactly at DEPLETED
+
+
+def test_a_value_exactly_at_depleted_after_the_withdrawal_is_depleted(monkeypatch):
+    import qrl.decision_rules as dr
+
+    w = 6.0 / 12
+    monkeypatch.setattr(dr, "DEPLETED", 1.0 - w)
+    run = _monthly([5.0, 0.0], {}, 6.0)
+    assert run.depleted[0] == 1  # 0.5 <= 0.5: no +500% return
+    assert (run.values == 0.0).all()
+    np.testing.assert_array_equal(run.paid[0], [1.0, 0.0])  # the remaining balance
+    monkeypatch.setattr(dr, "DEPLETED", np.nextafter(1.0 - w, 0.0))
+    assert _monthly([0.0], {}, 6.0).depleted[0] == 0  # one ulp above: survives
+
+
+def test_a_value_exactly_at_depleted_after_the_return_is_depleted(monkeypatch):
+    import qrl.decision_rules as dr
+
+    monkeypatch.setattr(dr, "DEPLETED", 0.25)  # (1 - 0.5) x (1 - 0.5) = 0.25
+    run = _monthly([-0.5, 0.0], {}, 6.0)
+    assert run.depleted[0] == 1
+    np.testing.assert_array_equal(run.paid[0], [0.5, 0.0])  # the full amount
+    assert (run.values == 0.0).all()
+    monkeypatch.setattr(dr, "DEPLETED", np.nextafter(0.25, 0.0))
+    assert _monthly([-0.5], {}, 6.0).depleted[0] == 0  # one ulp above: survives
