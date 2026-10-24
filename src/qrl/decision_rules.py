@@ -401,7 +401,7 @@ def historical_run(
     """One start year's daily path at every rate (one row per rate, same
     returns), and the path's calendar months. `cpi` must already be cut."""
     idx = pd.DatetimeIndex(returns.index)
-    months = pd.PeriodIndex(idx.to_period("M").unique())
+    months = idx.to_period("M").unique()
     paths = np.tile(returns.to_numpy(dtype=float), (len(rates), 1))
     run = run_rule(
         rule,

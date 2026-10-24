@@ -645,6 +645,16 @@ def _daily(seed, mu=0.0003, sigma=0.01, start="2005-01-03", end="2008-12-31") ->
     return pd.Series(np.random.default_rng(seed).normal(mu, sigma, len(idx)), index=idx)
 
 
+def _varying_cpi(seed: int = 3) -> pd.Series:
+    """As decision_helpers.cpi (availability-dated) but with varying monthly
+    growth, one negative month included, so every January ratio differs."""
+    obs = pd.date_range("1995-01-01", "2021-12-01", freq="MS")
+    growth = np.random.default_rng(seed).normal(0.003, 0.004, len(obs))
+    growth[100] = -0.01
+    values = 100.0 * np.cumprod(1.0 + growth)
+    return pd.Series(values, index=obs + pd.offsets.MonthEnd(2), name="CPIAUCNS")
+
+
 def test_historical_decisions_are_every_january_after_the_first_month():
     index = cpi_series()
     assert sorted(historical_cpi(pd.period_range("2005-01", "2007-03", freq="M"), index)) == [
@@ -658,7 +668,7 @@ def test_historical_decisions_are_every_january_after_the_first_month():
 
 
 def test_historical_cpi_factor_is_the_one_monthly_withdrawals_applies():
-    index = cpi_series()
+    index = _varying_cpi()
     amounts = monthly_withdrawals(0.12, 2005, 2006, index)
     factor = historical_cpi(pd.period_range("2005-01", "2006-12", freq="M"), index)[12]
     assert amounts[2005] * factor == amounts[2006]
@@ -668,7 +678,9 @@ def test_fixed_rule_equals_withdrawal_path_exactly():
     # Compares the value series and the depletion month only, not the income in
     # the depletion month. Random returns never land in the 1e-9 window where
     # run_paths and the spec differ (Open question 1).
-    rets, index = _daily(1), cpi_series()
+    rets, index = _daily(1), _varying_cpi()
+    ratios = historical_cpi(pd.period_range("2005-01", "2008-12", freq="M"), index)
+    assert len({round(v, 9) for v in ratios.values()}) == len(ratios)  # years differ
     rates = [0.04, 0.5]
     run, months = historical_run(rets, index, rates, "fixed", {})
     ran_out = []
