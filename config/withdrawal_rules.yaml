@@ -1,0 +1,21 @@
+# PRE-REGISTERED withdrawal-rules configuration (spec:
+# docs/methodology/withdrawal-rules.md; owner-approved design 2026-10-23).
+# Fixed before any result was seen. Every report records this file's sha256.
+# After the first `pixi run withdrawal-rules` report, change only via a dated
+# amendment comment here.
+#
+# Read from the existing files, never copied here: withdrawal rates and start
+# years from config/decision.yaml; seed, n_paths, block_months and
+# horizon_years from config/longrun.yaml; the cost per unit of turnover from
+# config/criteria.yaml. The first two are pinned below and checked on load.
+version: 1
+decision_sha256: "88ab8b08a34f8b3d106fd7670af02e3e827b86467a2755eb3620ada4490aa76d"
+longrun_sha256: "ebd3d59afd1bfbc79118747a944f74a8b3c62688aeddfe2e201183e10acfe061"
+rules:
+  fixed: {}
+  skip_raise_after_loss: {}
+  guardrails: {upper: 1.2, lower: 0.8, cut: 0.10, raise: 0.10}
+  pct_of_balance: {}
+  floor_ceiling: {max_real_cut: 0.025, max_real_raise: 0.05}
+income_lines: [0.9, 0.8, 0.7]
+portfolios: [A, B, C, D, E, F, G, CASH]
