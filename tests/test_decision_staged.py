@@ -4,6 +4,7 @@ docs/methodology/staged-entry.md ("Tests")."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 import numpy as np
@@ -18,6 +19,7 @@ from decision_helpers import (
     criteria,
     load,
     prices,
+    scaled,
     stress_cfg,
 )
 from decision_helpers import cpi as cpi_series
@@ -691,3 +693,43 @@ def test_run_refuses_rates_unlike_longrun(setup):
     dcfg, data, index = setup
     with pytest.raises(ValueError, match="withdrawal_rates"):
         run_staged_entry(_scfg(), dcfg, _lcfg(rates=[0.04]), data, index, criteria())
+
+
+# ---- sealing: nothing after 2018-12-31 is read
+
+
+def test_report_ignores_prices_and_cpi_after_2018(report, setup):
+    dcfg, data, index = setup
+    rng = np.random.default_rng(3)
+    after = np.asarray(data["close"].index > END)
+    poisoned = {k: scaled(v, after, rng) for k, v in data.items()}
+    poisoned_cpi = index * np.where(
+        np.asarray(index.index > END), rng.uniform(0.2, 5.0, len(index)), 1.0
+    )
+    assert not poisoned["close"].equals(data["close"])
+    again = run_staged_entry(_scfg(), dcfg, _lcfg(), poisoned, poisoned_cpi, criteria())
+    assert again == report
+
+
+def test_report_equals_the_one_from_data_truncated_at_2018(report, setup):
+    dcfg, data, index = setup
+    truncated = {k: v.loc[:END] for k, v in data.items()}
+    again = run_staged_entry(_scfg(), dcfg, _lcfg(), truncated, index.loc[:END], criteria())
+    assert again == report
+
+
+def test_report_detects_a_change_on_or_before_2018(report, setup):
+    """The checks above can fail: altering 2018 closes changes the report."""
+    dcfg, data, index = setup
+    altered = {k: v.copy() for k, v in data.items()}
+    altered["close"].loc["2018-06-01":END, :] *= 0.5
+    again = run_staged_entry(_scfg(), dcfg, _lcfg(), altered, index, criteria())
+    assert again != report
+
+
+@pytest.mark.parametrize("module", ["decision_staged.py", "staged_entry_report.py"])
+def test_new_modules_never_unseal_or_slice_a_sealed_period(module):
+    path = ROOT / "src" / "qrl" / module
+    if not path.exists():
+        pytest.skip(f"{module} is written in Task 9")
+    assert not re.search(r"unseal|slice_period", path.read_text())
