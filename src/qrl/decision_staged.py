@@ -133,3 +133,96 @@ def load_staged_config(path: str | Path, dcfg: DecisionConfig, lcfg: LongrunConf
         portfolios=portfolios,
         sha256=hashlib.sha256(raw).hexdigest(),
     )
+
+
+@dataclass(frozen=True)
+class StagedRun:
+    """The result of `run_staged` for every path."""
+
+    values: np.ndarray  # (n_paths, n_steps): cash + tranches after each step; 1.0 before begin
+    depleted: np.ndarray  # (n_paths,) int64: step + 1 at which the path emptied; 0 = never
+
+
+def run_staged(
+    returns: np.ndarray,
+    source: np.ndarray,
+    cash: np.ndarray,
+    withdraw: np.ndarray,
+    buy: np.ndarray,
+    n_tranches: int,
+    begin: np.ndarray | None = None,
+) -> StagedRun:
+    """Spec "Value path". Each path starts at step `begin` (default 0) with 1.0
+    in cash and nothing invested. At each step, in this order: withdraw
+    `withdraw[p, t]` from cash first, then from the invested part
+    (proportionally across the tranches already bought, no extra cost); buy
+    tranche `buy[p, t]` (-1 = none): 1 / n_tranches of the starting value, or
+    all remaining cash if less or if it is the last tranche; then apply the
+    step's returns: cash earns `cash[p, t]`, group g earns
+    `returns[source[p, g], t]`. `source` has one column per tranche, or one
+    column shared by all tranches. Cash at or below DEPLETED counts as 0. A
+    total at or below DEPLETED, after the withdrawal and tranche or after the
+    returns, empties the path for good; one emptied before the returns gets
+    none. With one tranche this is `withdrawal_path` / `run_paths`, same
+    operations in the same order."""
+    r_all = np.asarray(returns, dtype=float)
+    src = np.asarray(source, dtype=np.int64)
+    c_all = np.asarray(cash, dtype=float)
+    w_all = np.asarray(withdraw, dtype=float)
+    b_all = np.asarray(buy, dtype=np.int64)
+    n_paths, n_steps = w_all.shape
+    if n_tranches < 1:
+        raise ValueError("n_tranches must be 1 or more")
+    if src.ndim != 2 or src.shape[0] != n_paths or src.shape[1] not in (1, n_tranches):
+        raise ValueError(f"source must have shape ({n_paths}, 1) or ({n_paths}, {n_tranches})")
+    if c_all.shape != w_all.shape or b_all.shape != w_all.shape or r_all.shape[1] != n_steps:
+        raise ValueError("returns, cash, withdraw and buy must cover the same steps")
+    if b_all.max(initial=-1) >= n_tranches:
+        raise ValueError(f"buy names a tranche beyond the {n_tranches} tranches")
+    start = np.zeros(n_paths, np.int64) if begin is None else np.asarray(begin, np.int64)
+    shared = src.shape[1] == 1
+    size = 1.0 / n_tranches
+    rows = np.arange(n_paths)
+    bal = np.ones(n_paths)
+    held = np.zeros(src.shape)
+    values = np.ones((n_paths, n_steps))
+    depleted = np.zeros(n_paths, dtype=np.int64)
+    for t in range(n_steps):
+        live = (t >= start) & (depleted == 0)
+        w = np.where(live, w_all[:, t], 0.0)
+        take = np.minimum(bal, w)
+        bal = bal - take
+        bal[bal <= DEPLETED] = 0.0
+        rest = w - take
+        if shared:
+            held[:, 0] -= rest
+        else:
+            invested = held.sum(axis=1)
+            trim = (rest > 0) & (invested > 0)
+            held[trim] *= ((invested[trim] - rest[trim]) / invested[trim])[:, None]
+        k = np.where(live, b_all[:, t], -1)
+        buying = k >= 0
+        if buying.any():
+            move = np.where(k == n_tranches - 1, bal, np.minimum(size, bal))
+            move = np.where(buying, move, 0.0)
+            group = np.zeros(n_paths, np.int64) if shared else np.maximum(k, 0)
+            held[rows, group] += move
+            bal = bal - move
+            bal[bal <= DEPLETED] = 0.0
+        total = bal + held.sum(axis=1)
+        empty = live & (total <= DEPLETED)
+        bal[empty], held[empty], total[empty] = 0.0, 0.0, 0.0
+        depleted[empty] = t + 1
+        grow = live & ~empty
+        r = r_all[src, t]
+        c = c_all[:, t]
+        if np.isnan(r[grow]).any() or np.isnan(c[grow]).any():
+            raise ValueError(f"NaN return at step {t}")
+        held = np.where(grow[:, None], held * (1.0 + r), held)
+        bal = np.where(grow, bal * (1.0 + c), bal)
+        total = bal + held.sum(axis=1)
+        empty = grow & (total <= DEPLETED)
+        bal[empty], held[empty], total[empty] = 0.0, 0.0, 0.0
+        depleted[empty] = t + 1
+        values[:, t] = np.where(t >= start, total, 1.0)
+    return StagedRun(values, depleted)
