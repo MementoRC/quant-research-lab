@@ -17,6 +17,7 @@ import pytest
 from decision_helpers import CANDIDATES, END, GOOD, ROOT, criteria, load, prices, stress_cfg, write
 from decision_helpers import cpi as cpi_series
 
+from qrl import regen
 from qrl.decision import withdrawal_rows
 from qrl.decision_config import load_decision_config
 from qrl.decision_rules import (
@@ -1718,3 +1719,22 @@ def test_main_refuses_a_stale_pin_before_loading_data_and_writes_nothing(
     assert printed.startswith("refused: ")
     assert f"{stale}.yaml changed" in printed
     assert not out.exists()
+
+
+# ---- regen and freshness
+
+
+def test_report_is_in_regen_specs_with_the_decision_caches(tmp_path):
+    spec = next(s for s in regen.SPECS if s.report == "research/withdrawal_rules.md")
+    assert spec.command(tmp_path, "")[0] == "scripts/withdrawal_rules.py"
+    assert str(tmp_path / spec.output) in spec.command(tmp_path, "")
+    assert "data/cache/macro_CPIAUCNS.parquet" in spec.needs
+    assert "data/cache/SPY.parquet" in spec.needs
+
+
+def test_committed_report_hash_lines_match_the_config_files():
+    text = (ROOT / "research" / "withdrawal_rules.md").read_text(encoding="utf-8")
+    assert _hashes(text) == {
+        name: hashlib.sha256((ROOT / "config" / name).read_bytes()).hexdigest()
+        for name in ("withdrawal_rules.yaml", "decision.yaml", "longrun.yaml")
+    }
