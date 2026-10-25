@@ -4,6 +4,8 @@ docs/methodology/staged-entry.md ("Tests")."""
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import re
 from dataclasses import replace
 
@@ -21,6 +23,7 @@ from decision_helpers import (
     prices,
     scaled,
     stress_cfg,
+    write,
 )
 from decision_helpers import cpi as cpi_series
 
@@ -872,3 +875,65 @@ def test_render_on_the_offline_report(report):
     md = render_markdown(report)
     assert md.count("| A | lump sum |") == 2 * len(report["rates"])
     assert "staged_entry.yaml sha256" in md
+
+
+# ---- CLI
+
+
+def _load_cli():
+    spec = importlib.util.spec_from_file_location(
+        "staged_entry_cli", ROOT / "scripts" / "staged_entry.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+LONGRUN_YAML = """\
+version: 1
+decision_sha256: "{sha}"
+seed: 7
+n_paths: 50
+block_months: 12
+horizon_years: 30
+real_floor: 0.5
+withdrawal_rates: [0.02, 0.033, 0.04, 0.05]
+cash_real_yield: 0.01
+"""
+
+
+@pytest.mark.parametrize("stale", ["decision", "longrun"])
+def test_main_refuses_a_stale_pin_before_loading_data_and_writes_nothing(
+    tmp_path, monkeypatch, capsys, stale
+):
+    cli = _load_cli()
+
+    def no_access(*args, **kwargs):
+        raise AssertionError("data must not be loaded before the config pins are checked")
+
+    monkeypatch.setattr(cli, "load_ohlcv", no_access)
+    monkeypatch.setattr(cli, "load_macro", no_access)
+    decision = write(tmp_path, GOOD_TCASH_ALL)
+    d_sha = hashlib.sha256(decision.read_bytes()).hexdigest()
+    longrun = tmp_path / "longrun.yaml"
+    longrun.write_text(LONGRUN_YAML.format(sha=d_sha))
+    l_sha = hashlib.sha256(longrun.read_bytes()).hexdigest()
+    pins = {"decision": d_sha, "longrun": l_sha, stale: "00" * 32}
+    staged = tmp_path / "staged_entry.yaml"
+    staged.write_text(STAGED_YAML.replace(D_SHA, pins["decision"]).replace(L_SHA, pins["longrun"]))
+    out = tmp_path / "staged_entry.md"
+    argv = [
+        "--config",
+        str(decision),
+        "--longrun-config",
+        str(longrun),
+        "--staged-config",
+        str(staged),
+        "--out-md",
+        str(out),
+    ]
+    assert cli.main(argv) == 1
+    printed = capsys.readouterr().out
+    assert printed.startswith("refused: ")
+    assert f"{stale}.yaml changed" in printed
+    assert not out.exists()
