@@ -45,6 +45,10 @@ Implemented or Closed), matching its `Status:` line.
   against four flexible rules (skip the raise after a loss, guardrails, percent
   of balance, floor and ceiling), historical and long run; compares, recommends
   nothing (implemented 2026-10-24; `pixi run withdrawal-rules`).
+- [staged-entry.md](staged-entry.md) — staged entry from cash: lump sum against
+  equal monthly tranches over 6, 12 and 24 months while drawing income, cores
+  A-G, waiting cash in SHY or at inflation + 1% (implemented 2026-10-25;
+  `pixi run staged-entry`).
 - [whatif-mix.md](whatif-mix.md) — local command that builds your own mix of the
   decision-report portfolios (plus true cash) and runs it through the report's
   tables, privately (implemented in PR #64; owner-approved 2026-10-17).

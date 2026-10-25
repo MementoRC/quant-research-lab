@@ -147,6 +147,13 @@ SPECS: tuple[ReportSpec, ...] = (
         missing_reason=_PRICE_MISSING,
     ),
     ReportSpec(
+        "research/staged_entry.md",
+        _simple("scripts/staged_entry.py", out="staged_entry.md"),
+        "staged_entry.md",
+        needs=_DECISION_NEEDS,
+        missing_reason=_PRICE_MISSING,
+    ),
+    ReportSpec(
         "research/core_compare.md",
         _core_compare,
         "core_compare.md",

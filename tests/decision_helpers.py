@@ -131,3 +131,8 @@ def cpi(
     obs = pd.date_range(start, end, freq="MS")
     values = 100.0 * (1.0 + monthly_growth) ** np.arange(len(obs))
     return pd.Series(values, index=obs + pd.offsets.MonthEnd(2), name="CPIAUCNS")
+
+
+def scaled(frame: pd.DataFrame, mask: np.ndarray, rng: np.random.Generator) -> pd.DataFrame:
+    """Multiply the masked rows of every column by its own wild factors (sealing tests)."""
+    return frame * np.where(mask[:, None], rng.uniform(0.2, 5.0, frame.shape), 1.0)
