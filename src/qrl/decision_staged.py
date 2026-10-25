@@ -226,3 +226,78 @@ def run_staged(
         depleted[empty] = t + 1
         values[:, t] = np.where(t >= start, total, 1.0)
     return StagedRun(values, depleted)
+
+
+def month_firsts(days: pd.DatetimeIndex) -> np.ndarray:
+    """Positions in `days` of the first trading day of each calendar month."""
+    return np.flatnonzero(month_starts(days))
+
+
+def start_months(days: pd.DatetimeIndex, firsts: np.ndarray) -> np.ndarray:
+    """Indices into `firsts` of the historical starts FIRST_START..LAST_START
+    (spec "Historical starts"). Raises ValueError if a month has no trading day."""
+    months = pd.Index(pd.DatetimeIndex(days[firsts]).to_period("M"))
+    wanted = pd.period_range(FIRST_START, LAST_START, freq="M")
+    pos = months.get_indexer(wanted)
+    if (pos < 0).any():
+        missing = [str(m) for m, p in zip(wanted, pos, strict=True) if p < 0]
+        raise ValueError(f"no trading day in start month(s) {missing}")
+    return pos.astype(np.int64)
+
+
+def horizon_positions(firsts: np.ndarray, starts: np.ndarray) -> np.ndarray:
+    """Position of the last trading day of the HORIZON_MONTHS-th month of each
+    start, the start month counting as the first."""
+    after = np.asarray(starts) + HORIZON_MONTHS
+    if after.max() >= len(firsts):
+        raise ValueError(f"the {HORIZON_MONTHS}-month horizon of a start runs past the data")
+    return firsts[after] - 1
+
+
+def historical_withdrawals(
+    days: pd.DatetimeIndex, begin: int, rate: float, cpi: pd.Series
+) -> np.ndarray:
+    """Amount withdrawn on each of `days` (0 off the month firsts), from
+    days[begin]: rate / 12, raised on each 12-month anniversary by the CPI
+    usable on its first trading day over the CPI usable on the previous one
+    (spec "Raises"). Written as amount x (1 + change), as
+    `monthly_withdrawals`, so a January start equals it bit for bit."""
+    out = np.zeros(len(days))
+    amount = rate / 12
+    anchor = days[begin]
+    for j, pos in enumerate(np.flatnonzero(month_starts(days[begin:])) + begin):
+        if j and j % 12 == 0:
+            change = usable_cpi(cpi, days[pos]) / usable_cpi(cpi, anchor) - 1
+            amount = amount * (1 + change)
+            anchor = days[pos]
+        out[pos] = amount
+    return out
+
+
+def longrun_withdrawals(inflation: np.ndarray, rate: float) -> np.ndarray:
+    """Per path and month: rate / 12 in months 1-12, then raised every 12
+    months by the path's own inflation over the previous 12 (as `run_paths`,
+    same operations in the same order)."""
+    pi = np.asarray(inflation, dtype=float)
+    n_paths, n_months = pi.shape
+    out = np.empty((n_paths, n_months))
+    w = np.full(n_paths, rate / 12)
+    year = np.ones(n_paths)
+    for t in range(n_months):
+        if t and t % 12 == 0:
+            w = w * year
+            year = np.ones(n_paths)
+        out[:, t] = w
+        year = year * (1.0 + pi[:, t])
+    return out
+
+
+def longrun_levels(inflation: np.ndarray) -> np.ndarray:
+    """Price level after each month, from 1.0 (as `run_paths`' real values)."""
+    pi = np.asarray(inflation, dtype=float)
+    out = np.empty(pi.shape)
+    level = np.ones(pi.shape[0])
+    for t in range(pi.shape[1]):
+        level = level * (1.0 + pi[:, t])
+        out[:, t] = level
+    return out

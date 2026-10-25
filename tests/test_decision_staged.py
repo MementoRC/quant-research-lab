@@ -7,12 +7,25 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import pandas as pd
 import pytest
 from decision_helpers import CANDIDATES, END, GOOD, GOOD_TCASH_ALL, ROOT, load, stress_cfg
+from decision_helpers import cpi as cpi_series
 
 from qrl.decision_config import load_decision_config
-from qrl.decision_staged import StagedConfig, StagedRun, load_staged_config, run_staged
-from qrl.decision_withdraw import DEPLETED
+from qrl.decision_staged import (
+    StagedConfig,
+    StagedRun,
+    historical_withdrawals,
+    horizon_positions,
+    load_staged_config,
+    longrun_levels,
+    longrun_withdrawals,
+    month_firsts,
+    run_staged,
+    start_months,
+)
+from qrl.decision_withdraw import DEPLETED, monthly_withdrawals, usable_cpi
 from qrl.longrun import LongrunConfig, load_longrun_config
 
 D_SHA = "d" * 64  # placeholder replaced by the test decision.yaml's sha256
@@ -247,3 +260,71 @@ def test_tranches_never_bought_stay_in_cash_and_earn_the_cash_return():
         [0.166667 + 0.841667, 0.333333 + 0.68175, 0.5 + 0.5202342], abs=1e-6
     )
     assert run.depleted.tolist() == [0]
+
+
+# ---- schedules
+
+
+def _bdays(start="2005-01-01", end="2018-12-31") -> pd.DatetimeIndex:
+    return pd.bdate_range(start, end)
+
+
+def test_starts_are_the_120_month_firsts_and_the_horizon_is_48_months():
+    days = _bdays()
+    firsts = month_firsts(days)
+    starts = start_months(days, firsts)
+    assert len(starts) == 120
+    assert str(days[firsts[starts[0]]].to_period("M")) == "2005-01"
+    assert str(days[firsts[starts[-1]]].to_period("M")) == "2014-12"
+    horizon = horizon_positions(firsts, starts)
+    assert days[horizon[0]] == pd.Timestamp("2008-12-31")
+    assert days[horizon[-1]] == pd.Timestamp("2018-11-30")
+
+
+def test_starts_refuse_missing_months_and_a_horizon_past_the_data():
+    days = _bdays("2006-01-01")
+    with pytest.raises(ValueError, match="no trading day in start month"):
+        start_months(days, month_firsts(days))
+    days = _bdays(end="2018-06-30")
+    firsts = month_firsts(days)
+    with pytest.raises(ValueError, match="runs past the data"):
+        horizon_positions(firsts, start_months(days, firsts))
+
+
+def test_january_start_withdrawals_equal_monthly_withdrawals_exactly():
+    days, index = _bdays(), cpi_series().loc[:END]
+    firsts = month_firsts(days)
+    for i0 in (0, 36, 108):
+        begin = int(firsts[i0])
+        out = historical_withdrawals(days, begin, 0.04, index)
+        monthly = monthly_withdrawals(0.04, days[begin].year, END.year, index)
+        expected = np.zeros(len(days))
+        for pos in firsts[i0:]:
+            expected[pos] = monthly[days[pos].year]
+        assert np.array_equal(out, expected)
+
+
+def test_other_starts_are_raised_on_each_anniversary_by_usable_cpi():
+    days, index = _bdays(), cpi_series(monthly_growth=0.003).loc[:END]
+    firsts = month_firsts(days)
+    begin = int(firsts[2])  # 2005-03
+    out = historical_withdrawals(days, begin, 0.05, index)
+    a0, a12, a24 = days[firsts[2]], days[firsts[14]], days[firsts[26]]
+    first = 0.05 / 12
+    second = first * (1 + (usable_cpi(index, a12) / usable_cpi(index, a0) - 1))
+    third = second * (1 + (usable_cpi(index, a24) / usable_cpi(index, a12) - 1))
+    assert out[firsts[2]] == first and out[firsts[13]] == first
+    assert out[firsts[14]] == second and out[firsts[25]] == second
+    assert out[firsts[26]] == third
+    assert out[:begin].sum() == 0 and np.count_nonzero(out) == len(firsts) - 2
+
+
+def test_long_run_withdrawals_and_levels_follow_the_paths_inflation():
+    pi = np.array([[0.01] * 12 + [0.0] * 12 + [0.02] * 3])
+    w = longrun_withdrawals(pi, 0.06)
+    assert (w[0, :12] == 0.005).all()
+    assert w[0, 12] == pytest.approx(0.005 * 1.01**12)
+    assert w[0, 24] == pytest.approx(0.005 * 1.01**12)
+    levels = longrun_levels(pi)
+    assert levels[0, 11] == pytest.approx(1.01**12)
+    assert levels[0, -1] == pytest.approx(1.01**12 * 1.02**3)
