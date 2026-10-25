@@ -1,6 +1,6 @@
 # Withdrawal rules: fixed against four flexible rules
 
-Status: Spec written 2026-10-23, owner-approved design 2026-10-23. Not yet implemented.
+Status: Implemented 2026-10-24 (`pixi run withdrawal-rules`, writes `research/withdrawal_rules.md`). Spec written 2026-10-23, owner-approved design 2026-10-23.
 Extends [decision-helper.md](decision-helper.md) (Withdrawals) and
 [longrun.md](longrun.md). Order and depletion threshold follow
 [withdrawal-edge-cases.md](withdrawal-edge-cases.md).

@@ -41,6 +41,10 @@ Implemented or Closed), matching its `Status:` line.
 - [withdrawal-edge-cases.md](withdrawal-edge-cases.md) — one withdrawal order
   and one depletion threshold for the decision helper and the long run; also
   the RSP sleeve written-spec review (implemented 2026-10-15).
+- [withdrawal-rules.md](withdrawal-rules.md) — the fixed CPI-indexed withdrawal
+  against four flexible rules (skip the raise after a loss, guardrails, percent
+  of balance, floor and ceiling), historical and long run; compares, recommends
+  nothing (implemented 2026-10-24; `pixi run withdrawal-rules`).
 - [whatif-mix.md](whatif-mix.md) — local command that builds your own mix of the
   decision-report portfolios (plus true cash) and runs it through the report's
   tables, privately (implemented in PR #64; owner-approved 2026-10-17).
