@@ -73,7 +73,7 @@ REFUSALS = [
     ("[shy, real_plus_1]", "[shy, shy]", "duplicate"),
     ("[shy, real_plus_1]", "[]", "non-empty list"),
     ("[A, B, C, D, E, F, G]", "[A, Z]", "not in decision.yaml"),
-    ("[A, B, C, D, E, F, G]", "[A, CASH]", "CASH"),
+    ("[A, B, C, D, E, F, G]", "[A, CASH]", "is excluded"),
     ("[A, B, C, D, E, F, G]", "[A, A]", "duplicate"),
     ("[A, B, C, D, E, F, G]", "[]", "non-empty list"),
     (f'"{L_SHA}"', '"' + "0" * 64 + '"', "longrun.yaml changed"),
