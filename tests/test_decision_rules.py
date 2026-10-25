@@ -5,6 +5,7 @@ docs/methodology/withdrawal-rules.md ("Tests")."""
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -13,7 +14,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import pytest
-from decision_helpers import CANDIDATES, END, ROOT, criteria, load, prices, stress_cfg
+from decision_helpers import CANDIDATES, END, GOOD, ROOT, criteria, load, prices, stress_cfg, write
 from decision_helpers import cpi as cpi_series
 
 from qrl.decision import withdrawal_rows
@@ -1655,3 +1656,65 @@ def test_report_detects_a_change_on_or_before_2018(report, setup):
 def test_new_modules_never_unseal_or_slice_a_sealed_period(module):
     source = (ROOT / "src" / "qrl" / module).read_text()
     assert not re.search(r"unseal|slice_period", source)
+
+
+# ---- CLI
+
+
+def _load_cli():
+    spec = importlib.util.spec_from_file_location(
+        "withdrawal_rules_cli", ROOT / "scripts" / "withdrawal_rules.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+LONGRUN_YAML = """\
+version: 1
+decision_sha256: "{sha}"
+seed: 7
+n_paths: 50
+block_months: 12
+horizon_years: 30
+real_floor: 0.5
+withdrawal_rates: [0.02, 0.033, 0.04, 0.05]
+cash_real_yield: 0.01
+"""
+
+
+@pytest.mark.parametrize("stale", ["decision", "longrun"])
+def test_main_refuses_a_stale_pin_before_loading_data_and_writes_nothing(
+    tmp_path, monkeypatch, capsys, stale
+):
+    cli = _load_cli()
+
+    def no_access(*args, **kwargs):
+        raise AssertionError("data must not be loaded before the config pins are checked")
+
+    monkeypatch.setattr(cli, "load_ohlcv", no_access)
+    monkeypatch.setattr(cli, "load_macro", no_access)
+    decision = write(tmp_path, GOOD)
+    d_sha = hashlib.sha256(decision.read_bytes()).hexdigest()
+    longrun = tmp_path / "longrun.yaml"
+    longrun.write_text(LONGRUN_YAML.format(sha=d_sha))
+    l_sha = hashlib.sha256(longrun.read_bytes()).hexdigest()
+    pins = {"decision": d_sha, "longrun": l_sha, stale: "00" * 32}
+    rules = tmp_path / "withdrawal_rules.yaml"
+    rules.write_text(RULES_YAML.replace(D_SHA, pins["decision"]).replace(L_SHA, pins["longrun"]))
+    out = tmp_path / "withdrawal_rules.md"
+    argv = [
+        "--config",
+        str(decision),
+        "--longrun-config",
+        str(longrun),
+        "--rules-config",
+        str(rules),
+        "--out-md",
+        str(out),
+    ]
+    assert cli.main(argv) == 1
+    printed = capsys.readouterr().out
+    assert printed.startswith("refused: ")
+    assert f"{stale}.yaml changed" in printed
+    assert not out.exists()
