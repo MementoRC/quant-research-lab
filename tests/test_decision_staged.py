@@ -226,3 +226,24 @@ def test_runner_refuses_bad_shapes():
         _run([[0.0]], [[0, 0, 0]], [[0]], [[0]], [[0]], 2)
     with pytest.raises(ValueError, match="beyond"):
         _run([[0.0]], [[0]], [[0]], [[0]], [[3]], 2)
+
+
+def test_a_total_loss_after_the_tranche_empties_only_that_path():
+    # path 0 buys everything at step 0, then loses 100%: empty after the returns
+    returns = [[-1.0, 0.0], [0.1, 0.1]]
+    buy = [[0, -1], [0, -1]]
+    run = _run(returns, [[0], [1]], [[0] * 2] * 2, [[0] * 2] * 2, buy, 1)
+    assert run.values[0].tolist() == [0.0, 0.0]
+    assert run.values[1] == pytest.approx([1.1, 1.21])
+    assert run.depleted.tolist() == [1, 0]
+
+
+def test_tranches_never_bought_stay_in_cash_and_earn_the_cash_return():
+    # 6 tranches, 3 steps: 1/6 bought each step, the other 3/6 never leaves cash.
+    # cash: 5/6 x 1.01 = 0.841667; -1/6 = 0.675 x 1.01 = 0.68175;
+    # -1/6 = 0.5150833 x 1.01 = 0.5202342. Invested stays 1/6, 2/6, 3/6 (0% returns).
+    run = _run([[0.0] * 3], [[0]], [[0.01] * 3], [[0] * 3], [[0, 1, 2]], 6)
+    assert run.values[0] == pytest.approx(
+        [0.166667 + 0.841667, 0.333333 + 0.68175, 0.5 + 0.5202342], abs=1e-6
+    )
+    assert run.depleted.tolist() == [0]
