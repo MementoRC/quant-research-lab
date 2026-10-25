@@ -1,6 +1,6 @@
 # Staged entry: all at once or in monthly tranches, while drawing income
 
-Status: Spec written 2026-10-23, owner-approved design 2026-10-23. Not yet implemented.
+Status: Implemented 2026-10-25 (`pixi run staged-entry`, writes `research/staged_entry.md`). Spec written 2026-10-23, owner-approved design 2026-10-23.
 Extends [decision-helper.md](decision-helper.md), [longrun.md](longrun.md) and
 [true-cash-all-cores.md](true-cash-all-cores.md). It ships after
 [withdrawal-rules.md](withdrawal-rules.md) for review load, not because of any

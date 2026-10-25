@@ -28,6 +28,7 @@ from decision_helpers import (
 from decision_helpers import cpi as cpi_series
 
 import qrl.decision_staged as staged_mod
+from qrl import regen
 from qrl.decision import portfolio_returns, research_start
 from qrl.decision_config import load_decision_config
 from qrl.decision_staged import (
@@ -937,3 +938,22 @@ def test_main_refuses_a_stale_pin_before_loading_data_and_writes_nothing(
     assert printed.startswith("refused: ")
     assert f"{stale}.yaml changed" in printed
     assert not out.exists()
+
+
+# ---- regen and freshness
+
+
+def test_report_is_in_regen_specs_with_the_decision_caches(tmp_path):
+    spec = next(s for s in regen.SPECS if s.report == "research/staged_entry.md")
+    assert spec.command(tmp_path, "")[0] == "scripts/staged_entry.py"
+    assert str(tmp_path / spec.output) in spec.command(tmp_path, "")
+    assert "data/cache/macro_CPIAUCNS.parquet" in spec.needs
+    assert "data/cache/SHY.parquet" in spec.needs
+
+
+def test_committed_report_hash_lines_match_the_config_files():
+    text = (ROOT / "research" / "staged_entry.md").read_text(encoding="utf-8")
+    assert _hashes(text) == {
+        name: hashlib.sha256((ROOT / "config" / name).read_bytes()).hexdigest()
+        for name in ("staged_entry.yaml", "decision.yaml", "longrun.yaml")
+    }
