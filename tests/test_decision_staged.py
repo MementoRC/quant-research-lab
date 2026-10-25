@@ -856,6 +856,14 @@ def test_render_never_prints_minus_zero():
     assert "+0.0 (" in md
 
 
+def test_render_rounds_percentages_like_the_longrun_report():
+    tiny = _tiny()
+    tiny["longrun"] = [dict(r, depleted=0.1125) for r in tiny["longrun"]]
+    md = render_markdown(tiny)
+    assert "| A | lump sum | 11.3% |" in md
+    assert "11.2%" not in md
+
+
 @pytest.mark.parametrize(
     "phrase",
     [

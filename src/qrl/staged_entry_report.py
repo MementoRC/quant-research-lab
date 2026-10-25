@@ -23,7 +23,7 @@ _DASH = "—"
 
 
 def _pct(x: float) -> str:
-    return f"{round(100 * x, 1) + 0.0:.1f}%"  # + 0.0 turns -0.0 into 0.0
+    return f"{round(x, 3) + 0.0:.1%}"  # round first, then + 0.0 turns -0.0 into 0.0
 
 
 def _pp(x: float) -> str:
