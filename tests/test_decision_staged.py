@@ -34,6 +34,7 @@ from qrl.decision_staged import (
     horizon_positions,
     load_staged_config,
     longrun_levels,
+    longrun_run,
     longrun_withdrawals,
     month_firsts,
     run_staged,
@@ -41,7 +42,14 @@ from qrl.decision_staged import (
     tranche_returns,
 )
 from qrl.decision_withdraw import DEPLETED, monthly_withdrawals, usable_cpi, withdrawal_path
-from qrl.longrun import LongrunConfig, load_longrun_config
+from qrl.longrun import (
+    LongrunConfig,
+    block_starts,
+    cash_assumption_returns,
+    load_longrun_config,
+    month_indices,
+    run_paths,
+)
 
 D_SHA = "d" * 64  # placeholder replaced by the test decision.yaml's sha256
 L_SHA = "e" * 64  # the test LongrunConfig's sha256
@@ -470,3 +478,38 @@ def test_lump_sum_historical_equals_withdrawal_path_for_january_starts(setup):
     ends_arr = np.array(ends)
     assert (ends_arr != 1.0).any()  # the compared paths moved
     assert (ends_arr > DEPLETED).any()  # and not all of them are depleted
+
+
+# ---- long-run view
+
+
+def test_lump_sum_long_run_equals_run_paths_exactly():
+    rng = np.random.default_rng(11)
+    n_months = 120
+    core = rng.normal(0.006, 0.05, n_months)
+    shy = rng.normal(0.002, 0.003, n_months)
+    pi = rng.normal(0.002, 0.003, n_months)
+    idx = month_indices(block_starts(7, 300, 30, n_months), 12, n_months)
+    for rate in (0.02, 0.05, 0.12):
+        paths = run_paths(core, pi, idx, rate)
+        w = longrun_withdrawals(pi[idx], rate)
+        levels = longrun_levels(pi[idx])
+        for cash in (shy, cash_assumption_returns(pi, 0.01)):
+            run = longrun_run(core[idx], cash[idx], w, 0)
+            assert np.array_equal(run.values, paths.nominal)
+            assert np.array_equal(run.values / levels, paths.real)
+            assert np.array_equal(run.depleted, paths.depleted)
+        if rate == 0.12:
+            assert paths.depleted.any()  # the depletion branch is exercised
+
+
+def test_long_run_tranches_are_bought_monthly_at_no_cost():
+    core = np.full((1, 3), 0.01)
+    run = longrun_run(core, np.zeros((1, 3)), np.zeros((1, 3)), 2)
+    # month 0: 0.5 invested x 1.01 + 0.5 cash; month 1: all in, x 1.01
+    assert run.values[0] == pytest.approx([1.005, 1.01505, 1.0252005])
+
+
+def test_long_run_refuses_a_period_longer_than_the_paths():
+    with pytest.raises(ValueError, match="longer than"):
+        longrun_run(np.zeros((1, 3)), np.zeros((1, 3)), np.zeros((1, 3)), 4)

@@ -381,3 +381,18 @@ def historical_run(
     for k in range(n_t):
         buy[np.arange(n), firsts[i0 + k]] = k
     return run_staged(tranche, source, cash[v_of], withdraw[r_of, s_of], buy, n_t, firsts[i0])
+
+
+def longrun_run(core: np.ndarray, cash: np.ndarray, withdraw: np.ndarray, period: int) -> StagedRun:
+    """Monthly paths (spec "Long run"): `core` and `cash` are each path's
+    monthly returns (already indexed by `month_indices`), `withdraw` from
+    `longrun_withdrawals`. Tranches are bought at the start of months
+    0..N-1 and all earn the core's return (one shared group), with no entry
+    cost, so period 0 equals `run_paths` exactly."""
+    n_t = max(period, 1)
+    n_paths, n_months = core.shape
+    if n_t > n_months:
+        raise ValueError(f"staging period {period} is longer than the {n_months}-month paths")
+    buy = np.full((n_paths, n_months), -1, dtype=np.int64)
+    buy[:, :n_t] = np.arange(n_t)
+    return run_staged(core, np.arange(n_paths)[:, None], cash, withdraw, buy, n_t)
