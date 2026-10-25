@@ -454,6 +454,7 @@ def test_lump_sum_historical_equals_withdrawal_path_for_january_starts(setup):
     )
     run = historical_run(tranche, firsts, starts, cash, withdraw, 0)
     n_r, n_s = len(dcfg.rates), len(starts)
+    ends = []
     for si, i0 in enumerate(starts):
         b = int(firsts[i0])
         returns = portfolio_returns(p, cut, days[b], _cost())
@@ -465,3 +466,7 @@ def test_lump_sum_historical_equals_withdrawal_path_for_january_starts(setup):
                 row = (vi * n_r + ri) * n_s + si
                 assert np.array_equal(run.values[row, b:], ref)
                 assert (run.values[row, :b] == 1.0).all()
+                ends.append(ref[-1])
+    ends_arr = np.array(ends)
+    assert (ends_arr != 1.0).any()  # the compared paths moved
+    assert (ends_arr > DEPLETED).any()  # and not all of them are depleted
