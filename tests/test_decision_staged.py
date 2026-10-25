@@ -42,6 +42,7 @@ from qrl.decision_staged import (
     month_firsts,
     path_measures,
     run_staged,
+    run_staged_entry,
     start_months,
     tranche_returns,
 )
@@ -612,3 +613,70 @@ def test_path_measures_ignore_values_before_the_begin_day():
     values = np.array([[2.0, 0.5, 0.8, 1.5, 1.2, 1.3]])
     m = path_measures(values, np.array([2]), np.array([4]), days, _flat_cpi())
     assert m["mdd"][0] == pytest.approx(0.2)
+
+
+# ---- orchestration on offline data
+
+
+def _scfg() -> StagedConfig:
+    return StagedConfig(
+        periods=[0, 6],
+        cash_variants=["shy", "real_plus_1"],
+        portfolios=["A", "G"],
+        sha256="s" * 64,
+    )
+
+
+@pytest.fixture(scope="module")
+def report(setup):
+    dcfg, data, index = setup
+    return run_staged_entry(_scfg(), dcfg, _lcfg(), data, index, criteria())
+
+
+def test_report_shape_and_order(report, setup):
+    dcfg, _, _ = setup
+    n = len(dcfg.rates) * 2 * 2 * 2
+    assert len(report["historical"]) == n and len(report["longrun"]) == n
+    keys = [(r["rate"], r["portfolio"], r["period"], r["variant"]) for r in report["historical"]]
+    assert keys == [
+        (rate, pid, per, v)
+        for rate in dcfg.rates
+        for pid in "AG"
+        for per in (0, 6)
+        for v in ("shy", "real_plus_1")
+    ]
+    assert keys == [
+        (r["rate"], r["portfolio"], r["period"], r["variant"]) for r in report["longrun"]
+    ]
+    assert report["n_starts"] == 120
+    assert (report["first_start"], report["last_start"]) == ("2005-01", "2014-12")
+    assert report["horizon_months"] == 48
+    assert report["n_months"] == 168 and report["n_paths"] == 50
+    assert report["staged_sha256"] == "s" * 64 and report["longrun_sha256"] == L_SHA
+    assert [p["id"] for p in report["portfolios"]] == ["A", "G"]
+
+
+def test_lump_sum_rows_are_the_same_in_both_cash_variants(report):
+    for view in ("historical", "longrun"):
+        rows = {
+            (r["rate"], r["portfolio"], r["variant"]): r for r in report[view] if r["period"] == 0
+        }
+        for (rate, pid, v), r in rows.items():
+            if v == "shy":
+                assert r == {**rows[(rate, pid, "real_plus_1")], "variant": "shy"}
+
+
+def test_staged_rows_carry_every_measure(report):
+    staged = [r for r in report["historical"] if r["period"] == 6]
+    assert all(0.0 <= r["above"] <= 1.0 for r in staged)
+    assert all(r["gap_worst"] <= r["gap_median"] <= r["gap_best"] for r in staged)
+    assert all(r["worst_start"][:2] == "20" for r in staged)
+    lump = [r for r in report["historical"] if r["period"] == 0]
+    assert all(r["above"] is None and r["mdd_worst"] >= 0.0 for r in lump)
+    assert all(0.0 <= r["depleted"] <= 1.0 for r in report["longrun"])
+
+
+def test_run_refuses_rates_unlike_longrun(setup):
+    dcfg, data, index = setup
+    with pytest.raises(ValueError, match="withdrawal_rates"):
+        run_staged_entry(_scfg(), dcfg, _lcfg(rates=[0.04]), data, index, criteria())

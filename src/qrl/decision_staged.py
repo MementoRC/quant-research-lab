@@ -483,3 +483,184 @@ def longrun_measures(run: StagedRun, levels: np.ndarray, horizon_years: int) -> 
         "real_end_median": float(np.median(real[:, horizon_years * 12 - 1])),
         "real_year5_median": float(np.median(real[:, YEAR5_MONTHS - 1])),
     }
+
+
+def historical_rows(
+    scfg: StagedConfig,
+    dcfg: DecisionConfig,
+    lcfg: LongrunConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+) -> tuple[list[dict], dict]:
+    """Per rate, portfolio, period and cash variant (in that order): the
+    measures over the 120 historical starts, each to the data end. Price and
+    CPI frames are cut at the data end first. Also the span for the header."""
+    end = data_end(criteria)
+    cut = {k: v.loc[:end] for k, v in data.items()}
+    known_cpi = cpi.loc[:end]
+    cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
+    trading = pd.DatetimeIndex(cut["close"].index)
+    days = trading[trading >= research_start(trading, criteria)]
+    firsts = month_firsts(days)
+    starts = start_months(days, firsts)
+    horizon = horizon_positions(firsts, starts)
+    months = [str(m) for m in pd.DatetimeIndex(days[firsts[starts]]).to_period("M")]
+    by_id = {p.id: p for p in dcfg.portfolios}
+    cash = np.vstack(
+        [
+            daily_cash(
+                v, by_id[CASH_ID], cut, days, trading, known_cpi, cost_bps, lcfg.cash_real_yield
+            )
+            for v in scfg.cash_variants
+        ]
+    )
+    withdraw = np.stack(
+        [
+            [historical_withdrawals(days, int(firsts[i]), rate, known_cpi) for i in starts]
+            for rate in dcfg.rates
+        ]
+    )
+    n_v, n_r, n_s = len(scfg.cash_variants), len(dcfg.rates), len(starts)
+    s_of = np.tile(np.arange(n_s), n_v * n_r)
+    begin, hz = firsts[starts][s_of], horizon[s_of]
+    n_rows = int(starts.max()) + max(max(scfg.periods), 1)
+    cells: dict[tuple, dict] = {}
+    for pid in scfg.portfolios:
+        tranche = tranche_returns(by_id[pid], cut, days, days[firsts[:n_rows]], cost_bps)
+        per = {
+            n: path_measures(
+                historical_run(tranche, firsts, starts, cash, withdraw, n).values,
+                begin,
+                hz,
+                days,
+                known_cpi,
+            )
+            for n in scfg.periods
+        }
+        for ri, rate in enumerate(dcfg.rates):
+            for vi, v in enumerate(scfg.cash_variants):
+                block = slice((vi * n_r + ri) * n_s, (vi * n_r + ri + 1) * n_s)
+                lump = {k: a[block] for k, a in per[0].items()}
+                for n in scfg.periods:
+                    staged = {k: a[block] for k, a in per[n].items()}
+                    cells[(rate, pid, n, v)] = (
+                        lump_only(lump, months) if n == 0 else compare(staged, lump, months)
+                    )
+    rows = [
+        {"portfolio": pid, "period": n, "rate": rate, "variant": v, **cells[(rate, pid, n, v)]}
+        for rate in dcfg.rates
+        for pid in scfg.portfolios
+        for n in scfg.periods
+        for v in scfg.cash_variants
+    ]
+    span = {
+        "n_starts": n_s,
+        "first_start": months[0],
+        "last_start": months[-1],
+        "horizon_months": HORIZON_MONTHS,
+    }
+    return rows, span
+
+
+def longrun_rows(
+    scfg: StagedConfig,
+    dcfg: DecisionConfig,
+    lcfg: LongrunConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+) -> tuple[list[dict], dict]:
+    """Per rate, portfolio, period and cash variant (in that order) over the
+    long run's paths (`decision_rules.longrun_indices`: the same seed, blocks
+    and paths as longrun.md). Monthly returns are `monthly_returns` of
+    `portfolio_returns` from the first research trading day; SHY cash is the
+    CASH portfolio's, real + 1% is `longrun.cash_assumption_returns`. Price and
+    CPI frames are cut at the data end first."""
+    end = data_end(criteria)
+    begin, _ = period_bounds(criteria, "research")
+    if begin is None:
+        raise ValueError("criteria: the research period has no start")
+    cut = {k: v.loc[:end] for k, v in data.items()}
+    known_cpi = cpi.loc[:end]
+    cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
+    first = research_start(pd.DatetimeIndex(cut["close"].index), criteria)
+    by_id = {p.id: p for p in dcfg.portfolios}
+    months = pd.period_range(begin, end, freq="M")
+    monthly: dict[str, np.ndarray] = {}
+    for pid in [*scfg.portfolios, CASH_ID]:
+        series = monthly_returns(portfolio_returns(by_id[pid], cut, first, cost_bps))
+        if not series.index.equals(months):
+            raise ValueError(
+                f"portfolio {pid}: months must run {months[0]}..{months[-1]} ({len(months)} months)"
+            )
+        monthly[pid] = series.to_numpy()
+    inflation = monthly_inflation(known_cpi, months).to_numpy()
+    cash = {
+        "shy": monthly[CASH_ID],
+        "real_plus_1": cash_assumption_returns(inflation, lcfg.cash_real_yield),
+    }
+    idx = longrun_indices(lcfg, len(months))
+    pi = inflation[idx]
+    levels = longrun_levels(pi)
+    withdraw = {rate: longrun_withdrawals(pi, rate) for rate in dcfg.rates}
+    rows = [
+        {
+            "portfolio": pid,
+            "period": n,
+            "rate": rate,
+            "variant": v,
+            **longrun_measures(
+                longrun_run(monthly[pid][idx], cash[v][idx], withdraw[rate], n),
+                levels,
+                lcfg.horizon_years,
+            ),
+        }
+        for rate in dcfg.rates
+        for pid in scfg.portfolios
+        for n in scfg.periods
+        for v in scfg.cash_variants
+    ]
+    span = {"first_month": str(months[0]), "last_month": str(months[-1]), "n_months": len(months)}
+    return rows, span
+
+
+def run_staged_entry(
+    scfg: StagedConfig,
+    dcfg: DecisionConfig,
+    lcfg: LongrunConfig,
+    data: dict[str, pd.DataFrame],
+    cpi: pd.Series,
+    criteria: dict,
+) -> dict:
+    """The whole report as plain data (rendered by `qrl.staged_entry_report`).
+    Rates and the cash yield come from decision.yaml, the paths from
+    longrun.yaml, the cost from criteria.yaml. Raises ValueError on any refusal."""
+    check_withdrawal_rates(lcfg, dcfg)
+    if "real_plus_1" in scfg.cash_variants:
+        check_cash_assumption(lcfg, dcfg)
+    labels = {p.id: p.label for p in dcfg.portfolios}
+    strangers = [pid for pid in [*scfg.portfolios, CASH_ID] if pid not in labels]
+    if strangers:
+        raise ValueError(f"staged_entry portfolio(s) {strangers} not in decision.yaml")
+    historical, hspan = historical_rows(scfg, dcfg, lcfg, data, cpi, criteria)
+    longrun, lspan = longrun_rows(scfg, dcfg, lcfg, data, cpi, criteria)
+    return {
+        "data_end": str(data_end(criteria).date()),
+        "staged_sha256": scfg.sha256,
+        "decision_sha256": dcfg.sha256,
+        "longrun_sha256": lcfg.sha256,
+        "portfolios": [{"id": pid, "label": labels[pid]} for pid in scfg.portfolios],
+        "periods": list(scfg.periods),
+        "variants": list(scfg.cash_variants),
+        "rates": list(dcfg.rates),
+        **hspan,
+        **lspan,
+        "seed": lcfg.seed,
+        "n_paths": lcfg.n_paths,
+        "block_months": lcfg.block_months,
+        "horizon_years": lcfg.horizon_years,
+        "cost_bps": float(criteria["costs"]["bps_per_unit_turnover"]),
+        "historical": historical,
+        "longrun": longrun,
+    }
