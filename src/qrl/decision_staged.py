@@ -257,7 +257,7 @@ def horizon_positions(firsts: np.ndarray, starts: np.ndarray) -> np.ndarray:
     after = np.asarray(starts) + HORIZON_MONTHS
     if after.max() >= len(firsts):
         raise ValueError(f"the {HORIZON_MONTHS}-month horizon of a start runs past the data")
-    return firsts[after] - 1
+    return np.asarray(firsts[after] - 1)
 
 
 def historical_withdrawals(
@@ -273,9 +273,9 @@ def historical_withdrawals(
     anchor = days[begin]
     for j, pos in enumerate(np.flatnonzero(month_starts(days[begin:])) + begin):
         if j and j % 12 == 0:
-            change = usable_cpi(cpi, days[pos]) / usable_cpi(cpi, anchor) - 1
+            change = usable_cpi(cpi, days[int(pos)]) / usable_cpi(cpi, anchor) - 1
             amount = amount * (1 + change)
-            anchor = days[pos]
+            anchor = days[int(pos)]
         out[pos] = amount
     return out
 

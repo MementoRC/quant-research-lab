@@ -348,10 +348,13 @@ def test_other_starts_are_raised_on_each_anniversary_by_usable_cpi():
     first = 0.05 / 12
     second = first * (1 + (usable_cpi(index, a12) / usable_cpi(index, a0) - 1))
     third = second * (1 + (usable_cpi(index, a24) / usable_cpi(index, a12) - 1))
-    assert out[firsts[2]] == first and out[firsts[13]] == first
-    assert out[firsts[14]] == second and out[firsts[25]] == second
+    assert out[firsts[2]] == first
+    assert out[firsts[13]] == first
+    assert out[firsts[14]] == second
+    assert out[firsts[25]] == second
     assert out[firsts[26]] == third
-    assert out[:begin].sum() == 0 and np.count_nonzero(out) == len(firsts) - 2
+    assert out[:begin].sum() == 0
+    assert np.count_nonzero(out) == len(firsts) - 2
 
 
 def test_long_run_withdrawals_and_levels_follow_the_paths_inflation():
@@ -440,7 +443,8 @@ def test_historical_schedule_buys_each_tranche_on_its_month_first(monkeypatch):
         assert np.flatnonzero(seen["buy"][p] >= 0).tolist() == list(firsts[i0 : i0 + 3])
         assert seen["buy"][p][firsts[i0 : i0 + 3]].tolist() == [0, 1, 2]
     # paths ordered (variant, rate, start)
-    assert (seen["cash"][4:] == 1.0).all() and (seen["cash"][:4] == 0.0).all()
+    assert (seen["cash"][4:] == 1.0).all()
+    assert (seen["cash"][:4] == 0.0).all()
     assert np.array_equal(seen["withdraw"][1], withdraw[0, 1])
     assert np.array_equal(seen["withdraw"][2], withdraw[1, 0])
 
@@ -562,14 +566,18 @@ def test_compare_and_lump_only():
     c = compare(staged, lump, months)
     assert c["above"] == pytest.approx(1 / 3)  # a tie is not above
     assert (c["gap_median"], c["gap_best"], c["gap_worst"]) == pytest.approx((0.0, 0.2, -0.2))
-    assert c["mdd_worst"] == 0.3 and c["mdd_worst_diff"] == pytest.approx(0.1)
+    assert c["mdd_worst"] == 0.3
+    assert c["mdd_worst_diff"] == pytest.approx(0.1)
     assert c["worst_start"] == "2005-02"
     assert (c["end_gap_median"], c["end_gap_best"], c["end_gap_worst"]) == pytest.approx(
         (0.0, 0.1, -0.2)
     )
     lo = lump_only(lump, months)
-    assert lo["mdd_worst"] == 0.25 and lo["worst_start"] == "2005-01"
-    assert lo["above"] is None and lo["gap_median"] is None and lo["mdd_worst_diff"] is None
+    assert lo["mdd_worst"] == 0.25
+    assert lo["worst_start"] == "2005-01"
+    assert lo["above"] is None
+    assert lo["gap_median"] is None
+    assert lo["mdd_worst_diff"] is None
     assert set(lo) == set(c)
 
 
@@ -636,7 +644,8 @@ def report(setup):
 def test_report_shape_and_order(report, setup):
     dcfg, _, _ = setup
     n = len(dcfg.rates) * 2 * 2 * 2
-    assert len(report["historical"]) == n and len(report["longrun"]) == n
+    assert len(report["historical"]) == n
+    assert len(report["longrun"]) == n
     keys = [(r["rate"], r["portfolio"], r["period"], r["variant"]) for r in report["historical"]]
     assert keys == [
         (rate, pid, per, v)
@@ -651,8 +660,10 @@ def test_report_shape_and_order(report, setup):
     assert report["n_starts"] == 120
     assert (report["first_start"], report["last_start"]) == ("2005-01", "2014-12")
     assert report["horizon_months"] == 48
-    assert report["n_months"] == 168 and report["n_paths"] == 50
-    assert report["staged_sha256"] == "s" * 64 and report["longrun_sha256"] == L_SHA
+    assert report["n_months"] == 168
+    assert report["n_paths"] == 50
+    assert report["staged_sha256"] == "s" * 64
+    assert report["longrun_sha256"] == L_SHA
     assert [p["id"] for p in report["portfolios"]] == ["A", "G"]
 
 
