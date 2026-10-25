@@ -396,3 +396,83 @@ def longrun_run(core: np.ndarray, cash: np.ndarray, withdraw: np.ndarray, period
     buy = np.full((n_paths, n_months), -1, dtype=np.int64)
     buy[:, :n_t] = np.arange(n_t)
     return run_staged(core, np.arange(n_paths)[:, None], cash, withdraw, buy, n_t)
+
+
+def path_measures(
+    values: np.ndarray,
+    begin: np.ndarray,
+    horizon: np.ndarray,
+    days: pd.DatetimeIndex,
+    cpi: pd.Series,
+) -> dict[str, np.ndarray]:
+    """Per path (spec "Measures"): real value at the horizon and at the data
+    end (the last of `days`), each deflated by the CPI usable on that day over
+    the CPI usable on the start day; max drawdown of the total value from the
+    start to the horizon, the starting 1.0 counting as a peak (Open question 2)."""
+    usable: dict[int, float] = {}
+
+    def at(pos: int) -> float:
+        if pos not in usable:
+            usable[pos] = usable_cpi(cpi, days[pos])
+        return usable[pos]
+
+    n, last = len(values), len(days) - 1
+    real4, real_end, mdd = np.empty(n), np.empty(n), np.empty(n)
+    for p in range(n):
+        b, h = int(begin[p]), int(horizon[p])
+        real4[p] = values[p, h] / (at(h) / at(b))
+        real_end[p] = values[p, last] / (at(last) / at(b))
+        seg = values[p, b : h + 1]
+        peaks = np.maximum.accumulate(np.concatenate([[1.0], seg]))[1:]
+        mdd[p] = float((1.0 - seg / peaks).max())
+    return {"real4": real4, "real_end": real_end, "mdd": mdd}
+
+
+def compare(staged: dict, lump: dict, months: list[str]) -> dict:
+    """One staged row against the lump sum over the same starts: share of
+    starts strictly above at the horizon; median, best and worst real gap
+    (staged minus lump, fractions of the starting value) at the horizon and at
+    the data end; worst staged max drawdown; largest staged-minus-lump
+    drawdown (Open question 3); the start month with the lowest staged value."""
+    gap = staged["real4"] - lump["real4"]
+    end_gap = staged["real_end"] - lump["real_end"]
+    return {
+        "above": float(np.mean(staged["real4"] > lump["real4"])),
+        "gap_median": float(np.median(gap)),
+        "gap_best": float(gap.max()),
+        "gap_worst": float(gap.min()),
+        "mdd_worst": float(staged["mdd"].max()),
+        "mdd_worst_diff": float((staged["mdd"] - lump["mdd"]).max()),
+        "worst_start": months[int(np.argmin(staged["real4"]))],
+        "end_gap_median": float(np.median(end_gap)),
+        "end_gap_best": float(end_gap.max()),
+        "end_gap_worst": float(end_gap.min()),
+    }
+
+
+def lump_only(lump: dict, months: list[str]) -> dict:
+    """The lump-sum row: its own worst max drawdown and worst start; the
+    comparison fields are None (Open question 6)."""
+    return {
+        "above": None,
+        "gap_median": None,
+        "gap_best": None,
+        "gap_worst": None,
+        "mdd_worst": float(lump["mdd"].max()),
+        "mdd_worst_diff": None,
+        "worst_start": months[int(np.argmin(lump["real4"]))],
+        "end_gap_median": None,
+        "end_gap_best": None,
+        "end_gap_worst": None,
+    }
+
+
+def longrun_measures(run: StagedRun, levels: np.ndarray, horizon_years: int) -> dict:
+    """Share of paths depleted by the horizon; median real value at the
+    horizon and at year 5 (values over the path's price level)."""
+    real = run.values / levels
+    return {
+        "depleted": float(np.mean(run.depleted > 0)),
+        "real_end_median": float(np.median(real[:, horizon_years * 12 - 1])),
+        "real_year5_median": float(np.median(real[:, YEAR5_MONTHS - 1])),
+    }

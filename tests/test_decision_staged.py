@@ -28,15 +28,19 @@ from qrl.decision_config import load_decision_config
 from qrl.decision_staged import (
     StagedConfig,
     StagedRun,
+    compare,
     daily_cash,
     historical_run,
     historical_withdrawals,
     horizon_positions,
     load_staged_config,
     longrun_levels,
+    longrun_measures,
     longrun_run,
     longrun_withdrawals,
+    lump_only,
     month_firsts,
+    path_measures,
     run_staged,
     start_months,
     tranche_returns,
@@ -513,3 +517,67 @@ def test_long_run_tranches_are_bought_monthly_at_no_cost():
 def test_long_run_refuses_a_period_longer_than_the_paths():
     with pytest.raises(ValueError, match="longer than"):
         longrun_run(np.zeros((1, 3)), np.zeros((1, 3)), np.zeros((1, 3)), 4)
+
+
+# ---- measures
+
+
+def _flat_cpi() -> pd.Series:
+    return pd.Series(100.0, index=pd.date_range("2004-01-31", "2006-12-31", freq="ME"))
+
+
+def test_path_measures_real_values_and_drawdown_to_the_horizon():
+    days = pd.bdate_range("2005-01-03", periods=5)
+    values = np.array([[1.1, 0.9, 1.2, 1.0, 1.3]])
+    m = path_measures(values, np.array([0]), np.array([3]), days, _flat_cpi())
+    assert m["real4"].tolist() == [1.0]
+    assert m["real_end"].tolist() == [1.3]
+    assert m["mdd"][0] == pytest.approx(1 - 0.9 / 1.1)  # 1.3 after the horizon is ignored
+
+
+def test_path_measures_deflate_by_usable_cpi_and_count_the_start_as_a_peak():
+    days = pd.bdate_range("2005-01-03", "2005-06-30")
+    index = _flat_cpi().copy()
+    index.loc["2005-05-31":] = 110.0
+    values = np.full((1, len(days)), 0.95)
+    h = len(days) - 1
+    m = path_measures(values, np.array([0]), np.array([h]), days, index)
+    assert m["real4"][0] == pytest.approx(0.95 / 1.1)
+    assert m["mdd"][0] == pytest.approx(0.05)
+
+
+def test_compare_and_lump_only():
+    staged = {
+        "real4": np.array([1.2, 0.8, 1.0]),
+        "real_end": np.array([1.5, 1.0, 1.1]),
+        "mdd": np.array([0.2, 0.3, 0.1]),
+    }
+    lump = {
+        "real4": np.array([1.0, 1.0, 1.0]),
+        "real_end": np.array([1.4, 1.2, 1.1]),
+        "mdd": np.array([0.25, 0.2, 0.1]),
+    }
+    months = ["2005-01", "2005-02", "2005-03"]
+    c = compare(staged, lump, months)
+    assert c["above"] == pytest.approx(1 / 3)  # a tie is not above
+    assert (c["gap_median"], c["gap_best"], c["gap_worst"]) == pytest.approx((0.0, 0.2, -0.2))
+    assert c["mdd_worst"] == 0.3 and c["mdd_worst_diff"] == pytest.approx(0.1)
+    assert c["worst_start"] == "2005-02"
+    assert (c["end_gap_median"], c["end_gap_best"], c["end_gap_worst"]) == pytest.approx(
+        (0.0, 0.1, -0.2)
+    )
+    lo = lump_only(lump, months)
+    assert lo["mdd_worst"] == 0.25 and lo["worst_start"] == "2005-01"
+    assert lo["above"] is None and lo["gap_median"] is None and lo["mdd_worst_diff"] is None
+    assert set(lo) == set(c)
+
+
+def test_longrun_measures():
+    values = np.ones((4, 72))
+    values[0, 30:] = 0.0
+    values[:, 59] = [0.0, 1.0, 2.0, 3.0]
+    values[:, 71] = [0.0, 2.0, 4.0, 6.0]
+    levels = np.full((4, 72), 2.0)
+    run = StagedRun(values, np.array([31, 0, 0, 0]))
+    m = longrun_measures(run, levels, horizon_years=6)
+    assert m == {"depleted": 0.25, "real_end_median": 1.5, "real_year5_median": 0.75}
