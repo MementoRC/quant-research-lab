@@ -581,3 +581,34 @@ def test_longrun_measures():
     run = StagedRun(values, np.array([31, 0, 0, 0]))
     m = longrun_measures(run, levels, horizon_years=6)
     assert m == {"depleted": 0.25, "real_end_median": 1.5, "real_year5_median": 0.75}
+
+
+def test_longrun_measures_count_only_depletion_within_the_horizon():
+    values = np.ones((4, 72))
+    levels = np.ones((4, 72))
+    # horizon 5 years = 60 months: month 40 counts, 61 does not, 0 never depleted
+    run = StagedRun(values, np.array([40, 61, 0, 60]))
+    m = longrun_measures(run, levels, horizon_years=5)
+    assert m["depleted"] == 0.5  # paths 0 and 3 (60 is within 12 * 5)
+
+
+def test_longrun_measures_refuse_a_horizon_longer_than_the_paths():
+    run = StagedRun(np.ones((2, 72)), np.zeros(2, dtype=int))
+    with pytest.raises(ValueError, match="longer than"):
+        longrun_measures(run, np.ones((2, 72)), horizon_years=7)
+
+
+def test_path_measures_a_depleted_path_has_a_drawdown_of_exactly_one():
+    days = pd.bdate_range("2005-01-03", periods=4)
+    values = np.array([[1.2, 0.5, 0.0, 0.0]])
+    m = path_measures(values, np.array([0]), np.array([3]), days, _flat_cpi())
+    assert m["mdd"][0] == 1.0
+
+
+def test_path_measures_ignore_values_before_the_begin_day():
+    days = pd.bdate_range("2005-01-03", periods=6)
+    # before begin (pos 2): 2.0 -> 0.5 would be a 75% drawdown; in window only
+    # 1.0 (start peak) -> 0.8 -> 1.5 -> 1.2, so the drawdown is 1 - 1.2/1.5 = 0.2
+    values = np.array([[2.0, 0.5, 0.8, 1.5, 1.2, 1.3]])
+    m = path_measures(values, np.array([2]), np.array([4]), days, _flat_cpi())
+    assert m["mdd"][0] == pytest.approx(0.2)

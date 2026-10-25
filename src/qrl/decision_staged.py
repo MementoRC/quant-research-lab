@@ -469,10 +469,17 @@ def lump_only(lump: dict, months: list[str]) -> dict:
 
 def longrun_measures(run: StagedRun, levels: np.ndarray, horizon_years: int) -> dict:
     """Share of paths depleted by the horizon; median real value at the
-    horizon and at year 5 (values over the path's price level)."""
+    horizon and at year 5 (values over the path's price level). Depletion
+    counts only within the horizon. Raises ValueError if `horizon_years` is
+    longer than the path."""
+    n_months = run.values.shape[1]
+    if 12 * horizon_years > n_months:
+        raise ValueError(
+            f"horizon_years {horizon_years} is longer than the path's {n_months // 12} years"
+        )
     real = run.values / levels
     return {
-        "depleted": float(np.mean(run.depleted > 0)),
+        "depleted": float(np.mean((run.depleted > 0) & (run.depleted <= 12 * horizon_years))),
         "real_end_median": float(np.median(real[:, horizon_years * 12 - 1])),
         "real_year5_median": float(np.median(real[:, YEAR5_MONTHS - 1])),
     }
