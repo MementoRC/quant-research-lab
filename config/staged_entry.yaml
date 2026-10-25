@@ -1,0 +1,16 @@
+# PRE-REGISTERED staged-entry configuration (spec:
+# docs/methodology/staged-entry.md; owner-approved design 2026-10-23).
+# Fixed before any result was seen. Every report records this file's sha256.
+# After the first `pixi run staged-entry` report, change only via a dated
+# amendment comment here.
+#
+# Read from the existing files, never copied here: withdrawal rates and the
+# cash real yield from config/decision.yaml; seed, n_paths, block_months and
+# horizon_years from config/longrun.yaml; the cost per unit of turnover from
+# config/criteria.yaml. The first two are pinned below and checked on load.
+version: 1
+decision_sha256: "88ab8b08a34f8b3d106fd7670af02e3e827b86467a2755eb3620ada4490aa76d"
+longrun_sha256: "ebd3d59afd1bfbc79118747a944f74a8b3c62688aeddfe2e201183e10acfe061"
+periods_months: [0, 6, 12, 24]
+cash_variants: [shy, real_plus_1]
+portfolios: [A, B, C, D, E, F, G]
