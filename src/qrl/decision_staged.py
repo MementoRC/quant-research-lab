@@ -230,7 +230,13 @@ def run_staged(
 
 def month_firsts(days: pd.DatetimeIndex) -> np.ndarray:
     """Positions in `days` of the first trading day of each calendar month."""
-    return np.flatnonzero(month_starts(days))
+    firsts = np.flatnonzero(month_starts(days))
+    months = pd.DatetimeIndex(days[firsts]).to_period("M")
+    wanted = pd.period_range(months[0], months[-1], freq="M")
+    if len(wanted) != len(months):
+        gone = wanted[~wanted.isin(months)][0]
+        raise ValueError(f"missing month {gone}: no trading day in a calendar month of the data")
+    return firsts
 
 
 def start_months(days: pd.DatetimeIndex, firsts: np.ndarray) -> np.ndarray:

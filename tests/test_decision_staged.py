@@ -291,6 +291,13 @@ def test_starts_refuse_missing_months_and_a_horizon_past_the_data():
         horizon_positions(firsts, start_months(days, firsts))
 
 
+def test_a_calendar_month_with_no_trading_day_is_refused():
+    days = _bdays()
+    days = days[(days < "2016-03-01") | (days >= "2016-04-01")]
+    with pytest.raises(ValueError, match="missing month 2016-03"):
+        month_firsts(days)
+
+
 def test_january_start_withdrawals_equal_monthly_withdrawals_exactly():
     days, index = _bdays(), cpi_series().loc[:END]
     firsts = month_firsts(days)
