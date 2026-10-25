@@ -307,3 +307,77 @@ def longrun_levels(inflation: np.ndarray) -> np.ndarray:
         level = level * (1.0 + pi[:, t])
         out[:, t] = level
     return out
+
+
+def tranche_returns(
+    p: Portfolio,
+    cut: dict[str, pd.DataFrame],
+    days: pd.DatetimeIndex,
+    dates: pd.DatetimeIndex,
+    cost_bps: float,
+) -> np.ndarray:
+    """One row per date: a fresh purchase of `p` on that date
+    (`decision.portfolio_returns`, unchanged, the engine's entry cost inside
+    its first day) on `days`, 0.0 before the date. Computed once per core and
+    date and shared by every start and period (spec "Tranche returns")."""
+    out = np.zeros((len(dates), len(days)))
+    for i, d in enumerate(dates):
+        held = np.asarray(days >= d)
+        aligned = portfolio_returns(p, cut, d, cost_bps).reindex(days[held])
+        if aligned.isna().any():
+            raise ValueError(f"portfolio {p.id}: returns from {d.date()} do not cover the path")
+        out[i, held] = aligned.to_numpy()
+    return out
+
+
+def daily_cash(
+    variant: str,
+    cash_portfolio: Portfolio,
+    cut: dict[str, pd.DataFrame],
+    days: pd.DatetimeIndex,
+    trading: pd.DatetimeIndex,
+    cpi: pd.Series,
+    cost_bps: float,
+    real_yield: float,
+) -> np.ndarray:
+    """Daily return of waiting cash on `days`. shy: the CASH portfolio (100%
+    SHY) held from days[0] (Open question 1); real_plus_1:
+    `true_cash.cash_leg_returns` (strict CPI check), `trading` giving each
+    month's trading-day count."""
+    if variant == "shy":
+        r = portfolio_returns(cash_portfolio, cut, days[0], cost_bps).reindex(days)
+    elif variant == "real_plus_1":
+        r = cash_leg_returns(days, trading, cpi, real_yield)
+    else:
+        raise ValueError(f"unknown cash variant {variant!r}")
+    if r.isna().any():
+        raise ValueError(f"cash {variant}: a day has no return")
+    return r.to_numpy(dtype=float)
+
+
+def historical_run(
+    tranche: np.ndarray,
+    firsts: np.ndarray,
+    starts: np.ndarray,
+    cash: np.ndarray,
+    withdraw: np.ndarray,
+    period: int,
+) -> StagedRun:
+    """Every (cash variant, rate, start) path, in that order, start fastest.
+    `tranche` row j is a purchase on month first j (`tranche_returns` on
+    days[firsts[:n]]); `cash` is (n_variants, n_days); `withdraw` is
+    (n_rates, n_starts, n_days). Tranche k of a start in month i0 is bought on
+    firsts[i0 + k] and earns row i0 + k; period 0 is one tranche (lump sum)."""
+    n_t = max(period, 1)
+    n_v, n_days = cash.shape
+    n_r, n_s, _ = withdraw.shape
+    n = n_v * n_r * n_s
+    v_of, r_of, s_of = np.unravel_index(np.arange(n), (n_v, n_r, n_s))
+    i0 = np.asarray(starts)[s_of]
+    if int(i0.max()) + n_t > len(tranche):
+        raise ValueError("tranche returns do not cover every tranche date")
+    source = i0[:, None] + np.arange(n_t)
+    buy = np.full((n, n_days), -1, dtype=np.int64)
+    for k in range(n_t):
+        buy[np.arange(n), firsts[i0 + k]] = k
+    return run_staged(tranche, source, cash[v_of], withdraw[r_of, s_of], buy, n_t, firsts[i0])

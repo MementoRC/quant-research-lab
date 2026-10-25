@@ -9,13 +9,27 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 import pytest
-from decision_helpers import CANDIDATES, END, GOOD, GOOD_TCASH_ALL, ROOT, load, stress_cfg
+from decision_helpers import (
+    CANDIDATES,
+    END,
+    GOOD,
+    GOOD_TCASH_ALL,
+    ROOT,
+    criteria,
+    load,
+    prices,
+    stress_cfg,
+)
 from decision_helpers import cpi as cpi_series
 
+import qrl.decision_staged as staged_mod
+from qrl.decision import portfolio_returns, research_start
 from qrl.decision_config import load_decision_config
 from qrl.decision_staged import (
     StagedConfig,
     StagedRun,
+    daily_cash,
+    historical_run,
     historical_withdrawals,
     horizon_positions,
     load_staged_config,
@@ -24,8 +38,9 @@ from qrl.decision_staged import (
     month_firsts,
     run_staged,
     start_months,
+    tranche_returns,
 )
-from qrl.decision_withdraw import DEPLETED, monthly_withdrawals, usable_cpi
+from qrl.decision_withdraw import DEPLETED, monthly_withdrawals, usable_cpi, withdrawal_path
 from qrl.longrun import LongrunConfig, load_longrun_config
 
 D_SHA = "d" * 64  # placeholder replaced by the test decision.yaml's sha256
@@ -335,3 +350,118 @@ def test_long_run_withdrawals_and_levels_follow_the_paths_inflation():
     levels = longrun_levels(pi)
     assert levels[0, 11] == pytest.approx(1.01**12)
     assert levels[0, -1] == pytest.approx(1.01**12 * 1.02**3)
+
+
+# ---- historical view
+
+
+@pytest.fixture(scope="module")
+def setup(tmp_path_factory):
+    dcfg = load(tmp_path_factory.mktemp("staged"), GOOD_TCASH_ALL)
+    return dcfg, prices(), cpi_series()
+
+
+def _cut(data, index):
+    return {k: v.loc[:END] for k, v in data.items()}, index.loc[:END]
+
+
+def _days(cut):
+    trading = pd.DatetimeIndex(cut["close"].index)
+    days = trading[trading >= research_start(trading, criteria())]
+    return trading, days, month_firsts(days)
+
+
+def _cost() -> float:
+    return float(criteria()["costs"]["bps_per_unit_turnover"])
+
+
+def test_each_historical_tranche_is_a_fresh_purchase_paying_the_entry_cost(setup):
+    dcfg, data, index = setup
+    cut, _ = _cut(data, index)
+    _, days, firsts = _days(cut)
+    p = {x.id: x for x in dcfg.portfolios}["A"]
+    rows = tranche_returns(p, cut, days, days[firsts[:3]], _cost())
+    for j in range(3):
+        expected = portfolio_returns(p, cut, days[firsts[j]], _cost()).to_numpy()
+        assert np.array_equal(rows[j, firsts[j] :], expected)
+        assert (rows[j, : firsts[j]] == 0.0).all()
+    free = tranche_returns(p, cut, days, days[firsts[:1]], 0.0)
+    assert rows[0, 0] < free[0, 0]  # the entry cost is inside the first day
+
+
+def test_daily_cash_variants(setup):
+    dcfg, data, index = setup
+    cut, known = _cut(data, index)
+    known = known.copy()
+    known.loc["2006-01-31"] *= 1.01  # perturb one value so the month read is checked
+    trading, days, _ = _days(cut)
+    by_id = {x.id: x for x in dcfg.portfolios}
+    shy = daily_cash("shy", by_id["CASH"], cut, days, trading, known, _cost(), 0.01)
+    ref = portfolio_returns(by_id["CASH"], cut, days[0], _cost()).to_numpy()
+    assert np.array_equal(shy, ref)
+    real = daily_cash("real_plus_1", by_id["CASH"], cut, days, trading, known, _cost(), 0.01)
+    jan = days.to_period("M") == pd.Period("2006-01", freq="M")
+    # January's inflation: usable CPI on 2006-01-31 over usable CPI on 2005-12-31
+    growth = known.loc["2006-01-31"] / known.loc["2005-12-31"] * 1.01 ** (1 / 12)
+    assert np.prod(1.0 + real[jan]) == pytest.approx(growth)
+
+
+def test_historical_schedule_buys_each_tranche_on_its_month_first(monkeypatch):
+    seen = {}
+
+    def spy(returns, source, cash, withdraw, buy, n, begin):
+        seen.update(source=source, buy=buy, n=n, begin=begin, cash=cash, withdraw=withdraw)
+        return StagedRun(np.ones(withdraw.shape), np.zeros(len(withdraw), np.int64))
+
+    monkeypatch.setattr(staged_mod, "run_staged", spy)
+    days = _bdays()
+    firsts = month_firsts(days)
+    starts = np.array([0, 5])
+    cash = np.vstack([np.zeros(len(days)), np.ones(len(days))])
+    withdraw = np.arange(2 * 2 * len(days), dtype=float).reshape(1, 2, 2, len(days))[0]
+    historical_run(np.zeros((12, len(days))), firsts, starts, cash, withdraw, 3)
+    assert seen["n"] == 3
+    assert seen["source"].tolist() == [[0, 1, 2], [5, 6, 7]] * 4
+    assert seen["begin"].tolist() == [firsts[0], firsts[5]] * 4
+    for p, i0 in enumerate([0, 5] * 4):
+        assert np.flatnonzero(seen["buy"][p] >= 0).tolist() == list(firsts[i0 : i0 + 3])
+        assert seen["buy"][p][firsts[i0 : i0 + 3]].tolist() == [0, 1, 2]
+    # paths ordered (variant, rate, start)
+    assert (seen["cash"][4:] == 1.0).all() and (seen["cash"][:4] == 0.0).all()
+    assert np.array_equal(seen["withdraw"][1], withdraw[0, 1])
+    assert np.array_equal(seen["withdraw"][2], withdraw[1, 0])
+
+
+def test_lump_sum_historical_equals_withdrawal_path_for_january_starts(setup):
+    dcfg, data, index = setup
+    cut, known = _cut(data, index)
+    trading, days, firsts = _days(cut)
+    by_id = {x.id: x for x in dcfg.portfolios}
+    p = by_id["A"]
+    starts = np.arange(0, 120, 12)
+    tranche = tranche_returns(p, cut, days, days[firsts[:120]], _cost())
+    cash = np.vstack(
+        [
+            daily_cash(v, by_id["CASH"], cut, days, trading, known, _cost(), 0.01)
+            for v in ("shy", "real_plus_1")
+        ]
+    )
+    withdraw = np.stack(
+        [
+            [historical_withdrawals(days, int(firsts[i]), r, known) for i in starts]
+            for r in dcfg.rates
+        ]
+    )
+    run = historical_run(tranche, firsts, starts, cash, withdraw, 0)
+    n_r, n_s = len(dcfg.rates), len(starts)
+    for si, i0 in enumerate(starts):
+        b = int(firsts[i0])
+        returns = portfolio_returns(p, cut, days[b], _cost())
+        for ri, rate in enumerate(dcfg.rates):
+            ref = withdrawal_path(
+                returns, monthly_withdrawals(rate, days[b].year, END.year, known)
+            ).values.to_numpy()
+            for vi in range(2):
+                row = (vi * n_r + ri) * n_s + si
+                assert np.array_equal(run.values[row, b:], ref)
+                assert (run.values[row, :b] == 1.0).all()
