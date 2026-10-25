@@ -57,6 +57,7 @@ from qrl.longrun import (
     month_indices,
     run_paths,
 )
+from qrl.staged_entry_report import render_markdown
 
 D_SHA = "d" * 64  # placeholder replaced by the test decision.yaml's sha256
 L_SHA = "e" * 64  # the test LongrunConfig's sha256
@@ -730,6 +731,144 @@ def test_report_detects_a_change_on_or_before_2018(report, setup):
 @pytest.mark.parametrize("module", ["decision_staged.py", "staged_entry_report.py"])
 def test_new_modules_never_unseal_or_slice_a_sealed_period(module):
     path = ROOT / "src" / "qrl" / module
-    if not path.exists():
-        pytest.skip(f"{module} is written in Task 9")
     assert not re.search(r"unseal|slice_period", path.read_text())
+
+
+# ---- report renderer (hand-built data)
+
+HASH_LINE = re.compile(r"^- (\S+\.yaml) sha256: `([0-9a-f]{64})`", re.MULTILINE)
+
+
+def _hashes(text: str) -> dict[str, str]:
+    return dict(HASH_LINE.findall(text))
+
+
+def _hist(pid, n, v, **kw):
+    row = {
+        "portfolio": pid,
+        "period": n,
+        "rate": 0.04,
+        "variant": v,
+        "above": None,
+        "gap_median": None,
+        "gap_best": None,
+        "gap_worst": None,
+        "mdd_worst": 0.3,
+        "mdd_worst_diff": None,
+        "worst_start": "2007-10",
+        "end_gap_median": None,
+        "end_gap_best": None,
+        "end_gap_worst": None,
+    }
+    if n:
+        row.update(
+            above=0.25,
+            gap_median=-0.012,
+            gap_best=0.05,
+            gap_worst=-0.08,
+            mdd_worst_diff=-0.02,
+            end_gap_median=-0.03,
+            end_gap_best=0.01,
+            end_gap_worst=-0.1,
+        )
+    row.update(kw)
+    return row
+
+
+def _long(pid, n, v):
+    return {
+        "portfolio": pid,
+        "period": n,
+        "rate": 0.04,
+        "variant": v,
+        "depleted": 0.1,
+        "real_end_median": 1.5,
+        "real_year5_median": 1.1,
+    }
+
+
+def _tiny() -> dict:
+    keys = [(pid, n, v) for pid in "AB" for n in (0, 6) for v in ("shy", "real_plus_1")]
+    return {
+        "data_end": "2018-12-31",
+        "staged_sha256": "a" * 64,
+        "decision_sha256": "b" * 64,
+        "longrun_sha256": "c" * 64,
+        "portfolios": [{"id": "A", "label": "core A"}, {"id": "B", "label": "core B"}],
+        "periods": [0, 6],
+        "variants": ["shy", "real_plus_1"],
+        "rates": [0.04],
+        "n_starts": 120,
+        "first_start": "2005-01",
+        "last_start": "2014-12",
+        "horizon_months": 48,
+        "first_month": "2005-01",
+        "last_month": "2018-12",
+        "n_months": 168,
+        "seed": 7,
+        "n_paths": 10000,
+        "block_months": 12,
+        "horizon_years": 30,
+        "cost_bps": 5.0,
+        "historical": [_hist(*k) for k in keys],
+        "longrun": [_long(*k) for k in keys],
+    }
+
+
+def test_render_header_hash_lines():
+    md = render_markdown(_tiny())
+    assert _hashes(md) == {
+        "staged_entry.yaml": "a" * 64,
+        "decision.yaml": "b" * 64,
+        "longrun.yaml": "c" * 64,
+    }
+
+
+def test_render_tables_rows_in_order_with_variant_groups():
+    md = render_markdown(_tiny())
+    rows = [ln for ln in md.splitlines() if ln.startswith(("| A |", "| B |"))]
+    assert len(rows) == 2 * 4  # (historical + long run) x (2 portfolios x 2 periods)
+    assert rows[0].startswith("| A | lump sum |")
+    assert rows[1].startswith("| A | 6 months |")
+    assert rows[2].startswith("| B | lump sum |")
+    assert (
+        "| A | 6 months | 25.0% | -1.2 (-8.0, +5.0) | 30.0% | -2.0 | 2007-10 | -3.0 (-10.0, +1.0) |"
+        in md
+    )
+    assert "| A | lump sum | — | — | 30.0% | — | 2007-10 | — |" in md
+    assert "SHY: Above lump" in md
+    assert "CPI+1%: Above lump" in md
+    assert "| A | lump sum | 10.0% | 150.0% | 110.0% | 10.0% | 150.0% | 110.0% |" in md
+
+
+def test_render_never_prints_minus_zero():
+    tiny = _tiny()
+    tiny["historical"] = [
+        _hist(r["portfolio"], r["period"], r["variant"], gap_median=-0.0004) if r["period"] else r
+        for r in tiny["historical"]
+    ]
+    md = render_markdown(tiny)
+    assert "-0.0" not in md
+    assert "+0.0 (" in md
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "recommends nothing",
+        "not 120 independent",
+        "assumption",
+        "near zero",
+        "deferred",
+        "rising market",
+        "5 bps",
+    ],
+)
+def test_render_states_the_notes(phrase):
+    assert phrase in render_markdown(_tiny())
+
+
+def test_render_on_the_offline_report(report):
+    md = render_markdown(report)
+    assert md.count("| A | lump sum |") == 2 * len(report["rates"])
+    assert "staged_entry.yaml sha256" in md
