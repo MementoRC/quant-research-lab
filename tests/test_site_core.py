@@ -8,6 +8,8 @@ from qrl.site_core import (
     build_decision,
     build_fragility,
     build_longrun,
+    build_staged_entry,
+    build_withdrawal_rules,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -243,3 +245,31 @@ def test_longrun_parses_committed_report():
     withdrawals = block["sections"][-1]["tables"]
     assert len(withdrawals) == 4
     assert all(t["title"].startswith("Withdrawal rate ") for t in withdrawals)
+
+
+def test_withdrawal_rules_absent_returns_none(tmp_path):
+    assert build_withdrawal_rules(tmp_path) is None
+
+
+def test_withdrawal_rules_parses_committed_report():
+    block = build_withdrawal_rules(ROOT)
+    assert block is not None
+    assert block["source"] == "research/withdrawal_rules.md"
+    assert block["header"]
+    assert block["sections"]
+    assert all(s["title"] for s in block["sections"])
+    assert any(s["tables"] for s in block["sections"])
+
+
+def test_staged_entry_absent_returns_none(tmp_path):
+    assert build_staged_entry(tmp_path) is None
+
+
+def test_staged_entry_parses_committed_report():
+    block = build_staged_entry(ROOT)
+    assert block is not None
+    assert block["source"] == "research/staged_entry.md"
+    assert block["header"]
+    assert block["sections"]
+    assert all(s["title"] for s in block["sections"])
+    assert any(s["tables"] for s in block["sections"])
