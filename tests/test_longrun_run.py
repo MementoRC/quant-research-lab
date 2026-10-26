@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from decision_helpers import END, GOOD, ROOT, cpi, criteria, load, prices, write
+from decision_helpers import scaled as _scaled
 
 from qrl.longrun import CASH_ASSUMPTION, LongrunConfig, block_starts, run_longrun
 
@@ -114,11 +115,6 @@ def test_run_longrun_refuses_paths_not_horizon_years_times_twelve_months_long(tm
     lcfg = replace(_lcfg(), block_months=7)  # 360 // 7 blocks of 7 = 357 months
     with pytest.raises(ValueError, match="357 months"):
         run_longrun(lcfg, replace(dcfg, rates=RATES), prices(), cpi(), criteria())
-
-
-def _scaled(frame, mask, rng):
-    factors = np.where(mask[:, None], rng.uniform(0.2, 5.0, frame.shape), 1.0)
-    return frame * factors
 
 
 def test_run_longrun_ignores_data_after_2018(tmp_path):
