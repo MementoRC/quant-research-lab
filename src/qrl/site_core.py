@@ -17,6 +17,8 @@ DECISION_PATH = "research/decision.md"
 CORE_A_SECTION_PREFIX = "What the tests say about core A"
 LONGRUN_PATH = "research/longrun.md"
 RSP_PATH = "research/rsp_sleeve.md"
+WITHDRAWAL_RULES_PATH = "research/withdrawal_rules.md"
+STAGED_ENTRY_PATH = "research/staged_entry.md"
 
 _BULLET = re.compile(r"^- ([^:]+): (.*)$")
 _EVENT_ID = re.compile(r"event id (\d+)")
@@ -205,3 +207,15 @@ def build_rsp_sleeve(root: Path) -> dict | None:
     """The `rsp_sleeve` block for results.json from the committed
     `research/rsp_sleeve.md`, rendered like `build_decision`, or None if absent."""
     return _build_report(root, RSP_PATH)
+
+
+def build_withdrawal_rules(root: Path) -> dict | None:
+    """The `withdrawal_rules` block for results.json from the committed
+    `research/withdrawal_rules.md`, rendered like `build_decision`, or None if absent."""
+    return _build_report(root, WITHDRAWAL_RULES_PATH)
+
+
+def build_staged_entry(root: Path) -> dict | None:
+    """The `staged_entry` block for results.json from the committed
+    `research/staged_entry.md`, rendered like `build_decision`, or None if absent."""
+    return _build_report(root, STAGED_ENTRY_PATH)

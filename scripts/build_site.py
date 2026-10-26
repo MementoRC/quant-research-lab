@@ -35,6 +35,8 @@ from qrl.site_core import (  # noqa: E402
     build_fragility,
     build_longrun,
     build_rsp_sleeve,
+    build_staged_entry,
+    build_withdrawal_rules,
 )
 from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
@@ -559,6 +561,16 @@ def main() -> None:
     if rsp_sleeve is not None:
         payload["rsp_sleeve"] = rsp_sleeve
         print(f"RSP sleeve: {rsp_sleeve['header'].get('verdict', 'unknown')}")
+
+    withdrawal_rules = build_withdrawal_rules(ROOT)
+    if withdrawal_rules is not None:
+        payload["withdrawal_rules"] = withdrawal_rules
+        print(f"Withdrawal rules: {len(withdrawal_rules['sections'])} sections")
+
+    staged_entry = build_staged_entry(ROOT)
+    if staged_entry is not None:
+        payload["staged_entry"] = staged_entry
+        print(f"Staged entry: {len(staged_entry['sections'])} sections")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
