@@ -33,10 +33,9 @@ from .decision_withdraw import (
 )
 from .longrun import (
     LongrunConfig,
-    block_starts,
     check_withdrawal_rates,
-    month_indices,
     monthly_returns,
+    path_indices,
 )
 from .periods import period_bounds
 
@@ -630,15 +629,7 @@ def historical_rows(
 def longrun_indices(lcfg: LongrunConfig, n_months: int) -> np.ndarray:
     """The long run's month positions: the same seed, `block_starts` and
     `month_indices` as `run_longrun`, so the paths are the same paths."""
-    n_blocks = lcfg.horizon_years * 12 // lcfg.block_months
-    idx = month_indices(
-        block_starts(lcfg.seed, lcfg.n_paths, n_blocks, n_months), lcfg.block_months, n_months
-    )
-    if idx.shape[1] != lcfg.horizon_years * 12:
-        raise ValueError(
-            f"paths are {idx.shape[1]} months long, expected {lcfg.horizon_years * 12}"
-        )
-    return idx
+    return path_indices(lcfg, n_months)
 
 
 def longrun_rows(

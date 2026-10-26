@@ -5,19 +5,13 @@ start years, four rates)."""
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 from decision_helpers import END, cpi, criteria, load, prices
+from decision_helpers import scaled as _scaled
 
 from qrl.decision import run_decision
 from qrl.decision_report import render_markdown
 
 SHA = "cd" * 32
-
-
-def _scaled(frame: pd.DataFrame, mask: np.ndarray, rng: np.random.Generator) -> pd.DataFrame:
-    """Multiply the masked rows of every column by its own wild factors."""
-    factors = np.where(mask[:, None], rng.uniform(0.2, 5.0, frame.shape), 1.0)
-    return frame * factors
 
 
 def _render(cfg, data, index) -> str:

@@ -136,6 +136,20 @@ def month_indices(starts: np.ndarray, block_months: int, n_months: int) -> np.nd
     return idx.reshape(starts.shape[0], -1)
 
 
+def path_indices(lcfg: LongrunConfig, n_months: int) -> np.ndarray:
+    """The long run's month positions: seeded `block_starts` through
+    `month_indices`, checked to span the horizon."""
+    n_blocks = lcfg.horizon_years * 12 // lcfg.block_months
+    idx = month_indices(
+        block_starts(lcfg.seed, lcfg.n_paths, n_blocks, n_months), lcfg.block_months, n_months
+    )
+    if idx.shape[1] != lcfg.horizon_years * 12:
+        raise ValueError(
+            f"paths are {idx.shape[1]} months long, expected {lcfg.horizon_years * 12}"
+        )
+    return idx
+
+
 @dataclass(frozen=True)
 class Paths:
     nominal: np.ndarray  # (n_paths, months): value after each month, start = 1.0
@@ -273,14 +287,7 @@ def run_longrun(
         )
     inflation = monthly_inflation(known_cpi, months).to_numpy()
     n_months = len(months)
-    n_blocks = lcfg.horizon_years * 12 // lcfg.block_months
-    idx = month_indices(
-        block_starts(lcfg.seed, lcfg.n_paths, n_blocks, n_months), lcfg.block_months, n_months
-    )
-    if idx.shape[1] != lcfg.horizon_years * 12:
-        raise ValueError(
-            f"paths are {idx.shape[1]} months long, expected {lcfg.horizon_years * 12}"
-        )
+    idx = path_indices(lcfg, n_months)
     named: list[tuple[str, np.ndarray]] = []
     for pid, s in monthly.items():
         named.append((pid, s.to_numpy()))

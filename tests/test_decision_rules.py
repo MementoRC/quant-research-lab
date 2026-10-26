@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 from decision_helpers import CANDIDATES, END, GOOD, ROOT, criteria, load, prices, stress_cfg, write
 from decision_helpers import cpi as cpi_series
+from decision_helpers import scaled as _scaled
 
 from qrl import regen
 from qrl.decision import withdrawal_rows
@@ -1139,7 +1140,7 @@ def test_historical_row_worst_start_year_tie_goes_to_the_earlier_year():
 
 def test_run_is_repeatable_and_draws_block_starts_once(report, setup):
     dcfg, data, index = setup
-    with patch("qrl.decision_rules.block_starts", wraps=block_starts) as spy:
+    with patch("qrl.longrun.block_starts", wraps=block_starts) as spy:
         again = run_withdrawal_rules(_rcfg(), dcfg, _lcfg(), data, index, criteria())
     assert spy.call_count == 1  # one draw shared by every portfolio and rule (paired)
     assert again == report
@@ -1615,11 +1616,6 @@ def test_percentages_round_and_never_show_negative_zero(hand):
 
 
 # ---- sealing: nothing after 2018-12-31 is read
-
-
-def _scaled(frame: pd.DataFrame, mask: np.ndarray, rng: np.random.Generator) -> pd.DataFrame:
-    """Multiply the masked rows of every column by its own wild factors."""
-    return frame * np.where(mask[:, None], rng.uniform(0.2, 5.0, frame.shape), 1.0)
 
 
 def test_report_ignores_prices_and_cpi_after_2018(report, setup):
