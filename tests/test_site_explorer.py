@@ -458,3 +458,23 @@ def test_committed_spot_checks(committed):
     ]
     # Long run, 2% table, A lump sum row (SHY variant).
     assert entry["A|2%|lump sum|SHY"]["long_run"] == ["0.7%", "299.8%", "118.4%"]
+
+
+INDEX_PATH = ROOT / "site" / "index.html"
+
+
+def test_page_has_the_explorer_notes():
+    html = INDEX_PATH.read_text()
+    section = html.split('id="explorer-section"')[1].split("</section>")[0]
+    assert '<section aria-labelledby="explorer-title" id="explorer-section" hidden>' in html
+    assert "it selects nothing and recommends nothing" in section
+    assert "Data up to 2018-12-31 only." in section
+    assert "renderExplorer(data.income_explorer)" in html
+    assert html.index('id="staged-section"') < html.index('id="explorer-section"')
+
+
+def test_explorer_renderer_writes_text_not_html():
+    html = INDEX_PATH.read_text()
+    body = html.split("function renderExplorer")[1].split("\n  function ")[0]
+    assert "innerHTML" not in body
+    assert "No result for this combination" in body

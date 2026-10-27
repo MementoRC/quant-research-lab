@@ -114,6 +114,13 @@
   th.txt, td.txt { text-align: left; }
   .neg { color: var(--loss); }
 
+  .explorer-controls { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; margin: 0.75rem 0; }
+  .explorer-controls label { display: flex; flex-direction: column; gap: 0.25rem; }
+  .explorer-controls label[hidden] { display: none; }
+  .explorer-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr)); gap: 1rem; }
+  .explorer-card { min-width: 0; overflow-x: auto; }
+  .explorer-card table { min-width: 0; }
+
   .checks { list-style: none; padding: 0; margin: 0; max-width: 46rem; }
   .checks li {
     display: grid; grid-template-columns: 1.5rem 1fr auto; gap: 0.75rem;
@@ -319,6 +326,23 @@
         <p class="section-note" id="staged-links"></p>
       </section>
 
+      <section aria-labelledby="explorer-title" id="explorer-section" hidden>
+        <h2 id="explorer-title">Income explorer</h2>
+        <p class="section-note">Looks up results already in the withdrawal-rules and staged-entry reports. A comparison only: it selects nothing and recommends nothing. Data up to 2018-12-31 only. The starting choices are defaults, not a recommendation.</p>
+        <div class="explorer-controls">
+          <label>Compare <select id="explorer-mode"><option value="rule">Withdrawal rule</option><option value="entry">Entry speed</option></select></label>
+          <label>Portfolio <select id="explorer-portfolio"></select></label>
+          <label>Withdrawal rate <select id="explorer-rate"></select></label>
+          <label id="explorer-rule-label">Rule <select id="explorer-rule"></select></label>
+          <label id="explorer-entry-label" hidden>Entry <select id="explorer-entry"></select></label>
+          <label id="explorer-variant-label" hidden>Waiting cash <select id="explorer-variant"></select></label>
+        </div>
+        <div class="explorer-cards">
+          <div class="explorer-card"><h3>Historical</h3><div id="explorer-historical"></div></div>
+          <div class="explorer-card"><h3>Long run</h3><div id="explorer-long_run"></div></div>
+        </div>
+      </section>
+
       <footer>
         <p>Data through ${fmtDate(data.data_through)} from ${data.data_source === "synthetic" ? "synthetic demo prices" : "Yahoo Finance"}. Built ${new Date(data.generated_at).toLocaleString()}.</p>
         <p>Criteria file version <code>${esc(data.criteria_hash)}</code>. If this code changes unexpectedly, the pass rules were edited.</p>
@@ -348,6 +372,7 @@
     renderReport(data.rsp_sleeve, "rsp", "full RSP sleeve report");
     renderReport(data.withdrawal_rules, "withdrawal", "full withdrawal-rules report");
     renderReport(data.staged_entry, "staged", "full staged-entry report");
+    renderExplorer(data.income_explorer);
 
     document.getElementById("theme-toggle").addEventListener("click", () => {
       const root = document.documentElement;
@@ -640,6 +665,92 @@
     });
     document.getElementById(`${prefix}-links`).innerHTML =
       `Source file: <a href="${REPO_BLOB}${esc(dec.source)}">${esc(linkText)}</a>.`;
+  }
+
+  function renderExplorer(block) {
+    const section = document.getElementById("explorer-section");
+    if (!block) { section.hidden = true; return; }
+    section.hidden = false;
+    const el = (id) => document.getElementById(`explorer-${id}`);
+    const fill = (select, values, fallback, label = (v) => v) => {
+      const keep = select.value;
+      select.replaceChildren(...values.map((v) => new Option(label(v), v)));
+      select.value = values.includes(keep) ? keep : fallback;
+    };
+    const variantText = {
+      "SHY": "SHY (waiting cash in SHY, actual prices)",
+      "CPI+1%": "CPI+1% (inflation + 1% real, an assumption)",
+    };
+    fill(el("rate"), block.rates, "4%");
+    fill(el("rule"), block.rule.rules, "guardrails");
+    fill(el("entry"), block.entry.entries, block.entry.entries[0]);
+    fill(el("variant"), block.entry.variants, block.entry.variants[0], (v) => variantText[v] || v);
+
+    function card(box, columns, heads, lists, source, linkText) {
+      box.replaceChildren();
+      if (lists.some((l) => !l)) {
+        const p = document.createElement("p");
+        p.textContent = "No result for this combination";
+        box.append(p);
+        return;
+      }
+      const table = document.createElement("table");
+      const headRow = table.createTHead().insertRow();
+      for (const h of ["", ...heads]) {
+        const th = document.createElement("th");
+        th.textContent = h;
+        if (h === "") th.className = "txt";
+        headRow.append(th);
+      }
+      const body = table.createTBody();
+      columns.forEach((name, i) => {
+        const row = body.insertRow();
+        const label = row.insertCell();
+        label.className = "txt";  // left-aligned text cell, as in the other tables
+        label.textContent = name;
+        for (const l of lists) row.insertCell().textContent = l[i];
+      });
+      const link = document.createElement("p");
+      const a = document.createElement("a");
+      a.href = REPO_BLOB + source;
+      a.textContent = linkText;
+      link.append("Full report: ", a);
+      box.append(table, link);
+    }
+
+    function update() {
+      const mode = el("mode").value;
+      const part = block[mode];
+      fill(el("portfolio"), part.portfolios, "G", (p) => `${p}: ${block.portfolios[p]}`);
+      el("rule-label").hidden = mode !== "rule";
+      el("entry-label").hidden = mode !== "entry";
+      el("variant-label").hidden = mode !== "entry";
+      const base = `${el("portfolio").value}|${el("rate").value}`;
+      for (const view of ["historical", "long_run"]) {
+        if (mode === "rule") {
+          const rule = el("rule").value;
+          const chosen = part.rows[`${base}|${rule}`];
+          const fixed = part.rows[`${base}|${part.baseline}`];
+          const diff = part.diff[`${base}|${rule}`];
+          card(el(view), part.columns[view], [rule, part.baseline, "difference"],
+            [chosen && chosen[view], fixed && fixed[view], diff && diff[view]],
+            block.sources[0], "withdrawal-rules report");
+        } else {
+          const variant = el("variant").value;
+          const entry = el("entry").value;
+          const chosen = part.rows[`${base}|${entry}|${variant}`];
+          const lump = part.rows[`${base}|${part.baseline}|${variant}`];
+          card(el(view), part.columns[view], [entry, part.baseline],
+            [chosen && chosen[view], lump && lump[view]],
+            block.sources[1], "staged-entry report");
+        }
+      }
+    }
+
+    for (const id of ["mode", "portfolio", "rate", "rule", "entry", "variant"]) {
+      el(id).addEventListener("change", update);
+    }
+    update();
   }
 
   try {
