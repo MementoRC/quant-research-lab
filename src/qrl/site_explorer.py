@@ -149,6 +149,39 @@ def _rule_part(block: dict) -> dict:
     }
 
 
+def _strip_variants(columns: list[str], where: str) -> list[str]:
+    """Value columns without their "SHY: " / "CPI+1%: " prefix; both groups must match."""
+    groups = {v: [c.removeprefix(f"{v}: ") for c in columns if c.startswith(f"{v}: ")] for v in VARIANTS}
+    first = groups[VARIANTS[0]]
+    rebuilt = [f"{v}: {c}" for v in VARIANTS for c in groups[v]]
+    if rebuilt != columns or any(groups[v] != first for v in VARIANTS):
+        raise ValueError(f"{where}: cash-variant column groups do not match: {columns}")
+    return first
+
+
+def _entry_part(block: dict) -> dict:
+    expected = set(itertools.product(PORTFOLIOS, RATES, [BASELINE_ENTRY, *ENTRIES]))
+    columns: dict[str, list[str]] = {}
+    rows: dict[str, dict] = {}
+    for view in VIEWS:
+        where = f"{block['source']} {view}"
+        by_rate = _tables_by_rate(block, ENTRY_SECTIONS[view], ENTRY_TABLES)
+        raw = _value_columns(by_rate, ENTRY_KEYS, where)
+        columns[view] = _strip_variants(raw, where)
+        n = len(columns[view])
+        for (p, rate, entry), row in _cells(by_rate, len(raw), expected, where).items():
+            for i, variant in enumerate(VARIANTS):
+                rows.setdefault(f"{p}|{rate}|{entry}|{variant}", {})[view] = row[i * n : (i + 1) * n]
+    return {
+        "portfolios": PORTFOLIOS,
+        "variants": VARIANTS,
+        "entries": ENTRIES,
+        "baseline": BASELINE_ENTRY,
+        "columns": columns,
+        "rows": rows,
+    }
+
+
 def build_income_explorer(withdrawal: dict | None, staged: dict | None) -> dict | None:
     """The `income_explorer` block, or None if either report is absent.
 
@@ -170,4 +203,5 @@ def build_income_explorer(withdrawal: dict | None, staged: dict | None) -> dict 
         "portfolios": rule_portfolios,
         "rates": RATES,
         "rule": _rule_part(withdrawal),
+        "entry": _entry_part(staged),
     }

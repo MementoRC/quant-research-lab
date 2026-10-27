@@ -158,3 +158,20 @@ def test_rule_part():
     }
     assert rule["diff"]["A|2%|fixed"]["historical"] == ["", "", "+0.0 pp"]
     assert rule["diff"].keys() == rule["rows"].keys()
+
+
+def test_entry_part():
+    entry = build_income_explorer(_withdrawal_block(), _staged_block())["entry"]
+    assert entry["portfolios"] == list("ABCDEFG")
+    assert entry["variants"] == ["SHY", "CPI+1%"]
+    assert entry["entries"] == ["6 months", "12 months", "24 months"]
+    assert entry["baseline"] == "lump sum"
+    assert entry["columns"] == {
+        "historical": ["Above lump", "Worst start"],
+        "long_run": ["Depleted by year 30"],
+    }
+    assert len(entry["rows"]) == 7 * 4 * 4 * 2  # lump-sum rows included
+    assert entry["rows"]["B|5%|12 months|SHY"] == {"historical": ["40.0%", "2005-01"], "long_run": ["0.7%"]}
+    assert entry["rows"]["B|5%|12 months|CPI+1%"] == {"historical": ["41.0%", "2006-01"], "long_run": ["0.6%"]}
+    assert entry["rows"]["G|2%|lump sum|CPI+1%"]["historical"] == ["—", "2005-01"]
+    assert "diff" not in entry
