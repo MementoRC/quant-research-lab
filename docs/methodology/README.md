@@ -49,6 +49,10 @@ Implemented or Closed), matching its `Status:` line.
   equal monthly tranches over 6, 12 and 24 months while drawing income, cores
   A-G, waiting cash in SHY or at inflation + 1% (implemented 2026-10-25;
   `pixi run staged-entry`).
+- [income-explorer.md](income-explorer.md) — dashboard what-if panel that looks
+  up the committed withdrawal-rules and staged-entry results for one portfolio,
+  rate and choice next to its baseline; computes and recommends nothing (draft
+  2026-10-26).
 - [whatif-mix.md](whatif-mix.md) — local command that builds your own mix of the
   decision-report portfolios (plus true cash) and runs it through the report's
   tables, privately (implemented in PR #64; owner-approved 2026-10-17).

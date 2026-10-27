@@ -230,6 +230,6 @@ other number in the report changes.
 1. This spec: the report (portfolios, scenarios, withdrawals).
 2. Next PR: a dashboard section parsed from `research/decision.md`, like
    the core comparison.
-3. Later, separate specs: an exploratory what-if panel on the dashboard,
-   and history-grounded scenarios (trigger-defined episodes, pre-2005 data
+3. Later, separate specs: an exploratory what-if panel on the dashboard
+   (specified in [income-explorer.md](income-explorer.md)), and history-grounded scenarios (trigger-defined episodes, pre-2005 data
    included, reporting the typical and worst outcome per fund).
