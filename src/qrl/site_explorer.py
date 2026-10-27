@@ -100,7 +100,7 @@ def _tables_by_rate(block: dict, section_title: str, titles: dict[str, str]) -> 
 
 
 def _value_columns(by_rate: dict[str, dict], keys: list[str], where: str) -> list[str]:
-    columns = by_rate[RATES[0]]["columns"]
+    columns: list[str] = by_rate[RATES[0]]["columns"]
     for rate in RATES:
         cols = by_rate[rate]["columns"]
         if cols[:2] != keys:
