@@ -475,6 +475,8 @@ def test_page_has_the_explorer_notes():
 
 def test_explorer_renderer_writes_text_not_html():
     html = INDEX_PATH.read_text()
-    body = html.split("function renderExplorer")[1].split("\n  function ")[0]
+    rest = html.split("function renderExplorer")[1]
+    assert "\n  try {" in rest
+    body = rest.split("\n  try {")[0]
     assert "innerHTML" not in body
     assert "No result for this combination" in body

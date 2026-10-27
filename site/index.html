@@ -337,9 +337,9 @@
           <label id="explorer-entry-label" hidden>Entry <select id="explorer-entry"></select></label>
           <label id="explorer-variant-label" hidden>Waiting cash <select id="explorer-variant"></select></label>
         </div>
-        <div class="explorer-cards">
-          <div class="explorer-card"><h3>Historical</h3><div id="explorer-historical"></div></div>
-          <div class="explorer-card"><h3>Long run</h3><div id="explorer-long_run"></div></div>
+        <div class="explorer-cards" aria-live="polite">
+          <div class="explorer-card"><h3 id="explorer-historical-title">Historical</h3><div id="explorer-historical"></div></div>
+          <div class="explorer-card"><h3 id="explorer-long_run-title">Long run</h3><div id="explorer-long_run"></div></div>
         </div>
       </section>
 
@@ -675,7 +675,7 @@
     const fill = (select, values, fallback, label = (v) => v) => {
       const keep = select.value;
       select.replaceChildren(...values.map((v) => new Option(label(v), v)));
-      select.value = values.includes(keep) ? keep : fallback;
+      select.value = values.includes(keep) ? keep : values.includes(fallback) ? fallback : values[0];
     };
     const variantText = {
       "SHY": "SHY (waiting cash in SHY, actual prices)",
@@ -696,18 +696,27 @@
       }
       const table = document.createElement("table");
       const headRow = table.createTHead().insertRow();
+      table.setAttribute("aria-labelledby", `${box.id}-title`);
       for (const h of ["", ...heads]) {
         const th = document.createElement("th");
-        th.textContent = h;
-        if (h === "") th.className = "txt";
+        th.scope = "col";
+        if (h === "") {
+          const hidden = document.createElement("span");
+          hidden.className = "visually-hidden";
+          hidden.textContent = "Measure";
+          th.append(hidden);
+        } else {
+          th.textContent = h;
+        }
         headRow.append(th);
       }
       const body = table.createTBody();
       columns.forEach((name, i) => {
         const row = body.insertRow();
-        const label = row.insertCell();
-        label.className = "txt";  // left-aligned text cell, as in the other tables
+        const label = document.createElement("th");
+        label.scope = "row";
         label.textContent = name;
+        row.append(label);
         for (const l of lists) row.insertCell().textContent = l[i];
       });
       const link = document.createElement("p");
