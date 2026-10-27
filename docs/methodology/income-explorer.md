@@ -1,6 +1,6 @@
 # Income explorer: a what-if panel on the dashboard
 
-Status: Draft (2026-10-26). Owner approved the design in conversation on 2026-10-26.
+Status: Implemented (2026-10-27). Owner approved the design in conversation on 2026-10-26.
 Extends [decision-helper.md](decision-helper.md),
 [withdrawal-rules.md](withdrawal-rules.md) and
 [staged-entry.md](staged-entry.md).
