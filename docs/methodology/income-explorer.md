@@ -90,7 +90,7 @@ Rule mode only. Computed in Python at build time, not in the browser.
 
 `results.json` key `income_explorer`. Built by a new pure function
 `build_income_explorer(withdrawal_block, staged_block)` in a new module
-`src/qrl/site_explorer.py`. It returns None if either block is None.
+src/qrl/site_explorer.py. It returns None if either block is None.
 `scripts/build_site.py` adds it to the payload next to the existing report
 blocks.
 
@@ -152,7 +152,7 @@ shows "No result for this combination".
 
 ## Tests
 
-New `tests/test_site_explorer.py`.
+New tests/test_site_explorer.py.
 
 - On small hand-made blocks: the shape, rate normalisation, prefix stripping,
   difference maths and rounding including the empty cases and no negative
