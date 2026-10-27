@@ -43,6 +43,7 @@ def test_difference(rule, fixed, expected):
 
 
 DATA = "up to 2018-12-31 only (validation and holdout stay sealed)"
+# Rate key -> the withdrawal report's table-title rate (e.g. "2%" -> "2.0%").
 W_RATE_TITLE = {"2%": "2.0%", "3.3%": "3.3%", "4%": "4.0%", "5%": "5.0%"}
 W_COLUMNS = {
     "historical": [
@@ -76,6 +77,7 @@ def _section(title, tables=()):
 
 
 def _w_cells(view, rule):
+    """Value cells of one withdrawal row; the fixed baseline row carries the reference values."""
     fixed = rule == "fixed"
     if view == "historical":
         return ["-" if fixed else "0.0%", "2014", "1400.0%" if fixed else "1557.3%"]
@@ -106,12 +108,16 @@ def _withdrawal_block():
 
 
 def _s_cells(view, entry):
+    """Value cells of one staged row; lump-sum rows have em-dash gaps in the historical view."""
     lump = entry == "lump sum"
     if view == "historical":
-        return (
-            ["—", "2005-01", "—", "2005-01"] if lump else ["40.0%", "2005-01", "41.0%", "2006-01"]
-        )
-    return ["0.7%", "0.6%"]
+        if lump:
+            cells = ["—", "2005-01", "—", "2005-01"]
+        else:
+            cells = ["40.0%", "2005-01", "41.0%", "2006-01"]
+    else:
+        cells = ["0.7%", "0.6%"]
+    return cells
 
 
 def _staged_block():
@@ -147,13 +153,13 @@ def test_top_level_shape():
     assert block["sources"] == ["research/withdrawal_rules.md", "research/staged_entry.md"]
     assert block["data_end"] == "2018-12-31"
     assert block["rates"] == ["2%", "3.3%", "4%", "5%"]
-    assert list(block["portfolios"]) == [*"ABCDEFG", "CASH"]
+    assert list(block["portfolios"]) == ["A", "B", "C", "D", "E", "F", "G", "CASH"]
     assert block["portfolios"]["CASH"] == "about CASH"
 
 
 def test_rule_part():
     rule = build_income_explorer(_withdrawal_block(), _staged_block())["rule"]
-    assert rule["portfolios"] == [*"ABCDEFG", "CASH"]
+    assert rule["portfolios"] == ["A", "B", "C", "D", "E", "F", "G", "CASH"]
     assert rule["rules"] == [
         "skip_raise_after_loss",
         "guardrails",
@@ -180,7 +186,7 @@ def test_rule_part():
 
 def test_entry_part():
     entry = build_income_explorer(_withdrawal_block(), _staged_block())["entry"]
-    assert entry["portfolios"] == list("ABCDEFG")
+    assert entry["portfolios"] == ["A", "B", "C", "D", "E", "F", "G"]
     assert entry["variants"] == ["SHY", "CPI+1%"]
     assert entry["entries"] == ["6 months", "12 months", "24 months"]
     assert entry["baseline"] == "lump sum"
@@ -220,8 +226,17 @@ def _rename_rule_section(w, s):
     )
 
 
-def _rename_entry_table(w, s):
-    _view(s, ENTRY_SECTIONS["long_run"])["tables"][0]["title"] = "Withdrawal rate 4.0%"
+def _duplicate_entry_table(w, s):
+    # The long-run 2% table takes the 4% title, so two tables resolve to rate 4%.
+    _view(s, ENTRY_SECTIONS["long_run"])["tables"][0]["title"] = "Withdrawal rate 4%"
+
+
+def _unexpected_entry_table(w, s):
+    _view(s, ENTRY_SECTIONS["historical"])["tables"][1]["title"] = "Withdrawal rate 2.5%"
+
+
+def _drop_rule_rate_table(w, s):
+    _view(w, RULE_SECTIONS["historical"])["tables"].pop(1)
 
 
 def _drop_rule_row(w, s):
@@ -257,6 +272,11 @@ def _rename_key_column(w, s):
         t["columns"][1] = "Rule"
 
 
+def _rename_entry_key_column(w, s):
+    for t in _view(s, ENTRY_SECTIONS["long_run"])["tables"]:
+        t["columns"][1] = "Mode"
+
+
 def _columns_differ_between_rates(w, s):
     _view(w, RULE_SECTIONS["historical"])["tables"][3]["columns"][2] = "2006: ran out"
 
@@ -269,6 +289,12 @@ def _variant_groups_differ(w, s):
 def _unprefixed_column(w, s):
     for t in _view(s, ENTRY_SECTIONS["long_run"])["tables"]:
         t["columns"][2] = "Depleted by year 30"
+
+
+def _no_value_columns(w, s):
+    for t in _view(s, ENTRY_SECTIONS["historical"])["tables"]:
+        t["columns"] = t["columns"][:2]
+        t["rows"] = [r[:2] for r in t["rows"]]
 
 
 def _cutoffs_differ(w, s):
@@ -290,32 +316,37 @@ def _missing_portfolio(w, s):
 
 
 @pytest.mark.parametrize(
-    "mutate",
+    ("mutate", "pattern"),
     [
-        _rename_rule_table,
-        _duplicate_rule_table,
-        _rename_rule_section,
-        _rename_entry_table,
-        _drop_rule_row,
-        _duplicate_rule_row,
-        _extra_rule_row,
-        _drop_entry_row,
-        _duplicate_entry_row,
-        _short_row,
-        _rename_key_column,
-        _columns_differ_between_rates,
-        _variant_groups_differ,
-        _unprefixed_column,
-        _cutoffs_differ,
-        _no_cutoff,
-        _descriptions_differ,
-        _missing_portfolio,
+        (_rename_rule_table, "unexpected table"),
+        (_duplicate_rule_table, "duplicate table"),
+        (_rename_rule_section, "expected one section"),
+        (_duplicate_entry_table, "duplicate table"),
+        (_unexpected_entry_table, "unexpected table"),
+        (_drop_rule_rate_table, "lacks rates"),
+        (_drop_rule_row, "missing"),
+        (_duplicate_rule_row, "duplicate row"),
+        (_extra_rule_row, "unexpected"),
+        (_drop_entry_row, "missing"),
+        (_duplicate_entry_row, "duplicate row"),
+        (_short_row, r"has \d+ cells"),
+        (_rename_key_column, "key columns"),
+        (_rename_entry_key_column, "key columns"),
+        (_columns_differ_between_rates, "columns differ"),
+        (_variant_groups_differ, "cash-variant"),
+        (_unprefixed_column, "cash-variant"),
+        (_no_value_columns, "no value columns"),
+        (_cutoffs_differ, "data cutoffs differ"),
+        (_no_cutoff, "no 'up to YYYY-MM-DD'"),
+        (_descriptions_differ, "portfolio descriptions differ"),
+        (_missing_portfolio, "portfolios .* expected"),
     ],
+    ids=lambda v: v.__name__ if callable(v) else None,
 )
-def test_bad_reports_raise(mutate):
+def test_bad_reports_raise(mutate, pattern):
     w, s = copy.deepcopy(_withdrawal_block()), copy.deepcopy(_staged_block())
     mutate(w, s)
-    with pytest.raises(ValueError, match="."):
+    with pytest.raises(ValueError, match=pattern):
         build_income_explorer(w, s)
 
 
@@ -365,9 +396,11 @@ def test_committed_columns(committed):
     assert committed["portfolios"]["CASH"] == "100% SHY"
 
 
+# The values below are pinned to the committed research/*.md reports. If a report
+# changes, update these values together with it; the reports are never edited here.
 def test_committed_spot_checks(committed):
     rows, diff = committed["rule"]["rows"], committed["rule"]["diff"]
-    # withdrawal_rules.md line 164
+    # Historical view, 4.0% table, G guardrails row.
     assert rows["G|4%|guardrails"]["historical"] == [
         "-",
         "111.1%",
@@ -384,7 +417,7 @@ def test_committed_spot_checks(committed):
         "0.0%",
         "0.0%",
     ]
-    # lines 42 and 44
+    # Historical view, 2.0% table: A guardrails differences against the A fixed baseline.
     assert diff["A|2%|guardrails"]["historical"] == [
         "",
         "+6.8 pp",
@@ -401,11 +434,11 @@ def test_committed_spot_checks(committed):
         "+0.0 pp",
         "+0.0 pp",
     ]
-    # lines 224 and 226
+    # Long-run view, 2.0% table: A guardrails row and its differences.
     assert rows["A|2%|guardrails"]["long_run"][0] == "0.0%"
     assert diff["A|2%|guardrails"]["long_run"][:3] == ["-0.7 pp", "-37.8 pp", "+19.8 pp"]
     entry = committed["entry"]["rows"]
-    # staged_entry.md line 126
+    # Historical starts, 4% table, G 12 months row (SHY variant).
     assert entry["G|4%|12 months|SHY"]["historical"] == [
         "19.2%",
         "-3.3 (-10.1, +8.8)",
@@ -414,6 +447,7 @@ def test_committed_spot_checks(committed):
         "2012-01",
         "-3.7 (-11.3, +9.9)",
     ]
+    # Historical starts, 4% table, G 12 months row (CPI+1% variant).
     assert entry["G|4%|12 months|CPI+1%"]["historical"] == [
         "19.2%",
         "-2.9 (-13.6, +8.7)",
@@ -422,5 +456,5 @@ def test_committed_spot_checks(committed):
         "2012-01",
         "-3.0 (-14.9, +9.6)",
     ]
-    # line 168
+    # Long run, 2% table, A lump sum row (SHY variant).
     assert entry["A|2%|lump sum|SHY"]["long_run"] == ["0.7%", "299.8%", "118.4%"]

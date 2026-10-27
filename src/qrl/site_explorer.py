@@ -13,19 +13,8 @@ import re
 from decimal import ROUND_HALF_EVEN, Decimal
 
 _PCT = re.compile(r"-?\d+(\.\d+)?%")
-
-
-def difference(rule_cell: str, fixed_cell: str) -> str:
-    """`rule - fixed` in signed percentage points, or "" unless both are single percentages."""
-    if not (_PCT.fullmatch(rule_cell) and _PCT.fullmatch(fixed_cell)):
-        return ""
-    d = (Decimal(rule_cell[:-1]) - Decimal(fixed_cell[:-1])).quantize(
-        Decimal("0.1"), rounding=ROUND_HALF_EVEN
-    )
-    if d == 0:
-        d = Decimal("0.0")  # drop the sign of a negative zero
-    return f"{d:+.1f} pp"
-
+_DATA_END = re.compile(r"up to (\d{4}-\d{2}-\d{2})")
+_PORTFOLIO_ITEM = re.compile(r"(\S+) \((.*)\)")
 
 PORTFOLIOS = ["A", "B", "C", "D", "E", "F", "G"]
 RULE_PORTFOLIOS = [*PORTFOLIOS, "CASH"]
@@ -54,8 +43,17 @@ ENTRY_KEYS = ["Portfolio", "Entry"]
 ENTRY_SECTIONS = {"historical": "Historical starts", "long_run": "Long run"}
 ENTRY_TABLES = {f"Withdrawal rate {r}": r for r in RATES}
 
-_DATA_END = re.compile(r"up to (\d{4}-\d{2}-\d{2})")
-_PORTFOLIO_ITEM = re.compile(r"(\S+) \((.*)\)")
+
+def difference(rule_cell: str, fixed_cell: str) -> str:
+    """`rule - fixed` in signed percentage points, or "" unless both are single percentages."""
+    if not (_PCT.fullmatch(rule_cell) and _PCT.fullmatch(fixed_cell)):
+        return ""
+    d = (Decimal(rule_cell[:-1]) - Decimal(fixed_cell[:-1])).quantize(
+        Decimal("0.1"), rounding=ROUND_HALF_EVEN
+    )
+    if d == 0:
+        d = Decimal("0.0")  # drop the sign of a negative zero
+    return f"{d:+.1f} pp"
 
 
 def _data_end(block: dict) -> str:
@@ -109,7 +107,10 @@ def _value_columns(by_rate: dict[str, dict], keys: list[str], where: str) -> lis
             raise ValueError(f"{where} {rate}: key columns {cols[:2]}, expected {keys}")
         if cols != columns:
             raise ValueError(f"{where} {rate}: columns differ from the {RATES[0]} table")
-    return columns[2:]
+    values = columns[2:]
+    if not values:
+        raise ValueError(f"{where}: no value columns")
+    return values
 
 
 def _cells(by_rate: dict[str, dict], n_values: int, expected: set, where: str) -> dict:
@@ -204,8 +205,9 @@ def build_income_explorer(withdrawal: dict | None, staged: dict | None) -> dict 
     if withdrawal is None or staged is None:
         return None
     data_end = _data_end(withdrawal)
-    if _data_end(staged) != data_end:
-        raise ValueError(f"data cutoffs differ: {data_end} vs {_data_end(staged)}")
+    staged_end = _data_end(staged)
+    if staged_end != data_end:
+        raise ValueError(f"data cutoffs differ: {data_end} vs {staged_end}")
     rule_portfolios = _portfolios(withdrawal, RULE_PORTFOLIOS)
     entry_portfolios = _portfolios(staged, PORTFOLIOS)
     differing = [p for p in PORTFOLIOS if rule_portfolios[p] != entry_portfolios[p]]
