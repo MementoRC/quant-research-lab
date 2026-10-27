@@ -80,14 +80,20 @@ def _portfolios(block: dict, expected: list[str]) -> dict[str, str]:
 def _tables_by_rate(block: dict, section_title: str, titles: dict[str, str]) -> dict[str, dict]:
     found = [s for s in block["sections"] if s["title"] == section_title]
     if len(found) != 1:
-        raise ValueError(f"{block['source']}: expected one section {section_title!r}, found {len(found)}")
+        raise ValueError(
+            f"{block['source']}: expected one section {section_title!r}, found {len(found)}"
+        )
     out: dict[str, dict] = {}
     for table in found[0]["tables"]:
         rate = titles.get(table["title"])
         if rate is None:
-            raise ValueError(f"{block['source']}: unexpected table {table['title']!r} in {section_title!r}")
+            raise ValueError(
+                f"{block['source']}: unexpected table {table['title']!r} in {section_title!r}"
+            )
         if rate in out:
-            raise ValueError(f"{block['source']}: duplicate table {table['title']!r} in {section_title!r}")
+            raise ValueError(
+                f"{block['source']}: duplicate table {table['title']!r} in {section_title!r}"
+            )
         out[rate] = table
     missing = [r for r in RATES if r not in out]
     if missing:
@@ -112,7 +118,9 @@ def _cells(by_rate: dict[str, dict], n_values: int, expected: set, where: str) -
     for rate in RATES:
         for row in by_rate[rate]["rows"]:
             if len(row) != n_values + 2:
-                raise ValueError(f"{where} {rate}: row {row[:2]} has {len(row)} cells, expected {n_values + 2}")
+                raise ValueError(
+                    f"{where} {rate}: row {row[:2]} has {len(row)} cells, expected {n_values + 2}"
+                )
             key = (row[0], rate, row[1])
             if key in out:
                 raise ValueError(f"{where}: duplicate row {key}")
@@ -138,7 +146,9 @@ def _rule_part(block: dict) -> dict:
             key = f"{p}|{rate}|{rule}"
             fixed = cells[(p, rate, BASELINE_RULE)]
             rows.setdefault(key, {})[view] = row
-            diff.setdefault(key, {})[view] = [difference(r, f) for r, f in zip(row, fixed, strict=True)]
+            diff.setdefault(key, {})[view] = [
+                difference(r, f) for r, f in zip(row, fixed, strict=True)
+            ]
     return {
         "portfolios": RULE_PORTFOLIOS,
         "rules": RULES,
@@ -151,7 +161,9 @@ def _rule_part(block: dict) -> dict:
 
 def _strip_variants(columns: list[str], where: str) -> list[str]:
     """Value columns without their "SHY: " / "CPI+1%: " prefix; both groups must match."""
-    groups = {v: [c.removeprefix(f"{v}: ") for c in columns if c.startswith(f"{v}: ")] for v in VARIANTS}
+    groups = {
+        v: [c.removeprefix(f"{v}: ") for c in columns if c.startswith(f"{v}: ")] for v in VARIANTS
+    }
     first = groups[VARIANTS[0]]
     rebuilt = [f"{v}: {c}" for v in VARIANTS for c in groups[v]]
     if rebuilt != columns or any(groups[v] != first for v in VARIANTS):
@@ -171,7 +183,9 @@ def _entry_part(block: dict) -> dict:
         n = len(columns[view])
         for (p, rate, entry), row in _cells(by_rate, len(raw), expected, where).items():
             for i, variant in enumerate(VARIANTS):
-                rows.setdefault(f"{p}|{rate}|{entry}|{variant}", {})[view] = row[i * n : (i + 1) * n]
+                rows.setdefault(f"{p}|{rate}|{entry}|{variant}", {})[view] = row[
+                    i * n : (i + 1) * n
+                ]
     return {
         "portfolios": PORTFOLIOS,
         "variants": VARIANTS,

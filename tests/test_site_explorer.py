@@ -45,14 +45,23 @@ def test_difference(rule, fixed, expected):
 DATA = "up to 2018-12-31 only (validation and holdout stay sealed)"
 W_RATE_TITLE = {"2%": "2.0%", "3.3%": "3.3%", "4%": "4.0%", "5%": "5.0%"}
 W_COLUMNS = {
-    "historical": ["portfolio", "rule", "2005: ran out", "worst start year", "2005: total real income"],
+    "historical": [
+        "portfolio",
+        "rule",
+        "2005: ran out",
+        "worst start year",
+        "2005: total real income",
+    ],
     "long_run": ["portfolio", "rule", "ran out by year 30", "real value at year 30: typical"],
 }
 S_COLUMNS = {
     "historical": [
-        "Portfolio", "Entry",
-        "SHY: Above lump", "SHY: Worst start",
-        "CPI+1%: Above lump", "CPI+1%: Worst start",
+        "Portfolio",
+        "Entry",
+        "SHY: Above lump",
+        "SHY: Worst start",
+        "CPI+1%: Above lump",
+        "CPI+1%: Worst start",
     ],
     "long_run": ["Portfolio", "Entry", "SHY: Depleted by year 30", "CPI+1%: Depleted by year 30"],
 }
@@ -99,7 +108,9 @@ def _withdrawal_block():
 def _s_cells(view, entry):
     lump = entry == "lump sum"
     if view == "historical":
-        return ["—", "2005-01", "—", "2005-01"] if lump else ["40.0%", "2005-01", "41.0%", "2006-01"]
+        return (
+            ["—", "2005-01", "—", "2005-01"] if lump else ["40.0%", "2005-01", "41.0%", "2006-01"]
+        )
     return ["0.7%", "0.6%"]
 
 
@@ -143,7 +154,12 @@ def test_top_level_shape():
 def test_rule_part():
     rule = build_income_explorer(_withdrawal_block(), _staged_block())["rule"]
     assert rule["portfolios"] == [*"ABCDEFG", "CASH"]
-    assert rule["rules"] == ["skip_raise_after_loss", "guardrails", "pct_of_balance", "floor_ceiling"]
+    assert rule["rules"] == [
+        "skip_raise_after_loss",
+        "guardrails",
+        "pct_of_balance",
+        "floor_ceiling",
+    ]
     assert rule["baseline"] == "fixed"
     assert rule["columns"] == {
         "historical": ["2005: ran out", "worst start year", "2005: total real income"],
@@ -173,8 +189,14 @@ def test_entry_part():
         "long_run": ["Depleted by year 30"],
     }
     assert len(entry["rows"]) == 7 * 4 * 4 * 2  # lump-sum rows included
-    assert entry["rows"]["B|5%|12 months|SHY"] == {"historical": ["40.0%", "2005-01"], "long_run": ["0.7%"]}
-    assert entry["rows"]["B|5%|12 months|CPI+1%"] == {"historical": ["41.0%", "2006-01"], "long_run": ["0.6%"]}
+    assert entry["rows"]["B|5%|12 months|SHY"] == {
+        "historical": ["40.0%", "2005-01"],
+        "long_run": ["0.7%"],
+    }
+    assert entry["rows"]["B|5%|12 months|CPI+1%"] == {
+        "historical": ["41.0%", "2006-01"],
+        "long_run": ["0.6%"],
+    }
     assert entry["rows"]["G|2%|lump sum|CPI+1%"]["historical"] == ["—", "2005-01"]
     assert "diff" not in entry
 
@@ -193,7 +215,9 @@ def _duplicate_rule_table(w, s):
 
 
 def _rename_rule_section(w, s):
-    _view(w, RULE_SECTIONS["historical"])["title"] = "Historical view: start years 2005 to 2015, each to 2019-12-31"
+    _view(w, RULE_SECTIONS["historical"])["title"] = (
+        "Historical view: start years 2005 to 2015, each to 2019-12-31"
+    )
 
 
 def _rename_entry_table(w, s):
@@ -210,7 +234,9 @@ def _duplicate_rule_row(w, s):
 
 
 def _extra_rule_row(w, s):
-    _view(w, RULE_SECTIONS["historical"])["tables"][0]["rows"].append(["A", "always_cut", "-", "2014", "1.0%"])
+    _view(w, RULE_SECTIONS["historical"])["tables"][0]["rows"].append(
+        ["A", "always_cut", "-", "2014", "1.0%"]
+    )
 
 
 def _drop_entry_row(w, s):
@@ -254,7 +280,9 @@ def _no_cutoff(w, s):
 
 
 def _descriptions_differ(w, s):
-    s["header"]["portfolios"] = s["header"]["portfolios"].replace("G (about G)", "G (something else)")
+    s["header"]["portfolios"] = s["header"]["portfolios"].replace(
+        "G (about G)", "G (something else)"
+    )
 
 
 def _missing_portfolio(w, s):
@@ -287,7 +315,7 @@ def _missing_portfolio(w, s):
 def test_bad_reports_raise(mutate):
     w, s = copy.deepcopy(_withdrawal_block()), copy.deepcopy(_staged_block())
     mutate(w, s)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="."):
         build_income_explorer(w, s)
 
 
@@ -313,7 +341,10 @@ def test_committed_reports_resolve_every_combination(committed):
 
 
 def test_committed_columns(committed):
-    assert committed["rule"]["columns"]["historical"][:2] == ["2005: ran out", "2005: real value at end"]
+    assert committed["rule"]["columns"]["historical"][:2] == [
+        "2005: ran out",
+        "2005: real value at end",
+    ]
     assert committed["rule"]["columns"]["historical"][5] == "worst start year"
     assert committed["entry"]["columns"] == {
         "historical": [
@@ -324,7 +355,11 @@ def test_committed_columns(committed):
             "Worst start",
             "Gap at data end, pp: median (worst, best)",
         ],
-        "long_run": ["Depleted by year 30", "Median real value, year 30", "Median real value, year 5"],
+        "long_run": [
+            "Depleted by year 30",
+            "Median real value, year 30",
+            "Median real value, year 5",
+        ],
     }
     assert committed["portfolios"]["G"] == "static 25% each SPY/TLT/GLD/SHY"
     assert committed["portfolios"]["CASH"] == "100% SHY"
@@ -334,13 +369,37 @@ def test_committed_spot_checks(committed):
     rows, diff = committed["rule"]["rows"], committed["rule"]["diff"]
     # withdrawal_rules.md line 164
     assert rows["G|4%|guardrails"]["historical"] == [
-        "-", "111.1%", "97.9%", "100.0%", "1460.0%", "2013",
-        "-", "83.6%", "89.4%", "100.0%", "600.0%", "0.0%", "0.0%", "0.0%",
+        "-",
+        "111.1%",
+        "97.9%",
+        "100.0%",
+        "1460.0%",
+        "2013",
+        "-",
+        "83.6%",
+        "89.4%",
+        "100.0%",
+        "600.0%",
+        "0.0%",
+        "0.0%",
+        "0.0%",
     ]
     # lines 42 and 44
     assert diff["A|2%|guardrails"]["historical"] == [
-        "", "+6.8 pp", "+0.9 pp", "-19.0 pp", "-152.1 pp", "",
-        "", "-0.2 pp", "+0.0 pp", "+0.0 pp", "+10.0 pp", "+9.5 pp", "+0.0 pp", "+0.0 pp",
+        "",
+        "+6.8 pp",
+        "+0.9 pp",
+        "-19.0 pp",
+        "-152.1 pp",
+        "",
+        "",
+        "-0.2 pp",
+        "+0.0 pp",
+        "+0.0 pp",
+        "+10.0 pp",
+        "+9.5 pp",
+        "+0.0 pp",
+        "+0.0 pp",
     ]
     # lines 224 and 226
     assert rows["A|2%|guardrails"]["long_run"][0] == "0.0%"
@@ -348,10 +407,20 @@ def test_committed_spot_checks(committed):
     entry = committed["entry"]["rows"]
     # staged_entry.md line 126
     assert entry["G|4%|12 months|SHY"]["historical"] == [
-        "19.2%", "-3.3 (-10.1, +8.8)", "16.4%", "+0.6", "2012-01", "-3.7 (-11.3, +9.9)",
+        "19.2%",
+        "-3.3 (-10.1, +8.8)",
+        "16.4%",
+        "+0.6",
+        "2012-01",
+        "-3.7 (-11.3, +9.9)",
     ]
     assert entry["G|4%|12 months|CPI+1%"]["historical"] == [
-        "19.2%", "-2.9 (-13.6, +8.7)", "16.4%", "+0.5", "2012-01", "-3.0 (-14.9, +9.6)",
+        "19.2%",
+        "-2.9 (-13.6, +8.7)",
+        "16.4%",
+        "+0.5",
+        "2012-01",
+        "-3.0 (-14.9, +9.6)",
     ]
     # line 168
     assert entry["A|2%|lump sum|SHY"]["long_run"] == ["0.7%", "299.8%", "118.4%"]
