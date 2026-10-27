@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
+from qrl.site_core import build_staged_entry, build_withdrawal_rules
 from qrl.site_explorer import (
     ENTRIES,
     ENTRY_SECTIONS,
@@ -287,3 +289,69 @@ def test_bad_reports_raise(mutate):
     mutate(w, s)
     with pytest.raises(ValueError):
         build_income_explorer(w, s)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(scope="module")
+def committed():
+    return build_income_explorer(build_withdrawal_rules(ROOT), build_staged_entry(ROOT))
+
+
+def test_committed_reports_resolve_every_combination(committed):
+    rule, entry = committed["rule"], committed["entry"]
+    assert committed["data_end"] == "2018-12-31"
+    assert len(rule["rows"]) == 160
+    assert len(entry["rows"]) == 224
+    assert len(rule["columns"]["historical"]) == 14
+    assert len(rule["columns"]["long_run"]) == 12
+    for view in ("historical", "long_run"):
+        assert all(len(r[view]) == len(rule["columns"][view]) for r in rule["rows"].values())
+        assert all(len(d[view]) == len(rule["columns"][view]) for d in rule["diff"].values())
+        assert all(len(r[view]) == len(entry["columns"][view]) for r in entry["rows"].values())
+
+
+def test_committed_columns(committed):
+    assert committed["rule"]["columns"]["historical"][:2] == ["2005: ran out", "2005: real value at end"]
+    assert committed["rule"]["columns"]["historical"][5] == "worst start year"
+    assert committed["entry"]["columns"] == {
+        "historical": [
+            "Above lump",
+            "Gap at 4 y, pp: median (worst, best)",
+            "Worst max drawdown",
+            "Worst drawdown vs lump, pp",
+            "Worst start",
+            "Gap at data end, pp: median (worst, best)",
+        ],
+        "long_run": ["Depleted by year 30", "Median real value, year 30", "Median real value, year 5"],
+    }
+    assert committed["portfolios"]["G"] == "static 25% each SPY/TLT/GLD/SHY"
+    assert committed["portfolios"]["CASH"] == "100% SHY"
+
+
+def test_committed_spot_checks(committed):
+    rows, diff = committed["rule"]["rows"], committed["rule"]["diff"]
+    # withdrawal_rules.md line 164
+    assert rows["G|4%|guardrails"]["historical"] == [
+        "-", "111.1%", "97.9%", "100.0%", "1460.0%", "2013",
+        "-", "83.6%", "89.4%", "100.0%", "600.0%", "0.0%", "0.0%", "0.0%",
+    ]
+    # lines 42 and 44
+    assert diff["A|2%|guardrails"]["historical"] == [
+        "", "+6.8 pp", "+0.9 pp", "-19.0 pp", "-152.1 pp", "",
+        "", "-0.2 pp", "+0.0 pp", "+0.0 pp", "+10.0 pp", "+9.5 pp", "+0.0 pp", "+0.0 pp",
+    ]
+    # lines 224 and 226
+    assert rows["A|2%|guardrails"]["long_run"][0] == "0.0%"
+    assert diff["A|2%|guardrails"]["long_run"][:3] == ["-0.7 pp", "-37.8 pp", "+19.8 pp"]
+    entry = committed["entry"]["rows"]
+    # staged_entry.md line 126
+    assert entry["G|4%|12 months|SHY"]["historical"] == [
+        "19.2%", "-3.3 (-10.1, +8.8)", "16.4%", "+0.6", "2012-01", "-3.7 (-11.3, +9.9)",
+    ]
+    assert entry["G|4%|12 months|CPI+1%"]["historical"] == [
+        "19.2%", "-2.9 (-13.6, +8.7)", "16.4%", "+0.5", "2012-01", "-3.0 (-14.9, +9.6)",
+    ]
+    # line 168
+    assert entry["A|2%|lump sum|SHY"]["long_run"] == ["0.7%", "299.8%", "118.4%"]
