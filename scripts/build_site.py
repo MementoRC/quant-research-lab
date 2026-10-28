@@ -38,6 +38,7 @@ from qrl.site_core import (  # noqa: E402
     build_staged_entry,
     build_withdrawal_rules,
 )
+from qrl.site_explorer import build_income_explorer  # noqa: E402
 from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
 
@@ -571,6 +572,15 @@ def main() -> None:
     if staged_entry is not None:
         payload["staged_entry"] = staged_entry
         print(f"Staged entry: {len(staged_entry['sections'])} sections")
+
+    income_explorer = build_income_explorer(withdrawal_rules, staged_entry)
+    if income_explorer is not None:
+        payload["income_explorer"] = income_explorer
+        size_kb = len(json.dumps(income_explorer, separators=(",", ":"))) / 1024
+        print(
+            f"Income explorer: {len(income_explorer['rule']['rows'])} rule rows, "
+            f"{len(income_explorer['entry']['rows'])} entry rows, {size_kb:.0f} KB"
+        )
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
