@@ -55,7 +55,7 @@ def _bullets(lines: list[str]) -> dict[str, str]:
     for line in lines:
         m = _BULLET.match(line)
         if m:
-            out[m.group(1).strip()] = m.group(2).strip().strip("`")
+            out[m.group(1).strip()] = m.group(2).replace("`", "").strip()
     return out
 
 

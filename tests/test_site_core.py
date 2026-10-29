@@ -4,6 +4,7 @@ from qrl.site_core import (
     DECISION_PATH,
     FRAGILITY_PATH,
     LONGRUN_PATH,
+    _bullets,
     build_core_comparison,
     build_decision,
     build_fragility,
@@ -273,3 +274,8 @@ def test_staged_entry_parses_committed_report():
     assert block["sections"]
     assert all(s["title"] for s in block["sections"])
     assert any(s["tables"] for s in block["sections"])
+
+
+def test_bullets_strip_all_backticks():
+    out = _bullets(["- a: `abc`", "- b: `abc` (read unchanged)"])
+    assert out == {"a": "abc", "b": "abc (read unchanged)"}
