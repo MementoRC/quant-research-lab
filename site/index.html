@@ -651,12 +651,13 @@
       parent.appendChild(el);
       return el;
     };
+    const inline = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
     (dec.sections || []).forEach((sec) => {
       add(body, "h3", esc(sec.title));
       if ((sec.bullets || []).length) {
-        add(body, "ul", sec.bullets.map((b) => `<li>${esc(b)}</li>`).join(""));
+        add(body, "ul", sec.bullets.map((b) => `<li>${inline(b)}</li>`).join(""));
       }
-      (sec.paragraphs || []).forEach((p) => add(body, "p", esc(p)));
+      (sec.paragraphs || []).forEach((p) => add(body, "p", inline(p)));
       (sec.tables || []).forEach((t) => {
         if (t.title) add(body, "h4", esc(t.title));
         const wrap = add(body, "div", "");
