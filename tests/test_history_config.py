@@ -87,9 +87,52 @@ def test_missing_key_is_refused(tmp_path):
         load_history_config(path)
 
 
-def test_panel_starts_on_or_after_the_episode_data_and_the_lead_in_precedes_it():
+def test_the_lead_in_precedes_the_panel_start():
     cfg = load_history_config(CONFIG)
     assert cfg.lead_in_start < cfg.panel_start
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        (
+            "withdrawal_rates: [0.02, 0.033, 0.04, 0.05]",
+            "withdrawal_rates: [0.02, 1.0]",
+            "withdrawal_rates",
+        ),
+        (
+            '{fred: DGS2, duration: 1.9, start: "1976-06-01", end: "2018-12-31"}',
+            '{fred: DGS2, duration: 1.9, start: "2019-01-01", end: "2018-12-31"}',
+            "window",
+        ),
+        ("version: 1\n", "version: 1\nsurprise: 1\n", "surprise"),
+        ("{fred: DGS7, duration: 7.5}", "{fred: DGS7, duration: 7.5, extra: 1}", "extra"),
+        ("{fred: DGS7, duration: 7.5}", "{fred: DGS9, duration: 7.5}", "DGS9"),
+        (
+            "portfolios: [A, B, C, D, E, F, G, CASH, G-EW, AG, G-CASH, A-CASH]",
+            "portfolios: []",
+            "portfolios",
+        ),
+        ("portfolios: [A, B, C,", "portfolios: [A, A, C,", "portfolios"),
+        ("threshold: 0.15", "threshold: high", "threshold"),
+        ("horizon_years: 10", "horizon_years: 0", "horizon_years"),
+        ("yield_lag_business_days: 0", "yield_lag_business_days: -1", "yield_lag_business_days"),
+        ('sheet: "Data"', 'sheet: "Data"\n  bogus: 1', "bogus"),
+        ("max_gap_days: 1 ", "max_gap_days: one ", "max_gap_days"),
+    ],
+)
+def test_more_bad_values_are_refused(tmp_path, old, new, message):
+    with pytest.raises(ValueError, match=message):
+        load_history_config(_variant(tmp_path, old, new))
+
+
+def test_a_missing_section_key_is_refused(tmp_path):
+    doc = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    del doc["episodes"]["threshold"]
+    path = tmp_path / "history.yaml"
+    path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    with pytest.raises(ValueError, match="threshold"):
+        load_history_config(path)
 
 
 def test_a_second_leg_without_a_window_is_refused(tmp_path):
