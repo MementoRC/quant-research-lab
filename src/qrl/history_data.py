@@ -241,3 +241,65 @@ def assemble_panel(raw: RawData, cfg: HistoryConfig, end: pd.Timestamp) -> Panel
     if gold_start is None:
         raise ValueError(f"{cfg.gold_futures}: no prices")
     return Panel(open_, close, own_start, gold_start, tuple(links))
+
+
+MIN_DAILY_OBS = 20
+MIN_MONTHLY_OBS = 12
+
+
+@dataclass(frozen=True)
+class CheckResult:
+    label: str
+    frequency: str
+    start: str  # first common return date (YYYY-MM-DD, or YYYY-MM for monthly)
+    end: str
+    n: int
+    correlation: float
+
+
+def _monthly(series: pd.Series, how: str) -> pd.Series:
+    grouped = series.dropna().groupby(pd.DatetimeIndex(series.dropna().index).to_period("M"))
+    return grouped.mean() if how == "mean" else grouped.last()
+
+
+def _returns(link: Link, end: pd.Timestamp) -> tuple[pd.Series, pd.Series]:
+    if link.frequency == "daily":
+        a = link.standin.loc[:end].pct_change(fill_method=None)
+        b = link.fund.loc[:end].pct_change(fill_method=None)
+        return a, b
+    if link.frequency != "monthly":
+        raise ValueError(f"unknown check frequency {link.frequency!r}")
+    a = _monthly(link.standin.loc[:end], "last").pct_change()
+    b = _monthly(link.fund.loc[:end], link.fund_how).pct_change()
+    return a, b
+
+
+def _check(link: Link, end: pd.Timestamp) -> CheckResult:
+    a, b = _returns(link, end)
+    both = pd.concat([a, b], axis=1, join="inner").dropna()
+    minimum = MIN_DAILY_OBS if link.frequency == "daily" else MIN_MONTHLY_OBS
+    if len(both) < minimum:
+        raise ValueError(f"{link.label}: overlap of {len(both)} returns is below {minimum}")
+    corr = float(both.iloc[:, 0].corr(both.iloc[:, 1]))
+    return CheckResult(
+        link.label,
+        link.frequency,
+        str(both.index[0])[:10],
+        str(both.index[-1])[:10],
+        len(both),
+        corr,
+    )
+
+
+def run_checks(
+    links: list[Link] | tuple[Link, ...], end: pd.Timestamp, bar: float
+) -> list[CheckResult]:
+    """Correlation of each stand-in's returns with the series that follows it,
+    over their whole overlap up to `end`. Raises ValueError, listing every link
+    below `bar` (a NaN correlation fails), so no report is written."""
+    results = [_check(link, end) for link in links]
+    failed = [r for r in results if not r.correlation >= bar]
+    if failed:
+        listing = "; ".join(f"{r.label}: {r.correlation:.4f}" for r in failed)
+        raise ValueError(f"stand-in check below the {bar} bar: {listing}")
+    return results
