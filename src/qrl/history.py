@@ -6,8 +6,10 @@ nothing. Only data up to the research end (2018-12-31) is ever passed in."""
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
 
+import numpy as np
 import pandas as pd
 
 from .decision_withdraw import (
@@ -197,3 +199,56 @@ def episode_measures(episode: Episode, returns: pd.Series, ctx: Context) -> dict
     for rate in ctx.rates:
         cells.update(_income_cells(episode.peak, returns, values, rate, ctx))
     return cells
+
+
+DAGGER = "†"
+DOUBLE_DAGGER = "‡"
+GOLD_FUND = "GLD"
+
+
+def cell_marks(
+    first_day: pd.Timestamp,
+    held: Iterable[str],
+    own_start: Mapping[str, pd.Timestamp],
+    gold_futures_start: pd.Timestamp,
+) -> str:
+    """Labels for a cell whose window starts on `first_day`: DAGGER if any fund
+    the portfolio can hold (both branches of a switching rule, every part of a
+    blend) uses stand-in data on any day of the window, i.e. the window starts
+    before that fund's first own price; DOUBLE_DAGGER if it can hold GLD and the
+    window includes any day before the first GC=F close (interpolated gold)."""
+    funds = set(held)
+    marks = DAGGER if any(first_day < own_start[t] for t in funds) else ""
+    if GOLD_FUND in funds and first_day < gold_futures_start:
+        marks += DOUBLE_DAGGER
+    return marks
+
+
+def apply_marks(cells: dict[str, Cell], marks: str) -> dict[str, Cell]:
+    """`cells` with `marks` on every cell that carries a number."""
+    return {
+        key: replace(cell, marks=marks) if cell.value is not None else cell
+        for key, cell in cells.items()
+    }
+
+
+@dataclass(frozen=True)
+class Summary:
+    median: float | None
+    worst: float | None
+    worst_label: str  # label of the episode with the worst usable cell
+    count: int  # usable cells
+    total: int  # all cells
+
+
+def summarize(cells: list[tuple[str, Cell]], higher_is_worse: bool) -> Summary:
+    """Median and worst over the cells that carry a number ("no signal yet" and
+    "n/a" cells are skipped); a not-recovered cell (value inf) ranks as the
+    largest. `cells` are (episode label, cell) pairs. Describes only."""
+    usable = [(label, cell.value) for label, cell in cells if cell.value is not None]
+    if not usable:
+        return Summary(None, None, "", 0, len(cells))
+    pick = max if higher_is_worse else min
+    label, worst = pick(usable, key=lambda item: item[1])
+    median = float(np.median([value for _, value in usable]))
+    return Summary(median, worst, label, len(usable), len(cells))

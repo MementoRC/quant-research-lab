@@ -9,14 +9,21 @@ import pandas as pd
 import pytest
 
 from qrl.history import (
+    DAGGER,
+    DOUBLE_DAGGER,
     NA_DATA,
     NO_SIGNAL,
     NOT_RECOVERED,
+    Cell,
     Context,
     Episode,
+    Summary,
+    apply_marks,
+    cell_marks,
     episode_measures,
     first_day_after,
     income_key,
+    summarize,
 )
 
 PEAK = pd.Timestamp("2000-01-03")
@@ -138,3 +145,78 @@ def test_income_is_reported_as_a_real_balance_deflated_by_cpi():
     assert 0 < cell.value < 1
     # nominal balance with raises exceeds the real one deflated by about 5 x 2% of inflation
     assert cell.value < 0.9
+
+
+OWN = {
+    "SPY": pd.Timestamp("1993-01-29"),
+    "QQQ": pd.Timestamp("1999-03-10"),
+    "SHY": pd.Timestamp("2002-07-30"),
+    "IEF": pd.Timestamp("2002-07-30"),
+    "TLT": pd.Timestamp("2002-07-30"),
+    "GLD": pd.Timestamp("2004-11-18"),
+    "RSP": pd.Timestamp("2003-04-30"),
+}
+GOLD_FUTURES = pd.Timestamp("2000-08-30")
+
+
+def test_no_mark_when_every_held_fund_has_its_own_prices():
+    assert cell_marks(pd.Timestamp("2008-01-02"), {"SPY", "IEF"}, OWN, GOLD_FUTURES) == ""
+
+
+def test_dagger_when_any_held_fund_is_a_stand_in_on_the_first_day():
+    assert cell_marks(pd.Timestamp("1999-01-04"), {"SPY", "QQQ"}, OWN, GOLD_FUTURES) == DAGGER
+
+
+def test_dagger_covers_both_branches_and_every_blend_part():
+    # a switching rule holds QQQ or GLD; a blend adds SHY
+    held = {"QQQ", "GLD", "SHY"}
+    assert cell_marks(pd.Timestamp("2003-01-02"), held, OWN, GOLD_FUTURES) == DAGGER
+    assert cell_marks(pd.Timestamp("2003-01-02"), {"QQQ"}, OWN, GOLD_FUTURES) == ""
+
+
+def test_double_dagger_only_for_gold_before_the_first_futures_close():
+    assert cell_marks(pd.Timestamp("2001-01-02"), {"GLD"}, OWN, GOLD_FUTURES) == DAGGER
+    assert cell_marks(pd.Timestamp("1975-01-02"), {"SPY"}, OWN, GOLD_FUTURES) == DAGGER
+    both = cell_marks(pd.Timestamp("1975-01-02"), {"GLD"}, OWN, GOLD_FUTURES)
+    assert both == DAGGER + DOUBLE_DAGGER
+
+
+def test_a_cell_can_carry_both_marks():
+    assert cell_marks(pd.Timestamp("1975-01-02"), {"QQQ", "GLD"}, OWN, GOLD_FUTURES) == "†‡"
+
+
+def test_marks_go_only_on_cells_with_a_number():
+    cells = {"loss": Cell(0.1), "x": Cell(None, NO_SIGNAL), "y": Cell(None, NA_DATA)}
+    marked = apply_marks(cells, "†")
+    assert marked["loss"].marks == "†"
+    assert marked["x"].marks == "" and marked["y"].marks == ""
+
+
+def test_summary_skips_cells_without_a_number_and_states_the_count():
+    cells = [
+        ("a", Cell(0.10)),
+        ("b", Cell(None, NO_SIGNAL)),
+        ("c", Cell(0.30)),
+        ("d", Cell(None, NA_DATA)),
+        ("e", Cell(0.20)),
+    ]
+    s = summarize(cells, higher_is_worse=True)
+    assert s == Summary(median=pytest.approx(0.20), worst=0.30, worst_label="c", count=3, total=5)
+
+
+def test_summary_lower_is_worse_for_balances():
+    cells = [("a", Cell(0.9)), ("b", Cell(0.0, "depleted 2008-04")), ("c", Cell(0.5))]
+    s = summarize(cells, higher_is_worse=False)
+    assert s.worst == 0.0 and s.worst_label == "b" and s.median == pytest.approx(0.5)
+
+
+def test_not_recovered_ranks_as_the_longest_recovery():
+    cells = [("a", Cell(10.0)), ("b", Cell(math.inf, NOT_RECOVERED)), ("c", Cell(30.0))]
+    s = summarize(cells, higher_is_worse=True)
+    assert math.isinf(s.worst) and s.worst_label == "b"
+    assert s.median == 30.0
+
+
+def test_summary_with_no_usable_cell():
+    s = summarize([("a", Cell(None, NO_SIGNAL))], higher_is_worse=True)
+    assert s == Summary(None, None, "", 0, 1)
