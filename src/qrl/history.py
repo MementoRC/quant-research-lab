@@ -247,7 +247,9 @@ class Summary:
 def summarize(cells: list[tuple[str, Cell]], higher_is_worse: bool) -> Summary:
     """Median and worst over the cells that carry a number ("no signal yet" and
     "n/a" cells are skipped); a not-recovered cell (value inf) ranks as the
-    largest. `cells` are (episode label, cell) pairs. Describes only."""
+    largest. With an even count that includes inf the median averages the two
+    middle values, so [10, inf] gives inf. `cells` are (episode label, cell)
+    pairs. Describes only."""
     usable = [(label, cell.value) for label, cell in cells if cell.value is not None]
     if not usable:
         return Summary(None, None, "", 0, len(cells))

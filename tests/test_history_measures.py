@@ -311,6 +311,25 @@ def test_not_recovered_ranks_as_the_longest_recovery():
     assert s.median == 30.0
 
 
+def test_dagger_boundary_a_window_starting_on_the_first_own_price_is_unmarked():
+    assert cell_marks(OWN["QQQ"], {"QQQ"}, OWN, GOLD_FUTURES) == ""
+    assert cell_marks(OWN["QQQ"] - pd.Timedelta(days=1), {"QQQ"}, OWN, GOLD_FUTURES) == DAGGER
+
+
+def test_double_dagger_boundary_a_window_starting_on_the_first_futures_close_is_unmarked():
+    start = pd.Timestamp("2000-08-30")
+    # GLD has no own price yet, so the dagger stays; only the double dagger is pinned
+    assert cell_marks(start, {"GLD"}, OWN, start) == DAGGER
+    day_before = start - pd.Timedelta(days=1)
+    assert cell_marks(day_before, {"GLD"}, OWN, start) == DAGGER + DOUBLE_DAGGER
+
+
+def test_median_of_an_even_count_with_inf_is_inf():
+    cells = [("a", Cell(10.0)), ("b", Cell(math.inf, NOT_RECOVERED))]
+    s = summarize(cells, higher_is_worse=True)
+    assert math.isinf(s.median) and s.worst_label == "b"
+
+
 def test_summary_with_no_usable_cell():
     s = summarize([("a", Cell(None, NO_SIGNAL))], higher_is_worse=True)
     assert s == Summary(None, None, "", 0, 1)
