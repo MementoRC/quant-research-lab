@@ -114,11 +114,13 @@ def test_raw_hash_lines_are_not_mistaken_for_config_lines():
 
 def test_legend_caveats_and_the_no_recommendation_sentence():
     text = render_markdown(_report())
-    assert "†" in text and "‡" in text
+    assert "†" in text
+    assert "‡" in text
     assert "selects nothing and recommends nothing" in text
     assert "few episodes" in text.lower()
     assert "smoother" in text  # interpolated monthly-average gold
-    assert "RSP" in text and "daily rebalancing" in text
+    assert "RSP" in text
+    assert "daily rebalancing" in text
 
 
 def test_header_states_cutoff_threshold_and_comparison_count():

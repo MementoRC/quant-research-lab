@@ -47,7 +47,7 @@ def _episode(**kw) -> Episode:
 
 def _ctx(rates=(0.12,), years=(5, 10), end=END) -> Context:
     return Context(
-        calendar=CALENDAR[CALENDAR <= end],
+        calendar=CALENDAR[end >= CALENDAR],
         cpi=CPI,
         rates=rates,
         income_years=years,
@@ -167,7 +167,7 @@ def _step_cpi(end=END) -> pd.Series:
 
 def _income(peak: str, years: int, end: pd.Timestamp = END) -> Cell:
     cpi = _step_cpi(end)
-    cal = CALENDAR[CALENDAR <= end]
+    cal = CALENDAR[end >= CALENDAR]
     ctx = Context(cal, cpi, (0.12,), (years,), end)
     first = cal[cal > pd.Timestamp(peak)][0]
     r = pd.Series(0.0, index=cal[cal >= first])
@@ -283,7 +283,8 @@ def test_marks_go_only_on_cells_with_a_number():
     cells = {"loss": Cell(0.1), "x": Cell(None, NO_SIGNAL), "y": Cell(None, NA_DATA)}
     marked = apply_marks(cells, "†")
     assert marked["loss"].marks == "†"
-    assert marked["x"].marks == "" and marked["y"].marks == ""
+    assert marked["x"].marks == ""
+    assert marked["y"].marks == ""
 
 
 def test_summary_skips_cells_without_a_number_and_states_the_count():
@@ -301,13 +302,16 @@ def test_summary_skips_cells_without_a_number_and_states_the_count():
 def test_summary_lower_is_worse_for_balances():
     cells = [("a", Cell(0.9)), ("b", Cell(0.0, "depleted 2008-04")), ("c", Cell(0.5))]
     s = summarize(cells, higher_is_worse=False)
-    assert s.worst == 0.0 and s.worst_label == "b" and s.median == pytest.approx(0.5)
+    assert s.worst == 0.0
+    assert s.worst_label == "b"
+    assert s.median == pytest.approx(0.5)
 
 
 def test_not_recovered_ranks_as_the_longest_recovery():
     cells = [("a", Cell(10.0)), ("b", Cell(math.inf, NOT_RECOVERED)), ("c", Cell(30.0))]
     s = summarize(cells, higher_is_worse=True)
-    assert math.isinf(s.worst) and s.worst_label == "b"
+    assert math.isinf(s.worst)
+    assert s.worst_label == "b"
     assert s.median == 30.0
 
 
@@ -327,7 +331,8 @@ def test_double_dagger_boundary_a_window_starting_on_the_first_futures_close_is_
 def test_median_of_an_even_count_with_inf_is_inf():
     cells = [("a", Cell(10.0)), ("b", Cell(math.inf, NOT_RECOVERED))]
     s = summarize(cells, higher_is_worse=True)
-    assert math.isinf(s.median) and s.worst_label == "b"
+    assert math.isinf(s.median)
+    assert s.worst_label == "b"
 
 
 def test_summary_with_no_usable_cell():

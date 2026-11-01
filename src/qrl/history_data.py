@@ -50,7 +50,7 @@ def interpolate_monthly(monthly: pd.Series, index: pd.DatetimeIndex) -> pd.Serie
     last_day = pd.Series(index, index=index.to_period("M")).groupby(level=0).max()
     anchors = figure.reindex(last_day.index).dropna()
     logs = pd.Series(np.nan, index=index)
-    logs.loc[last_day.loc[anchors.index].to_numpy()] = np.log(anchors.to_numpy())
+    logs.loc[pd.DatetimeIndex(last_day.loc[anchors.index])] = np.log(anchors.to_numpy())
     filled = logs.interpolate(method="linear", limit_area="inside")
     return pd.Series(np.exp(filled.to_numpy(dtype=float)), index=index)
 

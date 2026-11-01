@@ -222,8 +222,7 @@ def _caveats() -> list[str]:
         "each tracks the fund where they overlap.",
         "- Gold before 2000 is a World Bank monthly average placed on month ends and "
         "interpolated daily, which makes it smoother than gold really was.",
-        "- RSP is approximated by the S&P 500 (total return) before it existed; it has no "
-        "check.",
+        "- RSP is approximated by the S&P 500 (total return) before it existed; it has no check.",
         "- Every portfolio uses daily rebalancing to its target weights at the engine's "
         "normal cost.",
         "- Withdrawals are nominal amounts raised by CPI each January; balances are shown "

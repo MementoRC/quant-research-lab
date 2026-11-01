@@ -127,7 +127,8 @@ def _num(section: dict[str, object], key: str, where: str, kind: type = float) -
         raise ValueError(f"history config `{where}.{key}` must be a finite number, got {value!r}")
     if kind is int and value != int(value):
         raise ValueError(f"history config `{where}.{key}` must be a whole number, got {value!r}")
-    return kind(value)
+    number: float = kind(value)
+    return number
 
 
 def _leg(fund: str, position: int, raw: object, fred: dict[str, pd.Timestamp]) -> Leg:

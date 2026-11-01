@@ -122,6 +122,14 @@ def test_a_cpi_that_starts_too_late_raises():
         run_history(hcfg, dcfg, _synthetic_raw(hcfg), late, criteria)
 
 
+def test_a_stand_in_check_below_the_bar_is_refused_and_lists_the_links():
+    criteria, dcfg, hcfg, cpi = _inputs()
+    strict = dataclasses.replace(hcfg, min_correlation=1.0)  # independent random walks fall short
+    with pytest.raises(ValueError, match="stand-in check below the 1.0 bar") as err:
+        run_history(strict, dcfg, _synthetic_raw(hcfg), cpi, criteria)
+    assert "^IXIC against QQQ" in str(err.value)
+
+
 def test_data_after_the_research_end_is_refused():
     criteria, dcfg, hcfg, cpi = _inputs()
     raw = _synthetic_raw(hcfg)
