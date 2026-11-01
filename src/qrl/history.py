@@ -139,16 +139,16 @@ def _values_from_peak(returns: pd.Series, ctx: Context, peak: pd.Timestamp) -> p
     """Value 1 at the peak's close, then the daily returns from the next trading
     day; None if the portfolio has no return on that day yet."""
     first = first_day_after(ctx.calendar, peak)
-    if first is None or returns.index[0] > first:
+    if first is None or returns.empty or returns.index[0] > first:
         return None
     return (1.0 + returns.loc[first:]).cumprod()
 
 
 def _recovery_cell(peak: pd.Timestamp, values: pd.Series, window: pd.Series) -> Cell:
-    if float(window.min()) >= 1.0:
+    if float(window.min()) >= 1.0 - EPS:
         return Cell(0.0)
     after = values.loc[window.idxmin() :]
-    back = after[after >= 1.0]
+    back = after[after >= 1.0 - EPS]
     if back.empty:
         return Cell(math.inf, NOT_RECOVERED)
     return Cell(float(_months(peak, pd.Timestamp(back.index[0]))))
@@ -192,6 +192,8 @@ def episode_measures(episode: Episode, returns: pd.Series, ctx: Context) -> dict
     if values is None:
         return {k: Cell(None, NO_SIGNAL) for k in keys}
     window = values.loc[: episode.window_end]
+    if window.empty:  # the data ends before the portfolio's first return after the peak
+        return {k: Cell(None, NA_DATA) for k in keys}
     cells = {
         "loss": Cell(1.0 - min(1.0, float(window.min()))),
         "recover": _recovery_cell(episode.peak, values, window),

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -145,6 +146,99 @@ def test_income_is_reported_as_a_real_balance_deflated_by_cpi():
     assert 0 < cell.value < 1
     # nominal balance with raises exceeds the real one deflated by about 5 x 2% of inflation
     assert cell.value < 0.9
+
+
+def test_a_return_on_the_peak_date_itself_is_ignored():
+    # Value is 1 at the peak's close: its own day's return is already in the price.
+    with_peak_day = _returns({"2000-02-01": -0.2}, start="2000-01-03")
+    with_peak_day.loc["2000-01-03"] = -0.5
+    without = _returns({"2000-02-01": -0.2}, start="2000-01-04")
+    got = episode_measures(_episode(), with_peak_day, _ctx())
+    assert got["loss"].value == pytest.approx(0.2)  # -0.5 on the peak day would give 0.6
+    assert got == episode_measures(_episode(), without, _ctx())
+
+
+def _step_cpi(end=END) -> pd.Series:
+    """100 up to the 2000-12-31 figure, 110 from the 2001-01-31 figure on, indexed by
+    availability date: the January 2002 raise is +10%, every other raise is 0."""
+    months = pd.date_range("1998-01-31", end, freq="ME")
+    return pd.Series(np.where(months <= pd.Timestamp("2000-12-31"), 100.0, 110.0), index=months)
+
+
+def _income(peak: str, years: int, end: pd.Timestamp = END) -> Cell:
+    cpi = _step_cpi(end)
+    cal = CALENDAR[CALENDAR <= end]
+    ctx = Context(cal, cpi, (0.12,), (years,), end)
+    first = cal[cal > pd.Timestamp(peak)][0]
+    r = pd.Series(0.0, index=cal[cal >= first])
+    return episode_measures(_episode(peak=pd.Timestamp(peak)), r, ctx)[income_key(0.12, years)]
+
+
+def test_income_with_a_cpi_step_in_the_horizon():
+    # 1% of the start a month (0.12 / 12). Zero returns, so balance = 1 - withdrawals.
+    # Peak 2000-01-03, horizon 2003-01-03 (a Friday, itself a trading day).
+    # 2000: 12 x 0.01 = 0.12; 2001: raise 0 (CPI 100 / 100): 12 x 0.01 = 0.12;
+    # 2002: raise +10% (110 / 100): 12 x 0.011 = 0.132;
+    # Jan 2003 (2003-01-01 is on the calendar): raise 0 (110 / 110): 0.011.
+    # Total 0.383, nominal 0.617; real = 0.617 / (110 / 100) = 0.5609090909...
+    cell = _income("2000-01-03", 3)
+    assert cell.value == pytest.approx(0.617 / 1.1, abs=1e-9)
+    assert cell.note == ""
+
+
+def test_income_from_a_september_peak():
+    # Peak Friday 2000-09-01, first withdrawal on Monday 2000-09-04, horizon 2002-09-01
+    # (Sunday): balance read on Friday 2002-08-30.
+    # 2000: Sep..Dec = 4 x 0.01 = 0.04; 2001: raise 0: 12 x 0.01 = 0.12;
+    # 2002: raise +10%: Jan..Aug = 8 x 0.011 = 0.088. Total 0.248, nominal 0.752;
+    # real = 0.752 / (110 / 100) = 0.68363636...
+    cell = _income("2000-09-01", 2)
+    assert cell.value == pytest.approx(0.752 / 1.1, abs=1e-9)
+
+
+def test_the_income_end_year_is_capped_at_the_data_end_year():
+    # Data and CPI end 2004-12-31: withdrawal amounts for 2005+ cannot be built (no CPI),
+    # so the path must stop at the data end year (2004 < 2000 + 11). Peak 2000-01-03,
+    # horizon 2004-01-03 (Saturday): read on Friday 2004-01-02.
+    # 2000: 0.12; 2001: 0.12; 2002: 12 x 0.011 = 0.132; 2003: raise 0: 0.132;
+    # Jan 2004 (2004-01-01): 0.011. Total 0.515, nominal 0.485; real = 0.485 / 1.1.
+    cell = _income("2000-01-03", 4, end=pd.Timestamp("2004-12-31"))
+    assert cell.value == pytest.approx(0.485 / 1.1, abs=1e-9)
+
+
+def test_a_fall_after_the_window_end_does_not_count():
+    r = _returns({"2005-01-03": -0.5})
+    cells = episode_measures(_episode(window_end=pd.Timestamp("2003-01-02")), r, _ctx())
+    assert cells["loss"].value == 0.0
+    assert cells["recover"].value == 0.0
+    inside = episode_measures(_episode(window_end=pd.Timestamp("2006-01-02")), r, _ctx())
+    assert inside["loss"].value == pytest.approx(0.5)
+
+
+def test_recovery_to_one_within_float_error_counts():
+    back = float(np.nextafter(2.0, 0.0)) - 1.0  # 0.5 x (1 + back) = 0.9999999999999999
+    r = _returns({"2000-02-01": -0.5, "2000-03-01": back})
+    assert float((1.0 + r).cumprod().iloc[-1]) < 1.0  # a strict comparison would miss it
+    cells = episode_measures(_episode(), r, _ctx())
+    assert cells["recover"].value == 2
+    assert cells["recover"].note == ""
+
+
+def test_a_dip_of_float_error_only_is_zero_months():
+    r = _returns({"2000-02-01": float(np.nextafter(1.0, 0.0)) - 1.0})
+    assert episode_measures(_episode(), r, _ctx())["recover"].value == 0.0
+
+
+def test_empty_returns_are_no_signal():
+    r = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+    cells = episode_measures(_episode(), r, _ctx())
+    assert {c.note for c in cells.values()} == {NO_SIGNAL}
+
+
+def test_a_window_that_ends_before_the_first_return_is_data_ends():
+    cells = episode_measures(_episode(window_end=PEAK), _returns({}), _ctx())
+    assert {c.note for c in cells.values()} == {NA_DATA}
+    assert all(c.value is None for c in cells.values())
 
 
 OWN = {
