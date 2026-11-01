@@ -135,6 +135,13 @@ def test_a_missing_middle_month_is_bridged_geometrically():
     assert np.allclose(steps, steps.iloc[0])
 
 
+def test_two_monthly_gold_figures_in_one_month_raise():
+    index = pd.bdate_range("2000-01-03", "2000-03-31")
+    monthly = pd.Series([100.0, 101.0], index=pd.to_datetime(["2000-01-01", "2000-01-15"]))
+    with pytest.raises(ValueError, match="more than one figure in a month"):
+        interpolate_monthly(monthly, index)
+
+
 def test_missing_dividend_yield_raises():
     index = pd.bdate_range("2000-01-03", periods=3)
     price = pd.Series(100.0, index=index)
@@ -171,6 +178,16 @@ def test_a_yield_leg_window_chains_without_a_jump():
     assert unchained.pct_change().abs().max() > 0.05  # the join is a jump without the chain
     chained = treasury_proxy(legs, {"DGS20": d20, "DGS30": d30}, 1, index)
     assert chained.pct_change().abs().max() < 0.001
+    # The leg is used through lag + 1 = 2 trading days after its end, then the base returns.
+    got = chained.pct_change()
+    base = unchained.pct_change()
+    leg = yield_proxy_close(d30, 10.0, 1, index).pct_change()
+    after = int(index.searchsorted(pd.Timestamp("1991-12-31"), side="right"))
+    last_leg_day, first_base_day = index[after + 1], index[after + 2]
+    assert got.loc[last_leg_day] == pytest.approx(leg.loc[last_leg_day])
+    assert leg.loc[last_leg_day] != pytest.approx(base.loc[last_leg_day])
+    assert got.loc[first_base_day] == pytest.approx(base.loc[first_base_day])
+    assert leg.loc[first_base_day] != pytest.approx(base.loc[first_base_day])
 
 
 def test_shy_proxy_switches_to_dgs2_on_its_first_date_without_a_jump():
@@ -185,10 +202,15 @@ def test_shy_proxy_switches_to_dgs2_on_its_first_date_without_a_jump():
     assert unchained.pct_change().abs().max() > 0.001  # a plain join jumps
     chained = treasury_proxy(legs, {"DGS1": d1, "DGS2": d2}, 0, index)
     assert chained.pct_change().abs().max() < 0.001
-    after = chained.loc[first:].pct_change().dropna()
-    expected = yield_proxy_close(d2, 1.9, 0, index).loc[first:].pct_change().dropna()
-    assert after.iloc[0] == 0.0  # DGS2's first proxy day has no return of its own: flat
-    pd.testing.assert_series_equal(after.iloc[1:], expected, check_names=False)
+    got = chained.pct_change()
+    base = yield_proxy_close(d1, 1.9, 0, index).pct_change()
+    leg = yield_proxy_close(d2, 1.9, 0, index).pct_change()
+    no_return_yet = leg.index[(leg.index >= first) & leg.isna()]
+    assert len(no_return_yet) >= 1
+    assert base.loc[no_return_yet].gt(0).all()  # a real DGS1 return, not a flat day
+    pd.testing.assert_series_equal(got.loc[no_return_yet], base.loc[no_return_yet])
+    valid = leg.loc[first:].dropna()
+    pd.testing.assert_series_equal(got.loc[valid.index], valid, check_names=False)
 
 
 def test_a_single_leg_is_the_plain_yield_proxy():

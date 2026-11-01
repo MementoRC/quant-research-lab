@@ -34,14 +34,15 @@ def interpolate_monthly(monthly: pd.Series, index: pd.DatetimeIndex) -> pd.Serie
     mid-month, the last month's figure lands on the last day of `index`, which
     is not its real month end. A month missing from `monthly` is bridged
     geometrically between its neighbours. Raises ValueError on a non-positive
-    figure or an unsorted or duplicated `index`."""
+    figure, an unsorted or duplicated `index`, or two figures in one month."""
     _require_increasing(index, "index")
     if (monthly <= 0).any():
         raise ValueError("monthly figures must be positive (geometric interpolation)")
     figure = pd.Series(
         monthly.to_numpy(dtype=float), index=pd.PeriodIndex(monthly.index, freq="M")
     )
-    figure = figure[~figure.index.duplicated(keep="last")]
+    if figure.index.has_duplicates:
+        raise ValueError("monthly figures have more than one figure in a month")
     last_day = pd.Series(index, index=index.to_period("M")).groupby(level=0).max()
     anchors = figure.reindex(last_day.index).dropna()
     logs = pd.Series(np.nan, index=index)
@@ -142,8 +143,10 @@ def treasury_proxy(
         return base
     returns = base.pct_change(fill_method=None)
     for leg in legs[1:]:
-        use = _leg_days(leg, lag_days, index)
-        returns = returns.where(~use, closes[leg.fred].pct_change(fill_method=None))
+        leg_returns = closes[leg.fred].pct_change(fill_method=None)
+        # A leg has no return on its first yield day(s); the base return stands in there.
+        use = _leg_days(leg, lag_days, index) & leg_returns.notna()
+        returns = returns.where(~use, leg_returns)
     chained = (1.0 + returns.fillna(0.0)).cumprod()
     return chained.where(base.notna())
 
