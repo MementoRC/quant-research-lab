@@ -3,11 +3,23 @@
 
 from __future__ import annotations
 
+import dataclasses
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from qrl.history_data import interpolate_monthly, sp_with_dividends
+from qrl.history_config import Leg, load_history_config
+from qrl.history_data import (
+    FUNDS,
+    RawData,
+    assemble_panel,
+    interpolate_monthly,
+    sp_with_dividends,
+    treasury_proxy,
+)
+from qrl.international import yield_proxy_close
 
 
 def test_each_monthly_figure_sits_on_its_month_end():
@@ -129,3 +141,158 @@ def test_missing_dividend_yield_raises():
     yields = pd.Series([0.03], index=pd.to_datetime(["1990-01-01"]))
     with pytest.raises(ValueError, match="dividend yield"):
         sp_with_dividends(price, yields)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CONFIG = ROOT / "config" / "history.yaml"
+PANEL_END = pd.Timestamp("2000-12-29")
+
+
+def _walk(index: pd.DatetimeIndex, seed: int, start: float = 100.0, vol: float = 0.01):
+    rng = np.random.default_rng(seed)
+    return pd.Series(start * np.exp(np.cumsum(rng.normal(0.0002, vol, len(index)))), index=index)
+
+
+def _yield(index: pd.DatetimeIndex, seed: int) -> pd.Series:
+    rng = np.random.default_rng(seed)
+    return pd.Series(5.0 + np.cumsum(rng.normal(0.0, 0.02, len(index))), index=index)
+
+
+def test_a_yield_leg_window_chains_without_a_jump():
+    index = pd.bdate_range("1990-01-01", "1993-12-31")
+    d20 = pd.Series(8.0, index=pd.bdate_range("1990-01-01", "1990-12-31"))  # not published in 1991
+    d20 = pd.concat([d20, pd.Series(7.0, index=pd.bdate_range("1992-01-01", "1993-12-31"))])
+    d30 = pd.Series(8.5, index=pd.bdate_range("1990-01-01", "1993-12-31"))
+    legs = (
+        Leg("DGS20", 10.0),
+        Leg("DGS30", 10.0, pd.Timestamp("1991-01-01"), pd.Timestamp("1991-12-31")),
+    )
+    unchained = yield_proxy_close(d20, 10.0, 1, index)
+    assert unchained.pct_change().abs().max() > 0.05  # the join is a jump without the chain
+    chained = treasury_proxy(legs, {"DGS20": d20, "DGS30": d30}, 1, index)
+    assert chained.pct_change().abs().max() < 0.001
+
+
+def test_shy_proxy_switches_to_dgs2_on_its_first_date_without_a_jump():
+    index = pd.bdate_range("1990-01-01", "1991-12-31")
+    first = pd.Timestamp("1991-01-01")  # DGS2's first value; DGS1 covers the days before
+    d1 = pd.Series(5.0, index=index)
+    d2 = pd.Series(6.5, index=index[index >= first])
+    legs = (Leg("DGS1", 1.9), Leg("DGS2", 1.9, first, index[-1]))
+    unchained = yield_proxy_close(d2, 1.9, 0, index).combine_first(
+        yield_proxy_close(d1, 1.9, 0, index)
+    )
+    assert unchained.pct_change().abs().max() > 0.001  # a plain join jumps
+    chained = treasury_proxy(legs, {"DGS1": d1, "DGS2": d2}, 0, index)
+    assert chained.pct_change().abs().max() < 0.001
+    after = chained.loc[first:].pct_change().dropna()
+    expected = yield_proxy_close(d2, 1.9, 0, index).loc[first:].pct_change().dropna()
+    assert after.iloc[0] == 0.0  # DGS2's first proxy day has no return of its own: flat
+    pd.testing.assert_series_equal(after.iloc[1:], expected, check_names=False)
+
+
+def test_a_single_leg_is_the_plain_yield_proxy():
+    index = pd.bdate_range("1990-01-01", "1990-12-31")
+    y = _yield(index, 1)
+    out = treasury_proxy((Leg("DGS1", 1.9),), {"DGS1": y}, 1, index)
+    pd.testing.assert_series_equal(out, yield_proxy_close(y, 1.9, 1, index))
+
+
+def _raw(
+    *,
+    ixic_start: str = "1999-12-01",
+    ixic_gaps: tuple[str, ...] = (),
+) -> tuple[RawData, pd.DatetimeIndex]:
+    days = pd.bdate_range("1999-12-01", PANEL_END)
+    starts = {
+        "^GSPC": "1999-12-01", "^SP500TR": "2000-03-01", "^IXIC": ixic_start,
+        "GC=F": "2000-05-01", "SPY": "2000-06-01", "QQQ": "2000-04-03", "RSP": "2000-08-01",
+        "IEF": "2000-07-03", "TLT": "2000-07-03", "SHY": "2000-07-03", "GLD": "2000-09-01",
+    }  # fmt: skip
+    close = pd.DataFrame(index=days, columns=list(starts), dtype=float)
+    for i, (ticker, first) in enumerate(starts.items()):
+        sub = days[days >= first]
+        close.loc[sub, ticker] = _walk(sub, i).to_numpy()
+    for day in ixic_gaps:
+        close.loc[day, "^IXIC"] = np.nan
+    open_ = close * 1.001
+    fred = {
+        sid: _yield(pd.bdate_range("1999-06-01", PANEL_END), seed)
+        for seed, sid in enumerate(["DGS1", "DGS2", "DGS7", "DGS20", "DGS30"])
+    }
+    shiller = pd.Series(0.02, index=pd.date_range("1999-01-01", "2000-12-01", freq="MS"))
+    worldbank = pd.Series(
+        300.0 * np.exp(np.arange(15) * 0.01),
+        index=pd.date_range("1999-10-01", "2000-12-01", freq="MS"),
+    )
+    return RawData(open_, close, fred, shiller, worldbank), days
+
+
+def _cfg():
+    return dataclasses.replace(
+        load_history_config(CONFIG),
+        panel_start=pd.Timestamp("2000-01-03"),
+        lead_in_start=pd.Timestamp("1999-12-01"),
+    )
+
+
+def test_panel_covers_every_fund_from_the_panel_start():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    assert panel.close.index[0] == pd.Timestamp("2000-01-03")
+    assert list(panel.close.columns) == list(FUNDS)
+    assert not panel.close.isna().any(axis=None)
+    assert not panel.open.isna().any(axis=None)
+
+
+def test_own_start_and_gold_futures_start_are_the_first_real_prices():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    assert panel.own_start["SPY"] == pd.Timestamp("2000-06-01")
+    assert panel.own_start["GLD"] == pd.Timestamp("2000-09-01")
+    assert panel.gold_futures_start == pd.Timestamp("2000-05-01")
+
+
+def test_stand_in_open_is_the_previous_close_and_fund_open_is_its_own():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    day = pd.Timestamp("2000-03-15")  # QQQ, SHY, SPY all on stand-in data
+    for fund in ("QQQ", "SHY", "SPY"):
+        previous = panel.close[fund].shift(1).loc[day]
+        assert panel.open[fund].loc[day] == pytest.approx(previous)
+    first = panel.own_start["SPY"]
+    assert panel.open["SPY"].loc[first] == pytest.approx(raw.open.loc[first, "SPY"])
+
+
+def test_the_fund_price_is_its_own_from_its_first_day_and_joined_without_a_jump():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    first = panel.own_start["SPY"]
+    assert panel.close["SPY"].loc[first] == pytest.approx(raw.close.loc[first, "SPY"])
+    after = panel.close["SPY"].loc[first:]
+    pd.testing.assert_series_equal(
+        after, raw.close["SPY"].loc[first:PANEL_END], check_names=False, check_freq=False
+    )
+    jump = panel.close["SPY"].pct_change().loc[first]
+    assert abs(jump) < 0.2  # an ordinary daily move, not a level jump between sources
+
+
+def test_one_day_gap_in_a_stand_in_is_filled_and_two_days_raise():
+    raw, _ = _raw(ixic_gaps=("2000-02-10",))
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    assert panel.close["QQQ"].loc["2000-02-10"] == panel.close["QQQ"].loc["2000-02-09"]
+    raw, _ = _raw(ixic_gaps=("2000-02-10", "2000-02-11"))
+    with pytest.raises(ValueError, match="gap"):
+        assemble_panel(raw, _cfg(), PANEL_END)
+
+
+def test_a_stand_in_that_does_not_reach_the_panel_start_raises():
+    raw, _ = _raw(ixic_start="2000-01-10")
+    with pytest.raises(ValueError, match="QQQ"):
+        assemble_panel(raw, _cfg(), PANEL_END)
+
+
+def test_the_panel_is_cut_at_the_data_end():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), pd.Timestamp("2000-11-30"))
+    assert panel.close.index[-1] <= pd.Timestamp("2000-11-30")
