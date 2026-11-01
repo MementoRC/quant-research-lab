@@ -181,6 +181,10 @@ SKIPPED: dict[str, str] = {
     "research/international_main.md": (
         "sealed one-shot international test (event 1); regenerating is refused by design"
     ),
+    "research/history_scenarios.md": (
+        "needs downloaded Yahoo, FRED, Shiller and World Bank series (data/cache/history); "
+        "no render-only path"
+    ),
     "research/overlay.md": "renderer runs only after ledger writes; a render-only entry is a follow-up",
     "research/rsp_sleeve.md": "needs --validation-note free text that cannot be recovered",
     "research/run5_validation.txt": "captured validation output, a ledger step",
