@@ -6,7 +6,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from qrl.history import find_episodes
+from qrl.history import EPS, find_episodes
 
 START = pd.Timestamp("1971-01-01")
 END = pd.Timestamp("2018-12-31")
@@ -123,9 +123,37 @@ def test_float_error_just_under_the_threshold_still_counts():
     peak, trough = 9.0, 7.65
     fall = 1.0 - trough / peak
     assert fall < 0.15  # 0.1499999999999999: under 15% only by float error
-    assert fall >= 0.15 - 1e-12
+    assert fall >= 0.15 - EPS
     found = _find(_s([peak, trough, peak]))
     assert len(found) == 1
+
+
+def test_a_tie_with_the_high_then_an_unrecovered_fall_is_not_a_new_peak():
+    # The tie is never itself the peak. A fall after it, with no strictly higher
+    # close in between, is not an episode (spec: ties end an episode, not start one).
+    assert _find(_s([100.0, 100.0, 80.0, 85.0])) == []
+
+
+def test_a_tie_after_a_flagged_fall_keeps_the_original_peak_and_a_later_unrecovered_fall_is_ignored():
+    series = _s([100.0, 80.0, 100.0, 70.0])
+    found = _find(series)
+    assert len(found) == 1
+    assert found[0].peak == series.index[0]
+    assert found[0].recovery == series.index[2]
+
+
+def test_nan_values_inside_an_episode_are_ignored():
+    values = [100.0, 90.0, 80.0, 90.0, 101.0]
+    with_nan = [100.0, float("nan"), 90.0, 80.0, float("nan"), 90.0, 101.0]
+    clean = _s(values)
+    dirty = pd.Series(with_nan, index=pd.bdate_range("1971-03-01", periods=len(with_nan)))
+    got = _find(dirty)
+    want = _find(clean)
+    assert len(got) == len(want) == 1
+    assert got[0].depth == want[0].depth
+    assert got[0].peak == dirty.index[0]
+    assert got[0].trough == dirty.index[3]
+    assert got[0].recovery == dirty.index[6]
 
 
 @pytest.mark.parametrize("values", [[], [float("nan"), float("nan")]])
