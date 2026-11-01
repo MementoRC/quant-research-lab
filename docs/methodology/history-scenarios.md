@@ -86,7 +86,7 @@ both defined on every day.
 |---|---|
 | SPY | `^SP500TR` from its first close in 1988. Before that: `^GSPC` plus the Shiller monthly dividend yield, accrued daily (yield / 252 per trading day). |
 | QQQ | Nasdaq Composite (`^IXIC`). |
-| SHY | Total return from FRED DGS1 by `international.yield_proxy_close`. |
+| SHY | Total return from FRED DGS2 by `international.yield_proxy_close`, from its first value (1976-06-01). Before that, DGS1, joined without a jump. Both use SHY's duration. |
 | IEF | Same, from FRED DGS7. |
 | TLT | Same, from FRED DGS20, except 1987-01-01 to 1993-09-30 when DGS20 was not published: there DGS30 is used, joined without a jump. Each maturity has its own duration. |
 | GLD | Before 2000: World Bank (Pink Sheet) monthly gold price. From the first `GC=F` close in 2000: gold futures. From GLD's first trading day (2004-11-18): GLD. Spliced in that order. |
@@ -124,7 +124,11 @@ must be at least 0.95, the bar of the international test
   point, while a fund holds a range of maturities; for short bonds that
   difference is large next to one day's move. Daily checks were measured first,
   by the data probe: at lag 0, SHY 0.70, IEF 0.948, TLT 0.949; at lag 1 (a day
-  off), about -0.04. Monthly returns measure the price path, as for gold.
+  off), about -0.04. Monthly returns measure the price path, as for gold. SHY is
+  checked on its DGS2 proxy. On monthly returns at lag 0, the DGS1 proxy gave
+  SHY 0.855, below the bar, and the DGS2 proxy 0.981 (IEF 0.978, TLT 0.978).
+  The DGS1 part (1971 to 1976) ends before SHY existed and cannot be checked
+  against it.
 - Gold: monthly returns, because daily gold futures and GLD close at
   different times (the international test measured their daily correlation
   at 0.934). Two checks: World Bank against the monthly average of `GC=F`;
@@ -277,6 +281,9 @@ Existing tests are not changed.
   yield and the fund, not the price path (SHY 0.70 daily).
 - A lower bar for bonds, or dropping the bond stand-ins: the first changes the
   international test's rule, the second loses every year before 2002.
+- DGS1 alone for SHY: its monthly correlation with SHY was 0.855, below the
+  bar. A one-year yield rounded to 0.01 point is too coarse for a 1-3 year
+  fund.
 
 ## Out of scope
 
@@ -296,3 +303,8 @@ Amended 2026-11-01 before implementation: the bond stand-in checks use
 monthly returns, with each yield on its own date (lag 0) (owner decision).
 The daily figures quoted in Stand-in checks were seen before this change was
 made; no portfolio result had been computed.
+
+Amended again 2026-11-01 before implementation: SHY's stand-in is DGS2, with
+DGS1 before 1976 (owner decision). The owner chose this rule, and that it
+must pass the same monthly 0.95 bar, after seeing the DGS1 figure (0.855)
+and before the DGS2 figure was measured.
