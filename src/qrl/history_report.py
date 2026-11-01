@@ -21,8 +21,13 @@ from .history import (
 )
 
 
+def _escape(text: str) -> str:
+    """A pipe inside a markdown table cell would split it."""
+    return text.replace("|", "\\|")
+
+
 def _line(cells: list[str]) -> str:
-    return "| " + " | ".join(cells) + " |"
+    return "| " + " | ".join(_escape(c) for c in cells) + " |"
 
 
 def _table(cols: list[str], rows: list[list[str]]) -> list[str]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import re
 
@@ -147,6 +148,62 @@ def test_summaries_state_counts_and_skip_unusable_cells():
 def test_cells_carry_their_marks():
     text = render_markdown(_report())
     assert "30.0% †" in text
+
+
+def test_cells_render_with_units():
+    text = render_markdown(_report())
+    row_a = next(ln for ln in text.splitlines() if ln.startswith("| A | 30.0%"))
+    assert "30.0% †" in row_a
+    assert any(ln.startswith("| A | 40 months |") for ln in text.splitlines())
+    assert any(ln.startswith("| A | 80.0% (median of 1)") for ln in text.splitlines())
+
+
+def test_the_double_dagger_sits_on_a_specific_cell():
+    report = _report()
+    marked = dict(report.cells["A"][0])
+    marked["loss"] = dataclasses.replace(marked["loss"], marks="†‡")
+    cells = {**report.cells, "A": [marked, report.cells["A"][1]]}
+    text = render_markdown(dataclasses.replace(report, cells=cells))
+    row = next(ln for ln in text.splitlines() if ln.startswith("| A | 30.0%"))
+    assert "30.0% †‡" in row
+    assert "‡" not in render_markdown(report).split("## Labels")[0]
+
+
+def test_the_longest_income_horizon_heading_and_depleted_summary():
+    text = render_markdown(_report())
+    assert "### Real balance 10 years after the peak, withdrawing 4.0% a year" in text
+    income = text.split("## Income summary")[1].split("## Per-episode detail")[0]
+    a_row = next(ln for ln in income.splitlines() if ln.startswith("| A |"))
+    assert "depleted (median of 1)" in a_row
+    assert "depleted (worst of 1: peak 1973-01-11)" in a_row
+
+
+def test_a_row_with_no_usable_cell_says_so():
+    text = render_markdown(_report())
+    income = text.split("## Income summary")[1].split("## Per-episode detail")[0]
+    cash_row = next(ln for ln in income.splitlines() if ln.startswith("| CASH |"))
+    assert "n/a (0 of 2 usable)" in cash_row
+
+
+def test_a_pipe_in_a_label_or_note_does_not_split_the_table():
+    report = _report()
+    note = Cell(None, "n/a | odd")
+    edited = [dict(report.cells["A"][0], recover=note), report.cells["A"][1]]
+    text = render_markdown(
+        dataclasses.replace(
+            report,
+            portfolios=[("A", "x"), ("CASH", "100% SHY")],
+            cells={**report.cells, "A": edited},
+        )
+    )
+    row = next(ln for ln in text.splitlines() if "odd" in ln and ln.startswith("| A |"))
+    assert "n/a \\| odd" in row
+    assert len(re.split(r"(?<!\\)\|", row)) == len(re.split(r"(?<!\\)\|", "| A | x | y |"))
+
+
+def test_rendering_is_deterministic():
+    report = _report()
+    assert render_markdown(report) == render_markdown(report)
 
 
 def test_rows_follow_config_order_not_results():
