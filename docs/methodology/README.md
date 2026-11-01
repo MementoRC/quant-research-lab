@@ -53,6 +53,8 @@ Implemented or Closed), matching its `Status:` line.
   up the committed withdrawal-rules and staged-entry results for one portfolio,
   rate and choice next to its baseline; computes and recommends nothing
   (implemented 2026-10-27).
+- [history-scenarios.md](history-scenarios.md) — History-grounded scenarios: every
+  S&P 500 fall of 15% or more since 1971, per portfolio (Draft).
 - [whatif-mix.md](whatif-mix.md) — local command that builds your own mix of the
   decision-report portfolios (plus true cash) and runs it through the report's
   tables, privately (implemented in PR #64; owner-approved 2026-10-17).
