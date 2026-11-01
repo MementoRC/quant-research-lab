@@ -5,14 +5,20 @@ at the research end (2018-12-31) right after loading."""
 
 from __future__ import annotations
 
+import hashlib
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 
 import numpy as np
 import pandas as pd
 
-from .history_config import HistoryConfig, Leg
+from .data import load_ohlcv
+from .history_config import HistoryConfig, Leg, Source
 from .international import fill_proxy_gaps, splice, yield_proxy_close
+from .macro import fetch_series
 
 DIVIDEND_DAYS = 252  # trading days a year: the daily dividend accrual is yield / 252
 
@@ -305,3 +311,167 @@ def run_checks(
         listing = "; ".join(f"{r.label}: {r.correlation:.4f}" for r in failed)
         raise ValueError(f"stand-in check below the {bar} bar: {listing}")
     return results
+
+
+USER_AGENT = "qrl-history/1.0"
+MAX_YIELD = 0.2  # a dividend yield above 20% is a parsing error
+
+
+def check_first_date(name: str, series: pd.Series, latest: pd.Timestamp) -> None:
+    """Raises ValueError if `series` is empty or starts after `latest` (for
+    example a cached series fetched from a later start)."""
+    s = series.dropna()
+    if s.empty:
+        raise ValueError(f"{name}: no data")
+    first = pd.Timestamp(s.index[0])
+    if first > latest:
+        raise ValueError(
+            f"{name}: starts {first.date()}, later than the {latest.date()} it must cover "
+            "(a cached series from a later start? delete its cache file and fetch again)"
+        )
+
+
+def _check_cut(name: str, index: pd.Index, end: pd.Timestamp) -> None:
+    if len(index) and pd.Timestamp(index.max()) > end:
+        raise ValueError(
+            f"{name}: has data after {end.date()}; nothing past the data end may be read"
+        )
+
+
+def validate_raw(raw: RawData, cfg: HistoryConfig, end: pd.Timestamp) -> None:
+    """Raises ValueError if any raw series starts later than its configured
+    first date, is missing, or has data after `end`."""
+    _need(raw.close, list(cfg.yahoo))
+    for ticker, latest in cfg.yahoo.items():
+        check_first_date(f"{ticker} close", raw.close[ticker], latest)
+    _check_cut("Yahoo close", raw.close.index, end)
+    _check_cut("Yahoo open", raw.open.index, end)
+    for sid, latest in cfg.fred.items():
+        if sid not in raw.fred:
+            raise ValueError(f"missing raw series: FRED {sid}")
+        check_first_date(f"FRED {sid}", raw.fred[sid], latest)
+        _check_cut(f"FRED {sid}", raw.fred[sid].index, end)
+    check_first_date("Shiller dividend yield", raw.shiller_yield, cfg.shiller.max_first_date)
+    check_first_date("World Bank gold", raw.worldbank_gold, cfg.worldbank.max_first_date)
+    _check_cut("Shiller dividend yield", raw.shiller_yield.index, end)
+    _check_cut("World Bank gold", raw.worldbank_gold.index, end)
+
+
+def _digest(series: pd.Series) -> str:
+    return hashlib.sha256(series.dropna().rename("v").to_csv().encode()).hexdigest()
+
+
+def raw_hashes(raw: RawData) -> dict[str, str]:
+    """sha256 of each raw series as read (closes, FRED yields, the two monthly series)."""
+    out = {f"{t} close": _digest(raw.close[t]) for t in raw.close.columns}
+    out.update({f"FRED {sid}": _digest(s) for sid, s in raw.fred.items()})
+    out["Shiller dividend yield"] = _digest(raw.shiller_yield)
+    out["World Bank gold"] = _digest(raw.worldbank_gold)
+    return out
+
+
+def _column(frame: pd.DataFrame, key: str | int) -> pd.Series:
+    return frame.iloc[:, key] if isinstance(key, int) else frame[key]
+
+
+def parse_shiller(frame: pd.DataFrame, columns: dict[str, str | int]) -> pd.Series:
+    """Monthly dividend yield D / P (annual fraction) from Shiller's `Data`
+    sheet. Dates are floats (1971.01; October is 1971.1). Rows without a
+    numeric date are dropped; a yield outside (0, 20%) raises ValueError."""
+    try:
+        date, price, dividend = (_column(frame, columns[k]) for k in ("date", "price", "dividend"))
+    except KeyError as exc:
+        raise ValueError(f"Shiller sheet: missing column {exc}") from exc
+    numeric = pd.to_numeric(date, errors="coerce")
+    p, d = pd.to_numeric(price, errors="coerce"), pd.to_numeric(dividend, errors="coerce")
+    keep = numeric.notna() & p.notna() & d.notna()
+    stamps = [
+        pd.Timestamp(year=int(x), month=round((x - int(x)) * 100), day=1) for x in numeric[keep]
+    ]
+    out = pd.Series((d[keep] / p[keep]).to_numpy(dtype=float), index=pd.DatetimeIndex(stamps))
+    if out.empty or not ((out > 0) & (out < MAX_YIELD)).all():
+        raise ValueError("Shiller sheet: dividend yield missing or outside (0, 20%)")
+    return out.sort_index()
+
+
+def parse_worldbank(frame: pd.DataFrame, columns: dict[str, str | int]) -> pd.Series:
+    """Monthly gold price from the World Bank Pink Sheet `Monthly Prices` sheet:
+    dates are strings like `1970M12`; rows that are not such a label are dropped."""
+    try:
+        date, value = _column(frame, columns["date"]), _column(frame, columns["value"])
+    except KeyError as exc:
+        raise ValueError(f"World Bank sheet: missing column {exc}") from exc
+    label = date.astype(str).str.fullmatch(r"\d{4}M\d{2}")
+    v = pd.to_numeric(value, errors="coerce")
+    keep = label & v.notna()
+    stamps = pd.to_datetime(date[keep].astype(str).str.replace("M", "-") + "-01")
+    out = pd.Series(v[keep].to_numpy(dtype=float), index=pd.DatetimeIndex(stamps))
+    if out.empty:
+        raise ValueError("World Bank sheet: no monthly gold rows found")
+    return out.sort_index()
+
+
+def _read_sheet(source: Source, retries: int = 3) -> pd.DataFrame:
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            return pd.read_excel(
+                source.url,
+                sheet_name=source.sheet,
+                skiprows=source.skiprows,
+                storage_options={"User-Agent": USER_AGENT},
+            )
+        except Exception as err:  # network hiccups are common
+            last_err = err
+            time.sleep(2 * (attempt + 1))
+    raise RuntimeError(f"Failed to download {source.url}: {last_err}")
+
+
+def _cached_monthly(
+    name: str,
+    source: Source,
+    parse: Callable[[pd.DataFrame, dict[str, str | int]], pd.Series],
+    cache_dir: Path,
+    refresh: bool,
+) -> pd.Series:
+    path = cache_dir / f"{name}.parquet"
+    if path.exists() and not refresh:
+        return pd.read_parquet(path)["value"]
+    series = parse(_read_sheet(source), source.columns)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    series.rename("value").to_frame().to_parquet(path)
+    return series
+
+
+def fetch_shiller_dividend_yield(
+    source: Source, cache_dir: Path, refresh: bool = False
+) -> pd.Series:
+    """Shiller's monthly S&P 500 dividend yield (annual fraction), cached in `cache_dir`."""
+    return _cached_monthly("shiller_dividend_yield", source, parse_shiller, cache_dir, refresh)
+
+
+def fetch_worldbank_gold(source: Source, cache_dir: Path, refresh: bool = False) -> pd.Series:
+    """The World Bank Pink Sheet monthly gold price (USD per troy ounce), cached in `cache_dir`."""
+    return _cached_monthly("worldbank_gold", source, parse_worldbank, cache_dir, refresh)
+
+
+def load_raw(
+    cfg: HistoryConfig, end: pd.Timestamp, cache_dir: Path, refresh: bool = False
+) -> RawData:
+    """Download (or read from `cache_dir`) every raw series and cut each at
+    `end` right away. Raises RuntimeError on a failed download and ValueError
+    on a ticker Yahoo did not return."""
+    data = load_ohlcv(
+        sorted(cfg.yahoo), start=cfg.download_start, refresh=refresh, cache_dir=cache_dir
+    )
+    _need(data["close"], list(cfg.yahoo))
+    fred = {
+        sid: fetch_series(sid, refresh=refresh, cache_dir=cache_dir).loc[:end] for sid in cfg.fred
+    }
+    return RawData(
+        open=data["open"].loc[:end],
+        close=data["close"].loc[:end],
+        fred=fred,
+        shiller_yield=fetch_shiller_dividend_yield(cfg.shiller, cache_dir, refresh).loc[:end],
+        worldbank_gold=fetch_worldbank_gold(cfg.worldbank, cache_dir, refresh).loc[:end],
+    )

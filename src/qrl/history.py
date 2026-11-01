@@ -12,6 +12,8 @@ from dataclasses import dataclass, replace
 import numpy as np
 import pandas as pd
 
+from .decision import data_end, portfolio_returns, portfolio_tickers, portfolio_weights
+from .decision_config import DecisionConfig, Portfolio, held_tickers
 from .decision_withdraw import (
     WithdrawalPath,
     _months,
@@ -19,7 +21,17 @@ from .decision_withdraw import (
     path_metrics,
     withdrawal_path,
 )
-from .history_data import CheckResult
+from .history_config import HistoryConfig
+from .history_data import (
+    CheckResult,
+    Panel,
+    RawData,
+    assemble_panel,
+    check_first_date,
+    raw_hashes,
+    run_checks,
+    validate_raw,
+)
 
 EPS = 1e-12  # float slack so a fall of exactly 15% counts
 
@@ -277,3 +289,92 @@ class HistoryReport:
     episodes: list[Episode]
     checks: list[CheckResult]
     cells: dict[str, list[dict[str, Cell]]]  # portfolio id -> per-episode cells
+
+
+def portfolio_start(p: Portfolio, close: pd.DataFrame) -> pd.Timestamp:
+    """The first trading day `decision.portfolio_returns` can start from: the
+    day after the first day on which every weight is defined (it buys at the
+    start-day open from the prior day's target row). After the 200-day warm-up
+    for the switching rules; the panel's second day for a static portfolio."""
+    defined = portfolio_weights(p, close).notna().all(axis=1).to_numpy()
+    if not defined.any():
+        raise ValueError(f"portfolio {p.id}: weights are never defined on the panel")
+    pos = int(defined.argmax()) + 1
+    if pos >= len(close):
+        raise ValueError(f"portfolio {p.id}: no trading day after its first defined weights")
+    return pd.Timestamp(close.index[pos])
+
+
+def _portfolio_cells(
+    p: Portfolio, panel: Panel, ctx: Context, episodes: list[Episode], cost_bps: float
+) -> tuple[pd.Timestamp, list[dict[str, Cell]]]:
+    """The portfolio's first return day and its marked cells, one dict per episode."""
+    missing = sorted(set(portfolio_tickers(p)) - set(panel.close.columns))
+    if missing:
+        raise ValueError(f"portfolio {p.id}: no stand-in panel for {missing}")
+    start = portfolio_start(p, panel.close)
+    data = {"open": panel.open, "close": panel.close}
+    returns = portfolio_returns(p, data, start, cost_bps)
+    held = held_tickers([p])
+    per_episode = []
+    for ep in episodes:
+        measured = episode_measures(ep, returns, ctx)
+        first = first_day_after(ctx.calendar, ep.peak)
+        marks = (
+            cell_marks(first, held, panel.own_start, panel.gold_futures_start)
+            if first is not None
+            else ""
+        )
+        per_episode.append(apply_marks(measured, marks))
+    return start, per_episode
+
+
+def run_history(
+    hcfg: HistoryConfig, dcfg: DecisionConfig, raw: RawData, cpi: pd.Series, criteria: dict
+) -> HistoryReport:
+    """The whole report as plain data. Raises ValueError on any refusal: a
+    series that starts too late, has data past the data end or has a gap, a
+    stand-in check below the bar, or no episode. Episodes are found from the
+    index alone, before any portfolio result."""
+    end = data_end(criteria)
+    validate_raw(raw, hcfg, end)
+    check_first_date("CPIAUCNS", cpi, hcfg.cpi_max_first_date)
+    panel = assemble_panel(raw, hcfg, end)
+    checks = run_checks(panel.links, end, hcfg.min_correlation)
+    episodes = find_episodes(
+        raw.close[hcfg.index_ticker], hcfg.threshold, hcfg.episode_start, hcfg.horizon_years, end
+    )
+    if not episodes:
+        raise ValueError("no episode found: no fall of the configured size since the start date")
+    by_id = {p.id: p for p in dcfg.portfolios}
+    unknown = [pid for pid in hcfg.portfolios if pid not in by_id]
+    if unknown:
+        raise ValueError(f"portfolios {unknown} are not in the decision config")
+    cost_bps = float(criteria["costs"]["bps_per_unit_turnover"])
+    ctx = Context(
+        pd.DatetimeIndex(panel.close.index), cpi.loc[:end], hcfg.rates, hcfg.income_years, end
+    )
+    cells: dict[str, list[dict[str, Cell]]] = {}
+    starts: dict[str, pd.Timestamp] = {}
+    for pid in hcfg.portfolios:
+        starts[pid], cells[pid] = _portfolio_cells(by_id[pid], panel, ctx, episodes, cost_bps)
+    return HistoryReport(
+        data_end=end,
+        threshold=hcfg.threshold,
+        episode_start=hcfg.episode_start,
+        horizon_years=hcfg.horizon_years,
+        rates=hcfg.rates,
+        income_years=hcfg.income_years,
+        candidate_count=dcfg.candidate_count,
+        config_hashes={
+            "config/history.yaml": hcfg.sha256,
+            "config/decision.yaml": dcfg.sha256,
+            "config/core_candidates.yaml": dcfg.candidates_sha256,
+        },
+        raw_hashes=raw_hashes(raw),
+        portfolios=[(pid, by_id[pid].label) for pid in hcfg.portfolios],
+        starts=starts,
+        episodes=episodes,
+        checks=checks,
+        cells=cells,
+    )

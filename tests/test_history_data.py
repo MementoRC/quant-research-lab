@@ -15,9 +15,16 @@ from qrl.history_data import (
     FUNDS,
     RawData,
     assemble_panel,
+    check_first_date,
+    fetch_shiller_dividend_yield,
+    fetch_worldbank_gold,
     interpolate_monthly,
+    parse_shiller,
+    parse_worldbank,
+    raw_hashes,
     sp_with_dividends,
     treasury_proxy,
+    validate_raw,
 )
 from qrl.international import yield_proxy_close
 
@@ -337,3 +344,95 @@ def test_the_panel_is_cut_at_the_data_end():
     raw, _ = _raw()
     panel = assemble_panel(raw, _cfg(), pd.Timestamp("2000-11-30"))
     assert panel.close.index[-1] <= pd.Timestamp("2000-11-30")
+
+
+def test_a_series_starting_later_than_needed_raises():
+    s = pd.Series(1.0, index=pd.bdate_range("1999-01-01", periods=5))
+    check_first_date("QQQ", s, pd.Timestamp("1999-01-01"))  # exactly on time: fine
+    with pytest.raises(ValueError, match="starts 1999-01-01"):
+        check_first_date("QQQ", s, pd.Timestamp("1998-12-31"))
+
+
+def _relaxed_cfg(raw: RawData):
+    """The config with every first-date bound set after the synthetic series
+    start, so only the cut check can fail."""
+    bound = pd.Timestamp("2000-12-01")
+    cfg = _cfg()
+    return dataclasses.replace(
+        cfg,
+        yahoo=dict.fromkeys(raw.close.columns, bound),
+        fred=dict.fromkeys(raw.fred, bound),
+        shiller=dataclasses.replace(cfg.shiller, max_first_date=bound),
+        worldbank=dataclasses.replace(cfg.worldbank, max_first_date=bound),
+    )
+
+
+def test_valid_raw_data_passes_validation():
+    raw, _ = _raw()
+    validate_raw(raw, _relaxed_cfg(raw), PANEL_END)
+
+
+def test_data_after_the_end_is_refused():
+    raw, _ = _raw()
+    late = raw.close.copy()
+    late.loc[pd.Timestamp("2019-01-02"), "SPY"] = 1.0
+    bad = dataclasses.replace(raw, close=late)
+    with pytest.raises(ValueError, match="after 2000-12-29"):
+        validate_raw(bad, _relaxed_cfg(bad), PANEL_END)
+
+
+def test_a_series_starting_after_its_configured_first_date_is_refused_by_validation():
+    raw, _ = _raw()
+    cfg = _relaxed_cfg(raw)
+    strict = dataclasses.replace(cfg, yahoo={**cfg.yahoo, "SPY": pd.Timestamp("2000-01-01")})
+    with pytest.raises(ValueError, match="SPY close: starts"):
+        validate_raw(raw, strict, PANEL_END)
+
+
+def test_raw_hashes_are_stable_and_name_every_series():
+    raw, _ = _raw()
+    first = raw_hashes(raw)
+    assert first == raw_hashes(raw)
+    assert {"^GSPC close", "FRED DGS1", "Shiller dividend yield", "World Bank gold"} <= first.keys()
+    assert all(len(h) == 64 for h in first.values())
+
+
+def test_shiller_parser_reads_float_dates_and_the_dividend_yield():
+    frame = pd.DataFrame(
+        {
+            "Date": [1971.01, 1971.1, 1971.12, "footer"],
+            "P": [100.0, 100.0, 100.0, None],
+            "D": [3.0, 4.0, 5.0, None],
+        }
+    )
+    out = parse_shiller(frame, {"date": "Date", "price": "P", "dividend": "D"})
+    assert list(out.index) == [
+        pd.Timestamp("1971-01-01"),
+        pd.Timestamp("1971-10-01"),
+        pd.Timestamp("1971-12-01"),
+    ]
+    assert list(out) == [0.03, 0.04, 0.05]
+
+
+def test_shiller_parser_refuses_an_implausible_yield():
+    frame = pd.DataFrame({"Date": [1971.01], "P": [100.0], "D": [50.0]})
+    with pytest.raises(ValueError, match="yield"):
+        parse_shiller(frame, {"date": "Date", "price": "P", "dividend": "D"})
+
+
+def test_monthly_loaders_read_the_cache_file_without_a_download(tmp_path):
+    cfg = _cfg()
+    idx = pd.date_range("1971-01-01", periods=3, freq="MS")
+    for name, vals in [("shiller_dividend_yield", [0.03] * 3), ("worldbank_gold", [40.0] * 3)]:
+        pd.Series(vals, index=idx, name="value").to_frame().to_parquet(tmp_path / f"{name}.parquet")
+    assert list(fetch_shiller_dividend_yield(cfg.shiller, tmp_path)) == [0.03] * 3
+    assert list(fetch_worldbank_gold(cfg.worldbank, tmp_path).index) == list(idx)
+
+
+def test_worldbank_parser_reads_month_labels_and_the_gold_column_by_position_or_name():
+    frame = pd.DataFrame(
+        {0: ["1970M11", "1970M12", "note"], "Gold": [37.4, 37.4, None], "Silver": [1.0, 1.0, 1.0]}
+    )
+    out = parse_worldbank(frame, {"date": 0, "value": "Gold"})
+    assert list(out.index) == [pd.Timestamp("1970-11-01"), pd.Timestamp("1970-12-01")]
+    assert list(out) == [37.4, 37.4]
