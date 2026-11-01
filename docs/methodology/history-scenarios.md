@@ -116,8 +116,15 @@ Where a stand-in and the next series overlap, the correlation of their returns
 must be at least 0.95, the bar of the international test
 ([international-test.md](international-test.md)).
 
-- SPY, QQQ, SHY, IEF, TLT: daily returns, stand-in against fund, over the
-  whole overlap to 2018-12-31.
+- SPY, QQQ: daily returns, stand-in against fund, over the whole overlap to
+  2018-12-31.
+- SHY, IEF, TLT: monthly returns (month-end to month-end), stand-in against
+  fund, over the whole overlap to 2018-12-31. Each yield is used on its own date
+  (lag 0). A yield proxy is a fitted curve at one maturity, rounded to 0.01
+  point, while a fund holds a range of maturities; for short bonds that
+  difference is large next to one day's move. Daily checks were measured first,
+  by the data probe: at lag 0, SHY 0.70, IEF 0.948, TLT 0.949; at lag 1 (a day
+  off), about -0.04. Monthly returns measure the price path, as for gold.
 - Gold: monthly returns, because daily gold futures and GLD close at
   different times (the international test measured their daily correlation
   at 0.934). Two checks: World Bank against the monthly average of `GC=F`;
@@ -266,6 +273,10 @@ Existing tests are not changed.
 - Fund prices only: most pre-2002 cells would be "not priced".
 - Daily gold correlation checks: futures and GLD close at different times, so
   a daily check measures timing, not the price.
+- Daily bond correlation checks: they measure one-day noise between a fitted
+  yield and the fund, not the price path (SHY 0.70 daily).
+- A lower bar for bonds, or dropping the bond stand-ins: the first changes the
+  international test's rule, the second loses every year before 2002.
 
 ## Out of scope
 
@@ -280,3 +291,8 @@ plan and pinned in config/history.yaml.
 Amended 2026-10-31 before implementation: the panel starts when every
 stand-in has a price, because the Nasdaq Composite starts on 1971-02-05
 (owner decision).
+
+Amended 2026-11-01 before implementation: the bond stand-in checks use
+monthly returns, with each yield on its own date (lag 0) (owner decision).
+The daily figures quoted in Stand-in checks were seen before this change was
+made; no portfolio result had been computed.
