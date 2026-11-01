@@ -87,6 +87,30 @@ def test_too_short_an_overlap_raises():
         run_checks([link], END, 0.95)
 
 
+@pytest.mark.parametrize(("periods", "ok"), [(20, False), (21, True)])
+def test_daily_overlap_boundary_is_twenty_returns(periods, ok):
+    index = pd.bdate_range("2000-01-03", periods=periods)  # `periods` prices: periods - 1 returns
+    link = Link("x", _walk(index, 1), _walk(index, 1), "daily")
+    if ok:
+        assert run_checks([link], END, 0.95)[0].n == 20
+    else:
+        with pytest.raises(ValueError, match="overlap of 19"):
+            run_checks([link], END, 0.95)
+
+
+@pytest.mark.parametrize(("months", "ok"), [(12, False), (13, True)])
+def test_monthly_overlap_boundary_is_twelve_returns(months, ok):
+    index = pd.bdate_range("2000-01-03", periods=700)
+    series = _walk(index, 1)
+    keep = series[index.to_period("M") < pd.Period("2000-01") + months]
+    link = Link("x", keep, keep * 2.0, "monthly")
+    if ok:
+        assert run_checks([link], END, 0.95)[0].n == 12
+    else:
+        with pytest.raises(ValueError, match="overlap of 11"):
+            run_checks([link], END, 0.95)
+
+
 def test_all_failures_are_listed():
     index = pd.bdate_range("2000-01-03", periods=300)
     links = [

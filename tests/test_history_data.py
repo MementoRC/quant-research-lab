@@ -299,6 +299,25 @@ def test_the_fund_price_is_its_own_from_its_first_day_and_joined_without_a_jump(
     assert abs(jump) < 0.2  # an ordinary daily move, not a level jump between sources
 
 
+def test_bond_links_use_the_proxy_at_the_configured_lag_zero():
+    raw, days = _raw()
+    cfg = _cfg()
+    assert cfg.yield_lag_days == 0
+    links = {link.label: link for link in assemble_panel(raw, cfg, PANEL_END).links}
+    gspc = raw.close["^GSPC"].dropna()
+    index = pd.DatetimeIndex(gspc.index[gspc.index >= cfg.lead_in_start])
+    for fund, legs in cfg.treasury.items():
+        proxy = links[f"{fund}: yield proxy against {fund}"].standin
+        lag0 = treasury_proxy(legs, raw.fred, 0, index)
+        lag1 = treasury_proxy(legs, raw.fred, 1, index)
+        pd.testing.assert_series_equal(proxy, lag0, check_names=False)
+        assert not proxy.dropna().equals(lag1.reindex(proxy.dropna().index))
+    one = dataclasses.replace(cfg, yield_lag_days=1)
+    shifted = {link.label: link for link in assemble_panel(raw, one, PANEL_END).links}
+    label = "IEF: yield proxy against IEF"
+    assert not links[label].standin.dropna().equals(shifted[label].standin.dropna())
+
+
 def test_one_day_gap_in_a_stand_in_is_filled_and_two_days_raise():
     raw, _ = _raw(ixic_gaps=("2000-02-10",))
     panel = assemble_panel(raw, _cfg(), PANEL_END)

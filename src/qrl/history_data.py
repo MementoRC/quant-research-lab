@@ -258,6 +258,8 @@ class CheckResult:
 
 
 def _monthly(series: pd.Series, how: str) -> pd.Series:
+    # The first GC=F or GLD month may be partial (the mean or last close covers only
+    # the days it traded); accepted for a stand-in check, which spans many months.
     grouped = series.dropna().groupby(pd.DatetimeIndex(series.dropna().index).to_period("M"))
     return grouped.mean() if how == "mean" else grouped.last()
 
