@@ -27,9 +27,10 @@ It is a decision aid. It selects nothing and recommends nothing.
   (`data.load_prices` has no end date). Validation and holdout stay sealed.
 - Data before 2005 is not sealed and may be used (decision-helper.md, Data
   rules).
-- The portfolio price panel starts on the first trading day of 1971. The S&P
-  500 index used to date episodes is read from its full history (see
-  Episodes).
+- The portfolio price panel starts on the first trading day on which every
+  stand-in has a price (expected 1971-02-05, the first Nasdaq Composite close;
+  the data probe pins the date in config/history.yaml). The S&P 500 index used
+  to date episodes is read from its full history (see Episodes).
 - CPI is FRED CPIAUCNS, loaded with `macro.load_macro` as the withdrawal
   reports do, from 1970 so the first yearly raise has a value.
 
@@ -205,7 +206,7 @@ No existing report or number changes.
 | File | Role |
 |---|---|
 | config/history.yaml | Threshold, start date, portfolio ids, rates, horizons, correlation bar, stand-in sources (ids, maturities, durations, lags, URLs, switch-over dates). |
-| src/qrl/history_data.py | Builds the daily open/close panel. Reuses `international.yield_proxy_close`, `international.splice`, `macro.fetch_series` and the yfinance loader in `src/qrl/data.py`. New loaders, cached in `data/cache` and cut at 2018-12-31: fetch_shiller_dividend_yield, fetch_worldbank_gold. New: S&P plus dividends, gold interpolation, the previous-close open rule,
+| src/qrl/history_data.py | Builds the daily open/close panel. Reuses `international.yield_proxy_close`, `international.splice`, `macro.fetch_series` and the yfinance loader in `src/qrl/data.py`. New loaders, cached in data/cache/history and cut at 2018-12-31: fetch_shiller_dividend_yield, fetch_worldbank_gold. New: S&P plus dividends, gold interpolation, the previous-close open rule,
 the cut at 2018-12-31, the first-date check, the stand-in checks. |
 | src/qrl/history.py | Pure functions: find_episodes, episode_measures, cell_labels, summarize. No I/O. |
 | src/qrl/history_report.py | Renders the markdown. |
@@ -275,3 +276,7 @@ markets, data after 2018-12-31, and any change to existing reports.
 
 None outstanding. Exact series ids, durations and lags are settled in the
 plan and pinned in config/history.yaml.
+
+Amended 2026-10-31 before implementation: the panel starts when every
+stand-in has a price, because the Nasdaq Composite starts on 1971-02-05
+(owner decision).
