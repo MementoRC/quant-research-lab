@@ -19,6 +19,7 @@ from .decision_withdraw import (
     path_metrics,
     withdrawal_path,
 )
+from .history_data import CheckResult
 
 EPS = 1e-12  # float slack so a fall of exactly 15% counts
 
@@ -254,3 +255,23 @@ def summarize(cells: list[tuple[str, Cell]], higher_is_worse: bool) -> Summary:
     label, worst = pick(usable, key=lambda item: item[1])
     median = float(np.median([value for _, value in usable]))
     return Summary(median, worst, label, len(usable), len(cells))
+
+
+@dataclass(frozen=True)
+class HistoryReport:
+    """Everything the renderer needs, as plain data."""
+
+    data_end: pd.Timestamp
+    threshold: float
+    episode_start: pd.Timestamp
+    horizon_years: int
+    rates: tuple[float, ...]
+    income_years: tuple[int, ...]
+    candidate_count: int  # portfolios of the core comparison (A-G)
+    config_hashes: dict[str, str]  # "config/history.yaml" -> sha256
+    raw_hashes: dict[str, str]  # series name -> sha256
+    portfolios: list[tuple[str, str]]  # (id, label), in config order
+    starts: dict[str, pd.Timestamp]  # first return day of each portfolio
+    episodes: list[Episode]
+    checks: list[CheckResult]
+    cells: dict[str, list[dict[str, Cell]]]  # portfolio id -> per-episode cells
