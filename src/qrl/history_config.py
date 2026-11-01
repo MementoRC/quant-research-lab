@@ -125,6 +125,8 @@ def _num(section: dict[str, object], key: str, where: str, kind: type = float) -
     value = section.get(key)
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         raise ValueError(f"history config `{where}.{key}` must be a finite number, got {value!r}")
+    if kind is int and value != int(value):
+        raise ValueError(f"history config `{where}.{key}` must be a whole number, got {value!r}")
     return kind(value)
 
 

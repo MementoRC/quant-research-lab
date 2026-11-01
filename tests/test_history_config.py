@@ -119,6 +119,8 @@ def test_the_lead_in_precedes_the_panel_start():
         ("yield_lag_business_days: 0", "yield_lag_business_days: -1", "yield_lag_business_days"),
         ('sheet: "Data"', 'sheet: "Data"\n  bogus: 1', "bogus"),
         ("max_gap_days: 1 ", "max_gap_days: one ", "max_gap_days"),
+        ("max_gap_days: 1 ", "max_gap_days: 5.5 ", "max_gap_days"),
+        ("income_horizons_years: [5, 10]", "income_horizons_years: [5.5]", "income_horizons_years"),
     ],
 )
 def test_more_bad_values_are_refused(tmp_path, old, new, message):
