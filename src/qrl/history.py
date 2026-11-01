@@ -52,8 +52,12 @@ def find_episodes(
     `threshold` or more below it before the index closes at or above it again
     (exactly `threshold` counts). The trough is the lowest close before
     recovery, the recovery the first close at or above the peak. A tie with the
-    peak ends the episode but keeps the peak's date. Only peaks on or after
+    peak ends the episode but is not a new peak: a later fall from it is an
+    episode only after a strictly higher close. Raises ValueError on an
+    unsorted or duplicated index. Only peaks on or after
     `start` are returned, in date order."""
+    if not close.index.is_monotonic_increasing or close.index.has_duplicates:
+        raise ValueError("close index must be strictly increasing (sorted, no duplicates)")
     series = close.dropna().loc[:data_end]
     values = series.to_numpy(dtype=float)
     dates = pd.DatetimeIndex(series.index)
@@ -62,6 +66,7 @@ def find_episodes(
         return found
     peak_i = trough_i = 0
     flagged = False
+    armed = True  # False after a tie with the high, until a strictly higher close
     for i in range(1, len(values)):
         if values[i] >= values[peak_i]:
             if flagged:
@@ -72,12 +77,14 @@ def find_episodes(
                     )
                 )
             if values[i] > values[peak_i]:
-                peak_i = i
+                peak_i, armed = i, True
+            else:
+                armed = False
             trough_i, flagged = peak_i, False
             continue
         if values[i] < values[trough_i]:
             trough_i = i
-        if 1.0 - values[trough_i] / values[peak_i] >= threshold - EPS:
+        if armed and 1.0 - values[trough_i] / values[peak_i] >= threshold - EPS:
             flagged = True
     if flagged:
         depth = 1.0 - values[trough_i] / values[peak_i]

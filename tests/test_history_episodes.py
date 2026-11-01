@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from qrl.history import find_episodes
 
@@ -89,6 +90,47 @@ def test_window_end_is_capped_at_the_data_end():
         index=pd.to_datetime(["2015-01-02", "2016-01-04", "2017-01-03"]),
     )
     assert _find(series)[0].window_end == END
+
+
+def test_a_fall_from_a_close_that_only_equals_the_old_high_is_not_a_new_episode():
+    series = _s([100.0, 80.0, 100.0, 80.0, 100.0])
+    found = _find(series)
+    assert len(found) == 1
+    assert found[0].peak == series.index[0]
+    assert found[0].recovery == series.index[2]
+
+
+def test_a_new_strict_high_after_a_tie_rearms_and_peaks_are_distinct():
+    series = _s([100.0, 80.0, 100.0, 80.0, 101.0, 80.0, 102.0])
+    found = _find(series)
+    assert [ep.peak for ep in found] == [series.index[0], series.index[4]]
+    assert len({ep.peak for ep in found}) == len(found)
+
+
+def test_unsorted_index_is_refused():
+    series = pd.Series([100.0, 80.0], index=pd.to_datetime(["1972-01-04", "1972-01-03"]))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        _find(series)
+
+
+def test_duplicate_index_is_refused():
+    series = pd.Series([100.0, 80.0], index=pd.to_datetime(["1972-01-03", "1972-01-03"]))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        _find(series)
+
+
+def test_float_error_just_under_the_threshold_still_counts():
+    peak, trough = 9.0, 7.65
+    fall = 1.0 - trough / peak
+    assert fall < 0.15  # 0.1499999999999999: under 15% only by float error
+    assert fall >= 0.15 - 1e-12
+    found = _find(_s([peak, trough, peak]))
+    assert len(found) == 1
+
+
+@pytest.mark.parametrize("values", [[], [float("nan"), float("nan")]])
+def test_empty_and_all_nan_input_give_no_episodes(values):
+    assert _find(_s(values)) == []
 
 
 def test_data_after_the_end_is_ignored():
