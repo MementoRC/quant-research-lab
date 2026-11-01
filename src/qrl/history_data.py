@@ -44,9 +44,7 @@ def interpolate_monthly(monthly: pd.Series, index: pd.DatetimeIndex) -> pd.Serie
     _require_increasing(index, "index")
     if (monthly <= 0).any():
         raise ValueError("monthly figures must be positive (geometric interpolation)")
-    figure = pd.Series(
-        monthly.to_numpy(dtype=float), index=pd.PeriodIndex(monthly.index, freq="M")
-    )
+    figure = pd.Series(monthly.to_numpy(dtype=float), index=pd.PeriodIndex(monthly.index, freq="M"))
     if figure.index.has_duplicates:
         raise ValueError("monthly figures have more than one figure in a month")
     last_day = pd.Series(index, index=index.to_period("M")).groupby(level=0).max()
@@ -141,8 +139,7 @@ def treasury_proxy(
     of the base leg, with each later leg's daily returns used inside its window,
     so the joined price has no jump. A single leg is the plain proxy."""
     closes = {
-        leg.fred: yield_proxy_close(yields[leg.fred], leg.duration, lag_days, index)
-        for leg in legs
+        leg.fred: yield_proxy_close(yields[leg.fred], leg.duration, lag_days, index) for leg in legs
     }
     base = closes[legs[0].fred]
     if len(legs) == 1:
