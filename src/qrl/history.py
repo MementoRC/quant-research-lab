@@ -5,11 +5,18 @@ nothing. Only data up to the research end (2018-12-31) is ever passed in."""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import pandas as pd
 
-from .decision_withdraw import _months
+from .decision_withdraw import (
+    WithdrawalPath,
+    _months,
+    monthly_withdrawals,
+    path_metrics,
+    withdrawal_path,
+)
 
 EPS = 1e-12  # float slack so a fall of exactly 15% counts
 
@@ -90,3 +97,103 @@ def find_episodes(
         depth = 1.0 - values[trough_i] / values[peak_i]
         found.append(_episode(dates[peak_i], dates[trough_i], depth, None, horizon_years, data_end))
     return [ep for ep in found if ep.peak >= start]
+
+
+NO_SIGNAL = "no signal yet"
+NA_DATA = "n/a (data ends)"
+NOT_RECOVERED = "not recovered by 2018"
+
+
+@dataclass(frozen=True)
+class Cell:
+    """One portfolio in one episode for one measure. `value` None: no number
+    (see `note`); `inf`: not recovered. `marks`: dagger labels."""
+
+    value: float | None
+    note: str = ""
+    marks: str = ""
+
+
+@dataclass(frozen=True)
+class Context:
+    calendar: pd.DatetimeIndex  # the panel's trading days
+    cpi: pd.Series  # availability-dated, cut at the data end
+    rates: tuple[float, ...]
+    income_years: tuple[int, ...]
+    data_end: pd.Timestamp
+
+
+def income_key(rate: float, years: int) -> str:
+    return f"income:{rate:g}:{years}"
+
+
+def first_day_after(calendar: pd.DatetimeIndex, peak: pd.Timestamp) -> pd.Timestamp | None:
+    """The first trading day after `peak` (None if there is none)."""
+    pos = int(calendar.searchsorted(peak, side="right"))
+    return None if pos >= len(calendar) else pd.Timestamp(calendar[pos])
+
+
+def _values_from_peak(returns: pd.Series, ctx: Context, peak: pd.Timestamp) -> pd.Series | None:
+    """Value 1 at the peak's close, then the daily returns from the next trading
+    day; None if the portfolio has no return on that day yet."""
+    first = first_day_after(ctx.calendar, peak)
+    if first is None or returns.index[0] > first:
+        return None
+    return (1.0 + returns.loc[first:]).cumprod()
+
+
+def _recovery_cell(peak: pd.Timestamp, values: pd.Series, window: pd.Series) -> Cell:
+    if float(window.min()) >= 1.0:
+        return Cell(0.0)
+    after = values.loc[window.idxmin() :]
+    back = after[after >= 1.0]
+    if back.empty:
+        return Cell(math.inf, NOT_RECOVERED)
+    return Cell(float(_months(peak, pd.Timestamp(back.index[0]))))
+
+
+def _balance_cell(path: WithdrawalPath, day: pd.Timestamp, cpi: pd.Series) -> Cell:
+    sub = path.values.loc[:day]
+    if float(sub.iloc[-1]) <= 0.0 and path.depleted:
+        return Cell(0.0, f"depleted {path.depleted}")
+    end_real: float = path_metrics(WithdrawalPath(sub, None), cpi)["end_real"]
+    return Cell(end_real)
+
+
+def _income_cells(
+    peak: pd.Timestamp, returns: pd.Series, values: pd.Series, rate: float, ctx: Context
+) -> dict[str, Cell]:
+    days = pd.DatetimeIndex(values.index)
+    due = {y: pd.Timestamp(peak + pd.DateOffset(months=12 * y)) for y in ctx.income_years}
+    reachable = [y for y in ctx.income_years if due[y] <= days[-1]]
+    out = {income_key(rate, y): Cell(None, NA_DATA) for y in ctx.income_years if y not in reachable}
+    if not reachable:
+        return out
+    stop = days[days <= max(due[y] for y in reachable)][-1]
+    first = days[0]
+    monthly = monthly_withdrawals(
+        rate, first.year, min(first.year + 11, ctx.data_end.year), ctx.cpi
+    )
+    path = withdrawal_path(returns.loc[first:stop], monthly)
+    for y in reachable:
+        out[income_key(rate, y)] = _balance_cell(path, days[days <= due[y]][-1], ctx.cpi)
+    return out
+
+
+def episode_measures(episode: Episode, returns: pd.Series, ctx: Context) -> dict[str, Cell]:
+    """Cells for one portfolio in one episode, keyed "loss", "recover" and
+    `income_key(rate, years)`: worst loss in the measure window, months to
+    recover, and the real balance of a CPI-indexed withdrawal from the peak.
+    `returns` is the portfolio's daily return series over the whole panel."""
+    values = _values_from_peak(returns, ctx, episode.peak)
+    keys = ["loss", "recover", *(income_key(r, y) for r in ctx.rates for y in ctx.income_years)]
+    if values is None:
+        return {k: Cell(None, NO_SIGNAL) for k in keys}
+    window = values.loc[: episode.window_end]
+    cells = {
+        "loss": Cell(1.0 - min(1.0, float(window.min()))),
+        "recover": _recovery_cell(episode.peak, values, window),
+    }
+    for rate in ctx.rates:
+        cells.update(_income_cells(episode.peak, returns, values, rate, ctx))
+    return cells
