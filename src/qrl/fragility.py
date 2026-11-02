@@ -569,6 +569,9 @@ def _measure_rate_trend(v: _View, ends: list, cfg: FragilityConfig) -> Measure:
     )
     if miss:
         return _na(f"missing {miss}")
+    # Owner decision 2026-11-02 (audit FR-2): a reported interest <= 0 is a data artifact.
+    if got["interest (latest)"] <= 0 or got["interest (3y back)"] <= 0:
+        return _na("interest expense <= 0")
     now_debt = (got["debt (latest)"] + got["debt (1y back)"]) / 2
     then_debt = (got["debt (3y back)"] + got["debt (4y back)"]) / 2
     if now_debt <= 0 or then_debt <= 0:

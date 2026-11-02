@@ -350,6 +350,14 @@ trailing-four-quarter measures, any rule amendment.
   breach. The effective rate on a tiny debt balance is noise.
 - Config sha256 changes with this amendment.
 
+### 2026-11-02 — audit FR-2 (owner decision)
+
+- **Rate trend: interest <= 0 is n/a.** A reported interest expense <= 0, at
+  the latest fiscal year or three fiscal years earlier, is a data artifact,
+  not a zero or negative rate. The rate trend is `n/a (interest expense <= 0)`,
+  as the interest coverage measure already is. It is evaluated after the
+  missing-input check and before the rate is computed. No config key changes.
+
 ### 2026-10-05 — run 5 (debt tag fallbacks, untagged no-debt rule)
 
 - **Interest expense.** `InterestExpenseNonoperating` is appended as the last

@@ -201,6 +201,14 @@ def stress_portfolios(
     return defs, modes
 
 
+def _research_breach(research: dict, max_drawdown: float) -> bool | None:
+    """Whether research drawdown exceeds the limit; None (unknown, not False)
+    when the research run errored and has no drawdown."""
+    if "error" in research:
+        return None
+    return bool(research["max_drawdown"] > max_drawdown)
+
+
 def _candidate_result(
     cand: Candidate,
     cells: list,
@@ -213,7 +221,7 @@ def _candidate_result(
         research = research_metrics(cand, data, criteria, split)
     except ValueError as exc:  # recorded as a failed test, never skipped (research rule)
         research = {"error": str(exc)}
-    research_breach = bool(research.get("max_drawdown", 0.0) > max_drawdown)
+    research_breach = _research_breach(research, max_drawdown)
     stress_breaches = sum(1 for c in cells if c.breach)
     return {
         "id": cand.id,
@@ -224,7 +232,7 @@ def _candidate_result(
         "research_breach": research_breach,
         "stress_breaches": stress_breaches,
         "unavailable": sum(1 for c in cells if c.unavailable is not None),
-        "breach_count": stress_breaches + int(research_breach),
+        "breach_count": None if research_breach is None else stress_breaches + int(research_breach),
         "cells": [asdict(c) for c in cells],
     }
 
@@ -281,14 +289,14 @@ def benchmark_metrics(
             research = research_metrics(mix, data, criteria, row_split)
         except ValueError as exc:  # recorded, never skipped (research rule)
             research = {"error": str(exc)}
-        breach = bool(research.get("max_drawdown", 0.0) > max_drawdown)
+        breach = _research_breach(research, max_drawdown)
         rows.append(
             {
                 "id": row_id,
                 "label": label,
                 "research": research,
                 "research_breach": breach,
-                "breach_count": int(breach),
+                "breach_count": None if breach is None else int(breach),
             }
         )
     return rows
@@ -302,7 +310,7 @@ def _research_row(c: dict) -> str:
     r = c["research"]
     head = f"| {c['id']} | {c['label']} |"
     if "error" in r:
-        return f"{head} error: {r['error']} | | | | {c['breach_count']} |"
+        return f"{head} error: {r['error']} | | | | n/a |"
     return (
         f"{head} {_pct(r['cagr'])} | {r['sharpe']:.2f} | {_pct(r['max_drawdown'])} | "
         f"{r['turnover_per_year']:.2f} | {c['breach_count']} |"

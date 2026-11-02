@@ -254,6 +254,19 @@ def test_rate_trend_cases(cfg):
     assert run(no_int, cfg).measures["rate_trend"].status == "n/a"
 
 
+@pytest.mark.parametrize("interest", [0, -5])
+def test_rate_trend_nonpositive_interest_is_na_not_a_rate(cfg, interest):
+    """Owner decision 2026-11-02 (audit FR-2): interest <= 0 is a data artifact."""
+    big_net_debt = {CASH_TAG: 20}  # past the little-net-debt skip, which runs first
+    for facts in (
+        make_facts(latest={"InterestExpense": interest, **big_net_debt}),
+        make_facts(values={"InterestExpense": [15, interest, 15, 15, 15]}, latest=big_net_debt),
+    ):
+        m = run(facts, cfg).measures["rate_trend"]
+        assert m.status == "n/a"
+        assert "interest expense <= 0" in m.display
+
+
 CASH_TAG = "CashAndCashEquivalentsAtCarryingValue"
 
 

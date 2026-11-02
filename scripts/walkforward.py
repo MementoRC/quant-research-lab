@@ -20,7 +20,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from qrl.combined import combined_config_for_run, config_path_for  # noqa: E402
 from qrl.criteria import load_criteria  # noqa: E402
+from qrl.factor_run import (  # noqa: E402
+    FactorRun,
+    build_provider,
+    check_factor_run,
+    effective_criteria,
+    factor_data_source,
+)
 from qrl.ledger import (  # noqa: E402
     DEFAULT_LEDGER_PATH,
     Ledger,
@@ -71,16 +79,41 @@ def _load_candidate_specs(ledger: Ledger, run_id: int, top_n: int) -> list[dict]
     ]
 
 
-def _load_criteria_and_universe(args: argparse.Namespace) -> tuple[dict, str, dict]:
-    criteria, criteria_hash = load_criteria(args.criteria)
-    universe = load_universe(args.universe)
-    return criteria, criteria_hash, universe
+def _apply_run_guards(
+    args: argparse.Namespace, run: dict, criteria: dict
+) -> tuple[dict, dict, dict, FactorRun | None]:
+    """Same guards, same order, as `validate.py`: the factor.yaml/membership
+    hashes, then the combined config hash. Returns `(criteria, universe,
+    data_source, factor)`; raises `ValueError` on a changed hash."""
+    factor = check_factor_run(run, args.factor_config)
+    if factor is not None:
+        criteria = effective_criteria(criteria, factor.research_start)
+        universe = factor.universe
+        data_source = factor_data_source(args.synthetic, factor)
+    else:
+        universe = load_universe(args.universe)
+        data_source = data_source_fingerprint(
+            args.synthetic, universe["name"], list(universe["tickers"])
+        )
+    rule = run.get("pass_rule") or "standalone"
+    combined_config_for_run(
+        run,
+        config_path_for(rule, args.combined_config, ROOT / "config"),
+        args.profile,
+        args.portfolio,
+        universe_tickers=list(universe["tickers"]),
+        null_membership=factor.membership if factor is not None else None,
+    )
+    return criteria, universe, data_source, factor
 
 
-def _load_data(args: argparse.Namespace, criteria: dict, universe: dict) -> SearchData:
+def _load_data(
+    args: argparse.Namespace, criteria: dict, universe: dict, factor: FactorRun | None
+) -> SearchData:
     sleeve_tickers = list(universe["tickers"])
     needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
-    return SearchData.load(sorted(needed), synthetic=args.synthetic)
+    provider = build_provider(factor) if factor is not None else None
+    return SearchData.load(sorted(needed), synthetic=args.synthetic, provider=provider)
 
 
 def _research_validation_bounds(criteria: dict) -> tuple:
@@ -90,10 +123,7 @@ def _research_validation_bounds(criteria: dict) -> tuple:
 
 
 def cmd_tune(args: argparse.Namespace) -> int:
-    criteria, criteria_hash, universe = _load_criteria_and_universe(args)
-    data_source = data_source_fingerprint(
-        args.synthetic, universe["name"], list(universe["tickers"])
-    )
+    criteria, criteria_hash = load_criteria(args.criteria)
     search_space = DEFAULT_META_SEARCH_SPACE
     if args.search_space:
         search_space = json.loads(Path(args.search_space).read_text())
@@ -103,6 +133,11 @@ def cmd_tune(args: argparse.Namespace) -> int:
         if run is None:
             print(problem, file=sys.stderr)
             return 2
+        try:
+            criteria, universe, data_source, factor = _apply_run_guards(args, run, criteria)
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 2
         check_result = _check_data_source(ledger, args.run, data_source)
         if check_result is not None:
             return check_result
@@ -110,7 +145,7 @@ def cmd_tune(args: argparse.Namespace) -> int:
         if not candidate_specs:
             print("No passing research candidates to walk-forward.", file=sys.stderr)
             return 2
-        data = _load_data(args, criteria, universe)
+        data = _load_data(args, criteria, universe, factor)
         start, end = _research_validation_bounds(criteria)
         tried = tune_meta(
             candidate_specs,
@@ -135,10 +170,7 @@ def cmd_tune(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    criteria, criteria_hash, universe = _load_criteria_and_universe(args)
-    data_source = data_source_fingerprint(
-        args.synthetic, universe["name"], list(universe["tickers"])
-    )
+    criteria, criteria_hash = load_criteria(args.criteria)
     meta = {
         "n_strategies": args.n_strategies,
         "lookback_days": args.lookback_days,
@@ -152,6 +184,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         if run is None:
             print(problem, file=sys.stderr)
             return 2
+        try:
+            criteria, universe, data_source, factor = _apply_run_guards(args, run, criteria)
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 2
         check_result = _check_data_source(ledger, args.run, data_source)
         if check_result is not None:
             return check_result
@@ -160,7 +197,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             print("No passing research candidates to walk-forward.", file=sys.stderr)
             return 2
 
-    data = _load_data(args, criteria, universe)
+    data = _load_data(args, criteria, universe, factor)
     start, end = _research_validation_bounds(criteria)
 
     result = walk_forward(
@@ -200,6 +237,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="sleeve's capital share (config/profile.yaml)",
     )
+    # Run-bound configs, as in validate.py: only read for factor / combined runs.
+    ap.add_argument("--combined-config", default=None)
+    ap.add_argument("--factor-config", default=None)
+    ap.add_argument("--profile", default=str(ROOT / "config" / "profile.yaml"))
+    ap.add_argument("--portfolio", default=str(ROOT / "config" / "portfolio.yaml"))
     sub = ap.add_subparsers(dest="command", required=True)
 
     p_tune = sub.add_parser("tune", help="Grid-search meta-settings over research+validation.")
