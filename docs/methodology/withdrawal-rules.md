@@ -211,8 +211,9 @@ New `tests/test_decision_rules.py`, offline, synthetic series.
   guardrail cut, a guardrail raise, the floor_ceiling lower clamp and the
   upper clamp, and a skip after a loss and a normal raise after a gain.
 - The fixed rule equals `withdrawal_path` (historical, same returns and
-  CPI) and `run_paths` (long run, same indices) exactly: same values, same
-  depletion month.
+  CPI) and `run_paths` (long run, same indices): same values, same
+  depletion month, except when a withdrawal leaves under `DEPLETED` (1e-9).
+  There the helper stops and the long run applies one more return.
 - One path through the vectorised code equals the scalar run, for every
   rule.
 - Depletion: the 1e-9 threshold, depletion by the withdrawal itself, depletion

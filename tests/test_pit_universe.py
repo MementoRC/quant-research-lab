@@ -331,6 +331,16 @@ def test_loader_round_trips_and_verifies_hash(tmp_path):
     assert membership["month_end"].dtype.kind == "M"
 
 
+def test_write_json_atomic_writes_valid_json_and_leaves_no_temp(tmp_path):
+    import json
+
+    path = tmp_path / "screen.json"
+    path.write_text("{}")
+    pu._write_json_atomic(path, {"1": {"has_assets": True}})
+    assert json.loads(path.read_text()) == {"1": {"has_assets": True}}
+    assert [p.name for p in tmp_path.iterdir()] == ["screen.json"]
+
+
 def test_loader_rejects_csv_with_wrong_hash(tmp_path):
     path = _write_universe(tmp_path, _small_membership(), tamper=True)
     with pytest.raises(ValueError, match="sha256"):

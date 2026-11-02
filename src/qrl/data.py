@@ -105,6 +105,25 @@ def _has_columns(df: pd.DataFrame, columns: list[str]) -> bool:
     return all(c in df.columns for c in columns)
 
 
+def _start_path(cache_dir: Path, ticker: str) -> Path:
+    return cache_dir / f"{ticker}.start"
+
+
+def _record_start(cache_dir: Path, ticker: str, start: str) -> None:
+    _start_path(cache_dir, ticker).write_text(str(pd.Timestamp(start).date()))
+
+
+def _covers_start(cache_dir: Path, ticker: str, start: str) -> bool:
+    """False if the cache was fetched from a start later than the requested
+    one. A first bar after `start` alone proves nothing (a fund may have
+    launched later), so the start each fetch was requested with is recorded
+    beside the parquet. A cache with no record (legacy) is accepted as before."""
+    path = _start_path(cache_dir, ticker)
+    if not path.exists():
+        return True
+    return pd.Timestamp(path.read_text().strip()) <= pd.Timestamp(start)
+
+
 def _load_frames(
     tickers: list[str],
     start: str,
@@ -131,7 +150,7 @@ def _load_frames(
         cached = None if refresh else _load_cached(cache_dir, t)
         if cached is None:
             to_fetch.append(t)
-        elif _has_columns(cached, columns):
+        elif _has_columns(cached, columns) and _covers_start(cache_dir, t, start):
             frames[t] = cached
         else:
             stale.append(t)
@@ -153,6 +172,7 @@ def _load_frames(
                 warnings.warn(str(err), stacklevel=2)
         for t, df in downloaded.items():
             df.to_parquet(_cache_path(cache_dir, t))
+            _record_start(cache_dir, t, start)
             frames[t] = df
 
     if stale:

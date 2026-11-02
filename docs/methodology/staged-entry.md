@@ -182,7 +182,9 @@ New `tests/test_decision_staged.py`, offline, synthetic prices.
   order; the 5 bps on each tranche, in the historical view only.
 - Period 0 equals the existing lump-sum path (`withdrawal_path` with
   `portfolio_returns`, historical, January start months only; `run_paths`,
-  long run) exactly, in both cash variants.
+  long run) exactly, in both cash variants, except when a withdrawal leaves
+  under `DEPLETED` (1e-9): the helper stops there and the long run applies one
+  more return.
 - Depletion with staged cash.
 - Withdrawals exhaust the cash before the last tranche: all remaining cash is
   invested, later tranches are zero, and withdrawals then come from the

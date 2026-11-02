@@ -143,10 +143,12 @@ def _is_evicted(entry: dict, trailing: pd.Series, meta: dict) -> bool:
     strategy, and never an ordinary losing streak within its own historical
     range.
 
-    `entry["backtest_metrics"]` is a FIXED, pre-computed baseline from this
-    same strategy's research-period backtest (see `prepare_candidate_track`)
-    -- never re-estimated from data at or after the current boundary, so
-    calibration can never leak future information.
+    `entry["backtest_metrics"]` is a FIXED, pre-computed baseline: this same
+    strategy's backtest over its FULL research period (see
+    `prepare_candidate_track`), computed once and used unchanged at every
+    boundary. For a boundary inside the research period the baseline
+    therefore includes bars after that boundary; it is not re-estimated per
+    boundary. Holdout runs are unaffected.
 
     Two independent triggers, either sufficient:
 

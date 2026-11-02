@@ -7,7 +7,9 @@ no search trial; it selects and recommends nothing. Pure functions; callers
 inject data and configs. Every price and CPI frame is cut at the research end
 (2018-12-31) before use, so validation and holdout data never enter. The lump
 sum is the same runner with one tranche and equals `withdrawal_path` and
-`run_paths` exactly; that code and every number it publishes are unchanged.
+`run_paths`, except when a withdrawal leaves under DEPLETED (1e-9): there the
+helper stops and the long run applies one more return. That code and every
+number it publishes are unchanged.
 """
 
 from __future__ import annotations
