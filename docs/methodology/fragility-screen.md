@@ -76,7 +76,7 @@ used. Period end is never used to decide availability.
 All flows are the latest fiscal year (annual duration) known at the as-of
 date; balance-sheet items are the latest instant of that same fiscal year-end
 (`pit_panel` default for instants). Concepts are tried in order, first
-available wins. Any missing input makes that measure `unavailable (reason)`;
+available wins. Any missing input makes that measure `n/a (reason)` (amended 2026-11-02, audit: the code prints `n/a`, not `unavailable`);
 nothing is imputed, no zero is assumed. One exception, stated so it is not
 silent: if total debt is itself reported as exactly 0, coverage, net debt/FCF
 and the rate trend are "no debt" (available, not breached).
@@ -149,7 +149,7 @@ judgment calls fixed before seeing results; nobody tunes them after a look.
 |---|---|---|
 | `version` | 1 | |
 | `date`, `decided_by` | 2026-10-05, owner | |
-| `breach_to_fragile` (N) | 1 | owner: any single failed check flags the company, stricter filter |
+| `breach_to_fragile` (N) | 2 | owner. Registered as 1 on 2026-10-05 (any single failed check flags the company); superseded by the "after run 2" amendment (N = 2); amended 2026-11-02, audit |
 | `min_available_for_sound` (K) | 4 | SOUND must rest on most of the six measures |
 | `interest_coverage_min` | 2.0 | below 2x, a modest profit dip means unpaid interest |
 | `net_debt_to_fcf_max` | 6.0 | more than six years of free cash flow to repay net debt |
@@ -171,10 +171,13 @@ Class rules, in this order:
 
 1. NOT APPLICABLE: financial firm (above).
 2. FRAGILE: breaches >= N (`breach_to_fragile`).
-3. WATCH: 1 <= breaches < N. Empty when N = 1 (owner decision 2026-10-05: N = 1),
-   so every breaching company is FRAGILE; the rule stays general so a later
-   dated amendment of N needs no code change. The markdown "Fragile and watch"
-   section still renders at N = 1; WATCH rows are simply absent.
+3. WATCH: 1 <= breaches < N. With the current N = 2, exactly one breach is
+   WATCH and two or more is FRAGILE. (The original owner decision of
+   2026-10-05 was N = 1, which left WATCH empty; the "after run 2" amendment
+   changed it to N = 2, see Amendments. Amended 2026-11-02, audit.) The rule
+   stays general so a later dated amendment of N needs no code change. The
+   markdown "Fragile and watch" section renders at any N; at N = 1 WATCH rows
+   would be absent.
 4. SOUND: zero breaches and at least `min_available_for_sound` (K) measures available.
 5. INSUFFICIENT DATA: everything else (zero breaches with fewer measures
    available, or industry unknown). Each row says which measures were
@@ -265,8 +268,8 @@ Synthetic company facts and submissions, no network.
   only for Piotroski) and the "debt reported as 0" case.
 - Financial-firm exclusion by SIC range and by override list; unknown SIC ->
   INSUFFICIENT DATA.
-- Classification rules and boundaries, at both N = 1 (shipped; WATCH empty) and
-  N = 2: exactly N-1, N, N+1 breaches; K-1 and K available measures; values
+- Classification rules and boundaries, at both N = 1 (original;
+  WATCH empty) and N = 2 (shipped since the run-2 amendment): exactly N-1, N, N+1 breaches; K-1 and K available measures; values
   exactly at each threshold (not a breach).
 - PIT: a filing dated after the as-of date is ignored; a filing dated ON the
   as-of date is ignored (`filed < t`); a restatement counts only once filed;

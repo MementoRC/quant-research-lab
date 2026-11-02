@@ -72,8 +72,10 @@ blends:
 The BONDS weights sum to 1 within the loader's 1e-9 tolerance. Every held
 fund (SHY, IEF, TLT, RSP) is already in each judgement-based scenario, so
 no scenario changes. The report's multiple-comparison count rises from 12
-to 21 portfolios; the report computes it. Its multiple-comparison note
-(`_header` in `decision_report.py`) also says the 21 rows include 4
+at registration to 21 (amended 2026-11-02, audit: it is now whatever
+`config/decision.yaml` lists, 27 at this date; the report computes it, so do
+not rely on a typed count). Its multiple-comparison note
+(`_header` in `decision_report.py`) also says the rows include 4
 single-fund by-product rows (IEF, TLT, RSP, BONDS) and that only the 5 A80
 rows answer the question. `longrun_report.py`'s `_header` gets a similar
 one-line note: 22 rows, including the "CASH +1% real" assumption row, and
@@ -103,7 +105,9 @@ withdrawals: CAGR, max drawdown, and CAGR minus A's CAGR ("lost return").
   `run_decision` adds the rows under a new `returns` key: a list, in the
   report's portfolio order, of dicts with keys `portfolio`, `cagr`,
   `max_drawdown`, `lost_return` (A's CAGR minus the portfolio's CAGR, in
-  percentage points; None if A is missing).
+  percentage points; None if A is missing). Amended 2026-11-02, audit:
+  `decision.py` keeps `lost_return` as a CAGR fraction (0.012 = 1.2 pp);
+  `decision_report.py` formats it as percentage points.
 - `src/qrl/decision_report.py`: new `_return_section`, rendered after the
   portfolio section as "## Research-period return (2005-2018, no
   withdrawals)", columns Portfolio | CAGR | Max drawdown | CAGR given up vs
