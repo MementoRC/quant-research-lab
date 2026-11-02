@@ -1,0 +1,93 @@
+# PRE-REGISTERED history-grounded scenarios configuration (spec:
+# docs/methodology/history-scenarios.md; owner-approved design 2026-10-31).
+# Fixed before any result was seen. Every report records this file's sha256.
+# The threshold and start date were chosen from the expected number of
+# episodes (about 10 at 15%), not from any outcome. After the first
+# `pixi run history-scenarios` report, change only via a dated amendment comment.
+version: 1
+
+episodes:
+  index: "^GSPC"
+  threshold: 0.15
+  start: "1971-01-01"
+  horizon_years: 10
+
+# The portfolio price panel starts on `start`: the first trading day on which
+# every stand-in has a price and a previous close (pinned from the Task 0 probe;
+# amended spec, PR #87). `lead_in_start`: earlier days used only to build
+# proxies (a return needs a previous day) and previous-close opens; they are
+# cut before any use.
+panel:
+  start: "1971-02-08"
+  lead_in_start: "1970-12-01"
+
+# The 12 portfolios of the decision helper (definitions: config/decision.yaml
+# and config/core_candidates.yaml, read unchanged).
+portfolios: [A, B, C, D, E, F, G, CASH, G-EW, AG, G-CASH, A-CASH]
+
+withdrawal_rates: [0.02, 0.033, 0.04, 0.05]
+income_horizons_years: [5, 10]
+min_correlation: 0.95   # the bar of docs/methodology/international-test.md
+max_gap_days: 1         # the rule of qrl.international.fill_proxy_gaps
+
+cache_dir: "data/cache/history"
+download_start: "1927-01-01"
+cpi_max_first_date: "1970-01-01"   # CPIAUCNS (FRED), loaded with qrl.macro.load_macro
+
+# ticker: latest allowed first date (the exact first date seen in the Task 0 probe).
+yahoo:
+  "^GSPC": "1927-12-30"
+  "^SP500TR": "1988-01-04"
+  "^IXIC": "1971-02-05"
+  "GC=F": "2000-08-30"
+  SPY: "1993-01-29"
+  QQQ: "1999-03-10"
+  RSP: "2003-05-01"
+  IEF: "2002-07-30"
+  TLT: "2002-07-30"
+  SHY: "2002-07-30"
+  GLD: "2004-11-18"
+
+# FRED id: latest allowed first date.
+fred:
+  DGS1: "1962-01-02"
+  DGS2: "1976-06-01"
+  DGS7: "1969-07-01"
+  DGS20: "1962-01-02"
+  DGS30: "1977-02-15"
+
+yield_lag_business_days: 0   # each yield on its own date (amended spec; international.yaml uses 1)
+
+# Each leg's duration is the duration of the FUND imitated (the values of
+# config/international.yaml: SHY 1.9, IEF 7.5, TLT 17.0). A leg with start/end
+# is used only in that window (inclusive), chained by returns so the joined
+# price has no jump; the first leg is the base.
+treasury:
+  SHY:   # DGS1 before DGS2 exists (first date 1976-06-01), DGS2 from then on (spec amended 2026-11-01)
+    - {fred: DGS1, duration: 1.9}
+    - {fred: DGS2, duration: 1.9, start: "1976-06-01", end: "2018-12-31"}
+  IEF:
+    - {fred: DGS7, duration: 7.5}
+  TLT:
+    - {fred: DGS20, duration: 17.0}
+    - {fred: DGS30, duration: 17.0, start: "1987-01-01", end: "1993-09-30"}
+
+gold:
+  futures: "GC=F"
+  fund: GLD
+
+# Monthly dividend yield of the S&P 500 (Shiller): D / P, annual fraction.
+shiller:
+  url: "http://www.econ.yale.edu/~shiller/data/ie_data.xls"
+  sheet: "Data"
+  skiprows: 7
+  columns: {date: "Date", price: "P", dividend: "D"}
+  max_first_date: "1871-01-01"
+
+# World Bank Pink Sheet, monthly gold price (USD per troy ounce; a monthly average).
+worldbank:
+  url: "https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx"
+  sheet: "Monthly Prices"
+  skiprows: 4
+  columns: {date: 0, value: "Gold"}
+  max_first_date: "1960-01-01"

@@ -1,0 +1,438 @@
+"""Tests for qrl.history_data (docs/methodology/history-scenarios.md,
+"Stand-in data"). Synthetic data only; nothing here downloads."""
+
+from __future__ import annotations
+
+import dataclasses
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from qrl.history_config import Leg, load_history_config
+from qrl.history_data import (
+    FUNDS,
+    RawData,
+    assemble_panel,
+    check_first_date,
+    fetch_shiller_dividend_yield,
+    fetch_worldbank_gold,
+    interpolate_monthly,
+    parse_shiller,
+    parse_worldbank,
+    raw_hashes,
+    sp_with_dividends,
+    treasury_proxy,
+    validate_raw,
+)
+from qrl.international import yield_proxy_close
+
+
+def test_each_monthly_figure_sits_on_its_month_end():
+    index = pd.bdate_range("2000-01-03", "2000-04-28")
+    monthly = pd.Series(
+        [100.0, 110.0, 121.0, 133.1],
+        index=pd.to_datetime(["2000-01-01", "2000-02-01", "2000-03-01", "2000-04-01"]),
+    )
+    out = interpolate_monthly(monthly, index)
+    for day, figure in [
+        ("2000-01-31", 100.0),
+        ("2000-02-29", 110.0),
+        ("2000-03-31", 121.0),
+        ("2000-04-28", 133.1),
+    ]:
+        assert out.loc[day] == pytest.approx(figure)
+    assert out.loc[:"2000-01-28"].isna().all()  # nothing before the first month end
+
+
+def test_days_between_month_ends_move_at_a_constant_daily_rate():
+    index = pd.bdate_range("2000-01-03", "2000-04-28")
+    monthly = pd.Series(
+        [100.0, 110.0, 121.0, 133.1],
+        index=pd.to_datetime(["2000-01-01", "2000-02-01", "2000-03-01", "2000-04-01"]),
+    )
+    out = interpolate_monthly(monthly, index)
+    february = out.loc["2000-02-01":"2000-02-29"].pct_change().dropna()
+    assert np.allclose(february, february.iloc[0])
+    assert (out.loc["2000-02-01":"2000-02-29"].diff().dropna() > 0).all()
+
+
+def test_interpolation_refuses_a_non_positive_figure():
+    index = pd.bdate_range("2000-01-03", "2000-03-31")
+    monthly = pd.Series([100.0, 0.0], index=pd.to_datetime(["2000-01-01", "2000-02-01"]))
+    with pytest.raises(ValueError, match="positive"):
+        interpolate_monthly(monthly, index)
+
+
+def test_dividends_accrue_daily_as_yield_over_252():
+    index = pd.bdate_range("2000-01-03", periods=3)
+    price = pd.Series(100.0, index=index)
+    yields = pd.Series(0.0252, index=pd.to_datetime(["1999-11-01", "1999-12-01", "2000-01-01"]))
+    out = sp_with_dividends(price, yields)
+    assert out.iloc[0] == 1.0
+    assert out.iloc[1] == pytest.approx(1.0001)
+    assert out.iloc[2] == pytest.approx(1.0001**2)
+
+
+def test_dividend_yield_of_the_previous_month_is_used():
+    index = pd.bdate_range("2000-01-31", periods=2)  # Jan 31, Feb 1
+    price = pd.Series(100.0, index=index)
+    yields = pd.Series([0.0252, 0.0504], index=pd.to_datetime(["1999-12-01", "2000-01-01"]))
+    out = sp_with_dividends(price, yields)
+    assert out.iloc[1] == pytest.approx(1.0 + 0.0504 / 252)  # Feb 1 uses January's yield
+
+
+def test_dividend_return_is_additive_to_the_price_return():
+    index = pd.bdate_range("2000-01-03", periods=3)
+    price = pd.Series([100.0, 110.0, 99.0], index=index)
+    yields = pd.Series(0.0252, index=pd.to_datetime(["1999-12-01"]))
+    out = sp_with_dividends(price, yields)
+    step = 0.0252 / 252
+    assert out.iloc[1] == pytest.approx(1.0 + 0.10 + step)
+    assert out.iloc[2] == pytest.approx((1.0 + 0.10 + step) * (1.0 - 0.10 + step))
+    assert out.iloc[1] != pytest.approx(1.10 * (1.0 + step))
+
+
+def test_nan_price_raises():
+    index = pd.bdate_range("2000-01-03", periods=3)
+    price = pd.Series([100.0, np.nan, 101.0], index=index)
+    yields = pd.Series(0.03, index=pd.to_datetime(["1999-12-01"]))
+    with pytest.raises(ValueError, match="missing"):
+        sp_with_dividends(price, yields)
+
+
+def test_empty_price_raises():
+    price = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+    yields = pd.Series(0.03, index=pd.to_datetime(["1999-12-01"]))
+    with pytest.raises(ValueError, match="empty"):
+        sp_with_dividends(price, yields)
+
+
+@pytest.mark.parametrize("days", [["2000-01-04", "2000-01-03"], ["2000-01-03", "2000-01-03"]])
+def test_unsorted_or_duplicated_price_index_raises(days):
+    price = pd.Series([100.0, 101.0], index=pd.to_datetime(days))
+    yields = pd.Series(0.03, index=pd.to_datetime(["1999-12-01"]))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        sp_with_dividends(price, yields)
+
+
+@pytest.mark.parametrize("days", [["2000-01-04", "2000-01-03"], ["2000-01-03", "2000-01-03"]])
+def test_unsorted_or_duplicated_interpolation_index_raises(days):
+    monthly = pd.Series([100.0], index=pd.to_datetime(["2000-01-01"]))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        interpolate_monthly(monthly, pd.DatetimeIndex(pd.to_datetime(days)))
+
+
+def test_two_yield_figures_in_one_month_raise():
+    index = pd.bdate_range("2000-01-03", periods=2)
+    price = pd.Series(100.0, index=index)
+    yields = pd.Series([0.03, 0.04], index=pd.to_datetime(["1999-12-01", "1999-12-15"]))
+    with pytest.raises(ValueError, match="more than one"):
+        sp_with_dividends(price, yields)
+
+
+def test_a_missing_middle_month_is_bridged_geometrically():
+    index = pd.bdate_range("2000-01-03", "2000-03-31")
+    monthly = pd.Series([100.0, 121.0], index=pd.to_datetime(["2000-01-01", "2000-03-01"]))
+    out = interpolate_monthly(monthly, index)
+    assert out.loc["2000-01-31"] == pytest.approx(100.0)
+    assert out.loc["2000-03-31"] == pytest.approx(121.0)
+    steps = out.loc["2000-01-31":"2000-03-31"].pct_change().dropna()
+    assert np.allclose(steps, steps.iloc[0])
+
+
+def test_two_monthly_gold_figures_in_one_month_raise():
+    index = pd.bdate_range("2000-01-03", "2000-03-31")
+    monthly = pd.Series([100.0, 101.0], index=pd.to_datetime(["2000-01-01", "2000-01-15"]))
+    with pytest.raises(ValueError, match="more than one figure in a month"):
+        interpolate_monthly(monthly, index)
+
+
+def test_missing_dividend_yield_raises():
+    index = pd.bdate_range("2000-01-03", periods=3)
+    price = pd.Series(100.0, index=index)
+    yields = pd.Series([0.03], index=pd.to_datetime(["1990-01-01"]))
+    with pytest.raises(ValueError, match="dividend yield"):
+        sp_with_dividends(price, yields)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CONFIG = ROOT / "config" / "history.yaml"
+PANEL_END = pd.Timestamp("2000-12-29")
+
+
+def _walk(index: pd.DatetimeIndex, seed: int, start: float = 100.0, vol: float = 0.01):
+    rng = np.random.default_rng(seed)
+    return pd.Series(start * np.exp(np.cumsum(rng.normal(0.0002, vol, len(index)))), index=index)
+
+
+def _yield(index: pd.DatetimeIndex, seed: int) -> pd.Series:
+    rng = np.random.default_rng(seed)
+    return pd.Series(5.0 + np.cumsum(rng.normal(0.0, 0.02, len(index))), index=index)
+
+
+def test_a_yield_leg_window_chains_without_a_jump():
+    index = pd.bdate_range("1990-01-01", "1993-12-31")
+    d20 = pd.Series(8.0, index=pd.bdate_range("1990-01-01", "1990-12-31"))  # not published in 1991
+    d20 = pd.concat([d20, pd.Series(7.0, index=pd.bdate_range("1992-01-01", "1993-12-31"))])
+    d30 = pd.Series(8.5, index=pd.bdate_range("1990-01-01", "1993-12-31"))
+    legs = (
+        Leg("DGS20", 10.0),
+        Leg("DGS30", 10.0, pd.Timestamp("1991-01-01"), pd.Timestamp("1991-12-31")),
+    )
+    unchained = yield_proxy_close(d20, 10.0, 1, index)
+    assert unchained.pct_change().abs().max() > 0.05  # the join is a jump without the chain
+    chained = treasury_proxy(legs, {"DGS20": d20, "DGS30": d30}, 1, index)
+    assert chained.pct_change().abs().max() < 0.001
+    # The leg is used through lag + 1 = 2 trading days after its end, then the base returns.
+    got = chained.pct_change()
+    base = unchained.pct_change()
+    leg = yield_proxy_close(d30, 10.0, 1, index).pct_change()
+    after = int(index.searchsorted(pd.Timestamp("1991-12-31"), side="right"))
+    last_leg_day, first_base_day = index[after + 1], index[after + 2]
+    assert got.loc[last_leg_day] == pytest.approx(leg.loc[last_leg_day])
+    assert leg.loc[last_leg_day] != pytest.approx(base.loc[last_leg_day])
+    assert got.loc[first_base_day] == pytest.approx(base.loc[first_base_day])
+    assert leg.loc[first_base_day] != pytest.approx(base.loc[first_base_day])
+
+
+def test_shy_proxy_switches_to_dgs2_on_its_first_date_without_a_jump():
+    index = pd.bdate_range("1990-01-01", "1991-12-31")
+    first = pd.Timestamp("1991-01-01")  # DGS2's first value; DGS1 covers the days before
+    d1 = pd.Series(5.0, index=index)
+    d2 = pd.Series(6.5, index=index[index >= first])
+    legs = (Leg("DGS1", 1.9), Leg("DGS2", 1.9, first, index[-1]))
+    unchained = yield_proxy_close(d2, 1.9, 0, index).combine_first(
+        yield_proxy_close(d1, 1.9, 0, index)
+    )
+    assert unchained.pct_change().abs().max() > 0.001  # a plain join jumps
+    chained = treasury_proxy(legs, {"DGS1": d1, "DGS2": d2}, 0, index)
+    assert chained.pct_change().abs().max() < 0.001
+    got = chained.pct_change()
+    base = yield_proxy_close(d1, 1.9, 0, index).pct_change()
+    leg = yield_proxy_close(d2, 1.9, 0, index).pct_change()
+    no_return_yet = leg.index[(leg.index >= first) & leg.isna()]
+    assert len(no_return_yet) >= 1
+    assert base.loc[no_return_yet].gt(0).all()  # a real DGS1 return, not a flat day
+    pd.testing.assert_series_equal(got.loc[no_return_yet], base.loc[no_return_yet])
+    valid = leg.loc[first:].dropna()
+    pd.testing.assert_series_equal(got.loc[valid.index], valid, check_names=False)
+
+
+def test_a_single_leg_is_the_plain_yield_proxy():
+    index = pd.bdate_range("1990-01-01", "1990-12-31")
+    y = _yield(index, 1)
+    out = treasury_proxy((Leg("DGS1", 1.9),), {"DGS1": y}, 1, index)
+    pd.testing.assert_series_equal(out, yield_proxy_close(y, 1.9, 1, index))
+
+
+def _raw(
+    *,
+    ixic_start: str = "1999-12-01",
+    ixic_gaps: tuple[str, ...] = (),
+) -> tuple[RawData, pd.DatetimeIndex]:
+    days = pd.bdate_range("1999-12-01", PANEL_END)
+    starts = {
+        "^GSPC": "1999-12-01", "^SP500TR": "2000-03-01", "^IXIC": ixic_start,
+        "GC=F": "2000-05-01", "SPY": "2000-06-01", "QQQ": "2000-04-03", "RSP": "2000-08-01",
+        "IEF": "2000-07-03", "TLT": "2000-07-03", "SHY": "2000-07-03", "GLD": "2000-09-01",
+    }  # fmt: skip
+    close = pd.DataFrame(index=days, columns=list(starts), dtype=float)
+    for i, (ticker, first) in enumerate(starts.items()):
+        sub = days[days >= first]
+        close.loc[sub, ticker] = _walk(sub, i).to_numpy()
+    for day in ixic_gaps:
+        close.loc[day, "^IXIC"] = np.nan
+    open_ = close * 1.001
+    fred = {
+        sid: _yield(pd.bdate_range("1999-06-01", PANEL_END), seed)
+        for seed, sid in enumerate(["DGS1", "DGS2", "DGS7", "DGS20", "DGS30"])
+    }
+    shiller = pd.Series(0.02, index=pd.date_range("1999-01-01", "2000-12-01", freq="MS"))
+    worldbank = pd.Series(
+        300.0 * np.exp(np.arange(15) * 0.01),
+        index=pd.date_range("1999-10-01", "2000-12-01", freq="MS"),
+    )
+    return RawData(open_, close, fred, shiller, worldbank), days
+
+
+def _cfg():
+    return dataclasses.replace(
+        load_history_config(CONFIG),
+        panel_start=pd.Timestamp("2000-01-03"),
+        lead_in_start=pd.Timestamp("1999-12-01"),
+    )
+
+
+def test_panel_covers_every_fund_from_the_panel_start():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    assert panel.close.index[0] == pd.Timestamp("2000-01-03")
+    assert list(panel.close.columns) == list(FUNDS)
+    assert not panel.close.isna().any(axis=None)
+    assert not panel.open.isna().any(axis=None)
+
+
+def test_own_start_and_gold_futures_start_are_the_first_real_prices():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    assert panel.own_start["SPY"] == pd.Timestamp("2000-06-01")
+    assert panel.own_start["GLD"] == pd.Timestamp("2000-09-01")
+    assert panel.gold_futures_start == pd.Timestamp("2000-05-01")
+
+
+def test_stand_in_open_is_the_previous_close_and_fund_open_is_its_own():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    day = pd.Timestamp("2000-03-15")  # QQQ, SHY, SPY all on stand-in data
+    for fund in ("QQQ", "SHY", "SPY"):
+        previous = panel.close[fund].shift(1).loc[day]
+        assert panel.open[fund].loc[day] == pytest.approx(previous)
+    first = panel.own_start["SPY"]
+    assert panel.open["SPY"].loc[first] == pytest.approx(raw.open.loc[first, "SPY"])
+
+
+def test_the_fund_price_is_its_own_from_its_first_day_and_joined_without_a_jump():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    first = panel.own_start["SPY"]
+    assert panel.close["SPY"].loc[first] == pytest.approx(raw.close.loc[first, "SPY"])
+    after = panel.close["SPY"].loc[first:]
+    pd.testing.assert_series_equal(
+        after, raw.close["SPY"].loc[first:PANEL_END], check_names=False, check_freq=False
+    )
+    jump = panel.close["SPY"].pct_change().loc[first]
+    assert abs(jump) < 0.2  # an ordinary daily move, not a level jump between sources
+
+
+def test_bond_links_use_the_proxy_at_the_configured_lag_zero():
+    raw, days = _raw()
+    cfg = _cfg()
+    assert cfg.yield_lag_days == 0
+    links = {link.label: link for link in assemble_panel(raw, cfg, PANEL_END).links}
+    gspc = raw.close["^GSPC"].dropna()
+    index = pd.DatetimeIndex(gspc.index[gspc.index >= cfg.lead_in_start])
+    for fund, legs in cfg.treasury.items():
+        proxy = links[f"{fund}: yield proxy against {fund}"].standin
+        lag0 = treasury_proxy(legs, raw.fred, 0, index)
+        lag1 = treasury_proxy(legs, raw.fred, 1, index)
+        pd.testing.assert_series_equal(proxy, lag0, check_names=False)
+        assert not proxy.dropna().equals(lag1.reindex(proxy.dropna().index))
+    one = dataclasses.replace(cfg, yield_lag_days=1)
+    shifted = {link.label: link for link in assemble_panel(raw, one, PANEL_END).links}
+    label = "IEF: yield proxy against IEF"
+    assert not links[label].standin.dropna().equals(shifted[label].standin.dropna())
+
+
+def test_one_day_gap_in_a_stand_in_is_filled_and_two_days_raise():
+    raw, _ = _raw(ixic_gaps=("2000-02-10",))
+    panel = assemble_panel(raw, _cfg(), PANEL_END)
+    assert panel.close["QQQ"].loc["2000-02-10"] == panel.close["QQQ"].loc["2000-02-09"]
+    raw, _ = _raw(ixic_gaps=("2000-02-10", "2000-02-11"))
+    with pytest.raises(ValueError, match="gap"):
+        assemble_panel(raw, _cfg(), PANEL_END)
+
+
+def test_a_stand_in_that_does_not_reach_the_panel_start_raises():
+    raw, _ = _raw(ixic_start="2000-01-10")
+    with pytest.raises(ValueError, match="QQQ"):
+        assemble_panel(raw, _cfg(), PANEL_END)
+
+
+def test_the_panel_is_cut_at_the_data_end():
+    raw, _ = _raw()
+    panel = assemble_panel(raw, _cfg(), pd.Timestamp("2000-11-30"))
+    assert panel.close.index[-1] <= pd.Timestamp("2000-11-30")
+
+
+def test_a_series_starting_later_than_needed_raises():
+    s = pd.Series(1.0, index=pd.bdate_range("1999-01-01", periods=5))
+    check_first_date("QQQ", s, pd.Timestamp("1999-01-01"))  # exactly on time: fine
+    with pytest.raises(ValueError, match="starts 1999-01-01"):
+        check_first_date("QQQ", s, pd.Timestamp("1998-12-31"))
+
+
+def _relaxed_cfg(raw: RawData):
+    """The config with every first-date bound set after the synthetic series
+    start, so only the cut check can fail."""
+    bound = pd.Timestamp("2000-12-01")
+    cfg = _cfg()
+    return dataclasses.replace(
+        cfg,
+        yahoo=dict.fromkeys(raw.close.columns, bound),
+        fred=dict.fromkeys(raw.fred, bound),
+        shiller=dataclasses.replace(cfg.shiller, max_first_date=bound),
+        worldbank=dataclasses.replace(cfg.worldbank, max_first_date=bound),
+    )
+
+
+def test_valid_raw_data_passes_validation():
+    raw, _ = _raw()
+    validate_raw(raw, _relaxed_cfg(raw), PANEL_END)
+
+
+def test_data_after_the_end_is_refused():
+    raw, _ = _raw()
+    late = raw.close.copy()
+    late.loc[pd.Timestamp("2019-01-02"), "SPY"] = 1.0
+    bad = dataclasses.replace(raw, close=late)
+    with pytest.raises(ValueError, match="after 2000-12-29"):
+        validate_raw(bad, _relaxed_cfg(bad), PANEL_END)
+
+
+def test_a_series_starting_after_its_configured_first_date_is_refused_by_validation():
+    raw, _ = _raw()
+    cfg = _relaxed_cfg(raw)
+    strict = dataclasses.replace(cfg, yahoo={**cfg.yahoo, "SPY": pd.Timestamp("2000-01-01")})
+    with pytest.raises(ValueError, match="SPY close: starts"):
+        validate_raw(raw, strict, PANEL_END)
+
+
+def test_raw_hashes_are_stable_and_name_every_series():
+    raw, _ = _raw()
+    first = raw_hashes(raw)
+    assert first == raw_hashes(raw)
+    assert {"^GSPC close", "FRED DGS1", "Shiller dividend yield", "World Bank gold"} <= first.keys()
+    assert all(len(h) == 64 for h in first.values())
+
+
+def test_shiller_parser_reads_float_dates_and_the_dividend_yield():
+    frame = pd.DataFrame(
+        {
+            "Date": [1971.01, 1971.1, 1971.12, "footer"],
+            "P": [100.0, 100.0, 100.0, None],
+            "D": [3.0, 4.0, 5.0, None],
+        }
+    )
+    out = parse_shiller(frame, {"date": "Date", "price": "P", "dividend": "D"})
+    assert list(out.index) == [
+        pd.Timestamp("1971-01-01"),
+        pd.Timestamp("1971-10-01"),
+        pd.Timestamp("1971-12-01"),
+    ]
+    assert list(out) == [0.03, 0.04, 0.05]
+
+
+def test_shiller_parser_refuses_an_implausible_yield():
+    frame = pd.DataFrame({"Date": [1971.01], "P": [100.0], "D": [50.0]})
+    with pytest.raises(ValueError, match="yield"):
+        parse_shiller(frame, {"date": "Date", "price": "P", "dividend": "D"})
+
+
+def test_monthly_loaders_read_the_cache_file_without_a_download(tmp_path):
+    cfg = _cfg()
+    idx = pd.date_range("1971-01-01", periods=3, freq="MS")
+    for name, vals in [("shiller_dividend_yield", [0.03] * 3), ("worldbank_gold", [40.0] * 3)]:
+        pd.Series(vals, index=idx, name="value").to_frame().to_parquet(tmp_path / f"{name}.parquet")
+    assert list(fetch_shiller_dividend_yield(cfg.shiller, tmp_path)) == [0.03] * 3
+    assert list(fetch_worldbank_gold(cfg.worldbank, tmp_path).index) == list(idx)
+
+
+def test_worldbank_parser_reads_month_labels_and_the_gold_column_by_position_or_name():
+    frame = pd.DataFrame(
+        {0: ["1970M11", "1970M12", "note"], "Gold": [37.4, 37.4, None], "Silver": [1.0, 1.0, 1.0]}
+    )
+    out = parse_worldbank(frame, {"date": 0, "value": "Gold"})
+    assert list(out.index) == [pd.Timestamp("1970-11-01"), pd.Timestamp("1970-12-01")]
+    assert list(out) == [37.4, 37.4]

@@ -1,6 +1,6 @@
 # History-grounded scenarios: every large fall since 1971
 
-Status: Draft (2026-10-31). Owner answered the design questions in
+Status: Implemented (2026-11-01). Owner answered the design questions in
 conversation on 2026-10-30 and 2026-10-31.
 Extends [decision-helper.md](decision-helper.md) (Delivery, item 3) and
 [income-explorer.md](income-explorer.md) (Out of scope).
