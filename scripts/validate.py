@@ -62,13 +62,6 @@ FUNNEL_STAGES = (
 )
 
 
-def _get_run(ledger: Ledger, run_id: int) -> dict | None:
-    for run in ledger.list_runs():
-        if run["run_id"] == run_id:
-            return run
-    return None
-
-
 def _check_data_source(ledger: Ledger, run_id: int, data_source: dict) -> int | None:
     """Returns an exit code if the check fails outright, or None if the
     caller should proceed (a match, or a legacy run with no recorded data
@@ -132,9 +125,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
         validation_config = {**validation_config, "top_n_to_validate": args.top}
 
     with Ledger(args.ledger) as ledger:
-        run = _get_run(ledger, args.run)
+        run, problem = ledger.checked_run(args.run, criteria_hash)
         if run is None:
-            print(f"Unknown run {args.run}", file=sys.stderr)
+            print(problem, file=sys.stderr)
             return 2
 
         rule = run.get("pass_rule") or "standalone"

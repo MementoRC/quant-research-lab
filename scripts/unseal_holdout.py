@@ -46,13 +46,6 @@ _WARNING = (
 )
 
 
-def _get_run(ledger: Ledger, run_id: int) -> dict | None:
-    for run in ledger.list_runs():
-        if run["run_id"] == run_id:
-            return run
-    return None
-
-
 def _load_candidate_specs(ledger: Ledger, run_id: int, top_n: int) -> list[dict]:
     survivors = ledger.top_candidates(run_id=run_id, n=top_n, order_by="sharpe", passed_only=True)
     return [
@@ -62,7 +55,13 @@ def _load_candidate_specs(ledger: Ledger, run_id: int, top_n: int) -> list[dict]
 
 def cmd_unseal(args: argparse.Namespace) -> int:
     print(_WARNING)
-    criteria, _criteria_hash = load_criteria(args.criteria)
+    criteria, criteria_hash = load_criteria(args.criteria)
+    # Refuse a changed criteria hash before loading any data or unsealing.
+    with Ledger(args.ledger) as ledger:
+        run, problem = ledger.checked_run(args.run, criteria_hash)
+    if run is None:
+        print(problem, file=sys.stderr)
+        return 2
     universe = load_universe(args.universe)
     sleeve_tickers = list(universe["tickers"])
     needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
@@ -77,10 +76,6 @@ def cmd_unseal(args: argparse.Namespace) -> int:
     }
 
     with Ledger(args.ledger) as ledger:
-        run = _get_run(ledger, args.run)
-        if run is None:
-            print(f"Unknown run {args.run}", file=sys.stderr)
-            return 2
         candidate_specs = _load_candidate_specs(ledger, args.run, args.top)
         if not candidate_specs:
             print("No passing research candidates for the final process.", file=sys.stderr)
