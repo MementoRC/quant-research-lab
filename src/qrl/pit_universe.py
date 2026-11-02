@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -429,6 +430,14 @@ def screen_payload(payload: Mapping) -> dict:
     }
 
 
+def _write_json_atomic(path: Path, obj: object) -> None:
+    """Write JSON via a temp file in the same directory, then `os.replace`, so
+    an interrupted run never leaves a truncated file."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(obj))
+    os.replace(tmp, path)
+
+
 def screen_ciks(
     ciks: Sequence[int],
     refresh: bool,
@@ -460,9 +469,9 @@ def screen_ciks(
             }
         )
         if i % 250 == 0:
-            path.write_text(json.dumps(done))
+            _write_json_atomic(path, done)
             log(f"screen: {i}/{len(todo)}")
-    path.write_text(json.dumps(done))
+    _write_json_atomic(path, done)
     return {int(k): v for k, v in done.items()}
 
 

@@ -39,6 +39,25 @@ def test_load_prices_writes_and_reuses_parquet_cache(tmp_path, monkeypatch):
     pd.testing.assert_frame_equal(close, close2, check_freq=False)
 
 
+def test_load_prices_refetches_when_cache_starts_after_requested_start(tmp_path, monkeypatch):
+    starts = []
+
+    def fake_chunk(tickers, start, retries=3):
+        starts.append(start)
+        return {t: _fake_df(start=start) for t in tickers}
+
+    monkeypatch.setattr(qdata, "_download_chunk", fake_chunk)
+    qdata.load_prices(["AAA"], start="2010-01-01", cache_dir=tmp_path)
+    qdata.load_prices(["AAA"], start="2010-01-01", cache_dir=tmp_path)
+    assert starts == ["2010-01-01"]  # same start: cache reused
+
+    qdata.load_prices(["AAA"], start="1999-01-01", cache_dir=tmp_path)
+    assert starts == ["2010-01-01", "1999-01-01"]  # earlier start: refetched
+
+    qdata.load_prices(["AAA"], start="2005-01-01", cache_dir=tmp_path)
+    assert len(starts) == 2  # now covered by the 1999 fetch
+
+
 def test_load_prices_migrates_legacy_csv_without_refetching(tmp_path, monkeypatch):
     df = _fake_df()
     df.to_csv(tmp_path / "BBB.csv")

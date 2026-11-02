@@ -266,6 +266,13 @@ def _latest_weights(
     if latest.isna().any():
         bad = sorted(latest.index[latest.isna()])
         return None, f"latest weights contain NaN for {bad}", dropped
+    # `combine_portfolio` zero-fills NaN weights, so the row above can look clean
+    # while a held fund has no last close. Check the prices of what is held.
+    last = data["close"].iloc[-1]
+    held = set(p.core_tickers) | {str(t) for t in latest.index[latest > 0]}
+    unpriced = sorted(t for t in held if t not in last.index or pd.isna(last[t]))
+    if unpriced:
+        return None, f"no latest close for held {unpriced}", dropped
     return latest, None, dropped
 
 

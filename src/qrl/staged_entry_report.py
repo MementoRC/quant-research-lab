@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from .decision_staged import HORIZON_MONTHS
+
 VARIANT_TAGS = {"shy": "SHY", "real_plus_1": "CPI+1%"}
 VARIANT_LABELS = {
     "shy": "waiting cash in SHY (actual prices)",
@@ -13,7 +15,7 @@ VARIANT_LABELS = {
 }
 HIST_COLUMNS = (
     "Above lump",
-    "Gap at 4 y, pp: median (worst, best)",
+    f"Gap at {HORIZON_MONTHS // 12} y, pp: median (worst, best)",
     "Worst max drawdown",
     "Worst drawdown vs lump, pp",
     "Worst start",

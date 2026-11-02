@@ -485,6 +485,30 @@ def test_run_stress_nan_latest_weights_make_static_cells_unavailable():
         assert "NaN" in by[key].unavailable
 
 
+def test_run_stress_held_fund_without_last_close_is_unavailable():
+    # A zero-filled weight row (as combine_portfolio produces) looks clean, so the
+    # check must look at the held fund's last close instead.
+    idx = pd.bdate_range("2005-01-03", "2009-12-31")
+    close = pd.DataFrame({"AAA": 100.0, "BBB": 100.0, "SPY": 100.0}, index=idx)
+    close.loc[idx[-1], "BBB"] = float("nan")
+
+    def build(data, keep):
+        return pd.DataFrame({"AAA": 0.5, "BBB": 0.0}, index=data["close"].index)
+
+    cfg = StressConfig(
+        windows=[_win("2007-10-09", "2009-03-09", replay=False, name="gfc")],
+        hypotheticals=[Hypothetical("crash", {"equity": -0.5})],
+        max_report_age_days=30,
+    )
+    p = PortfolioDef("chosen", build, core_tickers=["AAA", "BBB"])
+    cells = run_stress(cfg, [p], _frames(close), max_drawdown=0.35, criteria=CRITERIA)
+    assert cells
+    for c in cells:
+        assert c.loss is None
+        assert c.breach is None
+        assert "BBB" in c.unavailable
+
+
 NOW = pd.Timestamp("2026-10-03T12:00:00+00:00")
 HASHES = {"stress.yaml": "a", "portfolio.yaml": "b", "paper.yaml": "c", "profile.yaml": "d"}
 
