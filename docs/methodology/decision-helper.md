@@ -33,22 +33,17 @@ look slightly smoother than practice. The report says so.
 - **A-G**: read from `config/core_candidates.yaml` unchanged. Its sha256 is
   checked and recorded; the file is never edited (it is bound to
   `core_shortlist.yaml` and the core-reveal record).
-- New, defined in `config/decision.yaml`:
-
-| id | definition |
-|---|---|
-| CASH | 100% SHY |
-| G-EW | 25% each RSP / TLT / GLD / SHY |
-| AG | 1/2 A + 1/2 G |
-| G-CASH | 1/2 G + 1/2 CASH |
-| A-CASH | 1/2 A + 1/2 CASH |
+- New static mixes and blends are defined in `config/decision.yaml`
+  (`static` and `blends`); the generated `research/decision.md` lists them.
+  The set has grown by dated amendments (see below).
 
 A blend's daily target weights are the weighted sum of its components'
 daily target weights; a switching component (A) keeps switching inside the
 blend.
 
 The report states the cumulative number of portfolios compared (7 in the
-core comparison, 12 here) as a multiple-comparison disclosure.
+core comparison, and the count in `config/decision.yaml` here) as a
+multiple-comparison disclosure.
 
 ## Scenarios
 
@@ -60,8 +55,9 @@ edited. In `dotcom_2000`, which starts before the 2002 inception of SHY,
 IEF and TLT and before GLD (2004) and RSP (2003), the stress module's
 existing rule applies: unpriced equity is proxied by SPY, and unpriced bond
 and gold funds by cash. This heavily distorts the window: CASH is entirely
-cash there (0% loss by construction), and G, G-EW, G-CASH and A-CASH are
-mostly proxied. The report shows each portfolio's proxied share per class
+cash there (0% loss by construction), and portfolios built mostly from the
+unpriced funds are mostly proxied (the report's proxied-share column shows
+which). The report shows each portfolio's proxied share per class
 for every frozen cell (from the existing `proxied_share` detail), and marks
 any cell more than 25% proxied as "mostly proxied, indicative only".
 
@@ -73,7 +69,8 @@ loader refuses a scenario missing any held fund (no default asset class).
 Each shock must be > -1. Losses are reported nominal and real:
 real = (1 + nominal) / (1 + inflation) - 1.
 
-Switching portfolios (A, B, C, F, AG, A-CASH) are evaluated in both states
+Switching portfolios (the switching cores, and every blend containing one;
+the report lists them) are evaluated in both states
 (risk-on and risk-off weights) because their current state would require
 sealed data; the report shows both and the worse.
 
@@ -224,6 +221,19 @@ from the ledger, opened read-only, so it regenerates with the report:
 If the ledger or its rows are missing (a fresh or synthetic ledger), the section
 is a one-line "not available" note. `--ledger` selects another ledger file. No
 other number in the report changes.
+
+## Amendment 2026-11-02: portfolio list (audit correction, not an owner decision)
+
+The sections above were written for the first 12 portfolios and no longer
+list the current set; this note corrects that without changing code or config.
+`config/decision.yaml` now holds 27 portfolios: 7 cores (A-G, from
+`core_candidates.yaml`), 6 statics (CASH, G-EW, IEF, TLT, RSP, BONDS) and 14
+blends. Those were added by the dated amendments in the config
+(defensive-sleeve.md, true-cash-sleeve.md, true-cash-all-cores.md). Blends
+containing a switching core (A in AG, A-CASH and the A80-* blends; B, C and F
+in their B80/C80/F80 blends, where those cores switch) switch too and are
+evaluated in both states, as the paragraph on switching portfolios says. The
+config and the generated report are the source for the exact list and counts.
 
 ## Delivery
 

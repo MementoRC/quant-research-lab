@@ -38,7 +38,8 @@ Historical windows (start, end inclusive):
 
 Hypothetical shocks (instantaneous, applied per asset class to frozen
 weights; classes: `gold` = GLD, `cash` = unallocated weight, `equity` =
-every other ticker):
+every other ticker except GLD and the bond tickers, which have their own
+class — see Amendment 2026-11-02):
 
 | name | equity | gold | meaning |
 |---|---|---|---|
@@ -46,6 +47,8 @@ every other ticker):
 | stagflation | -45% | +10% | 1973-74-style real-asset rotation |
 | energy_shock_severe | -40% | -10% | a fuel/diesel shock worse than 2022 |
 | tech_crash | -60% | 0% | a 2000-02-scale equity collapse |
+
+(The bonds shock of each scenario is in Amendment 2026-11-02.)
 
 Also: `max_report_age_days: 30` (see Daily check).
 
@@ -139,3 +142,22 @@ fails loudly at load.
 
 Forecasting, macro/news inputs, sector-level shocks (no sector data in the
 repo), gating sleeve adoption, pre-1999 data.
+
+## Amendments
+
+### 2026-11-02 — the `bonds` class (audit correction, not an owner decision)
+
+This corrects the spec to match the implementation; it changes no code or
+config. The `bonds` class was added on 2026-10-03 with owner approval for the
+core comparison (see [core-comparison.md](core-comparison.md), "Stress:
+`bonds` class", and the dated amendment comment in `config/stress.yaml`).
+
+- **Classes.** `SHOCK_CLASSES = ("equity", "gold", "bonds")` in
+  `src/qrl/stress.py`. `bonds` = IEF, TLT, SHY, AGG; `gold` = GLD; `equity` =
+  every other ticker; `cash` = unallocated weight.
+- **Shocks.** Every hypothetical carries a bonds value (equity / gold / bonds):
+  no_safe_haven -50% / -20% / -15%; stagflation -45% / +10% / -20%;
+  energy_shock_severe -40% / -10% / -10%; tech_crash -60% / 0% / +5%.
+- **Proxying.** In frozen mode a bond ticker with no price at the window's
+  first day goes to cash, like gold, and is reported under
+  `proxied_share["bonds"]`.

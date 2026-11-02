@@ -103,7 +103,10 @@ New `src/qrl/decision_staged.py`.
   `decision_staged.py` has its own path runner (cash leg and tranche state,
   cash-first withdrawals, tranche schedule). The total value is cash plus
   tranches. Depletion uses `DEPLETED` (1e-9 of the starting value) on the
-  total, as in withdrawal-edge-cases.md.
+  total, as in withdrawal-edge-cases.md. The waiting SHY cash is held from the
+  first trading day of the run via the CASH portfolio (`decision_staged.daily_cash`),
+  so only the earliest start (2005-01) pays the 5 bps entry cost on it; later
+  starts do not. The report discloses this.
 - Historical starts: the first trading day of every month from 2005-01 to
   2014-12 (120 starts), each ending 2018-12-31. Fixed horizon for the primary
   measure: the value on the last trading day of the 48th month counting the
