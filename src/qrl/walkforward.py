@@ -7,7 +7,10 @@ Three pieces:
   within a date index (quarterly by default).
 - `select_sleeve`: rank candidates on a trailing window that ends STRICTLY
   BEFORE the boundary date, apply the over-eviction guard, and take the top
-  `n_strategies`. Never reads a return dated on or after the boundary.
+  `n_strategies`. Never reads a return dated on or after the boundary. The
+  guard's per-candidate thresholds are likewise causal: `walk_forward`
+  rebuilds them at each boundary from the candidate's own returns before
+  it (`_causal_baseline`), never from later bars.
 - `walk_forward`: repeat `select_sleeve` at every boundary in `[start, end]`,
   and stitch every period's selected weights into ONE combined
   target-weights matrix run through `qrl.engine.run_backtest` a single
@@ -37,7 +40,7 @@ import pandas as pd
 from .engine import run_backtest
 from .metrics import TRADING_DAYS, compute_metrics, drawdown
 from .periods import period_bounds
-from .search import SearchData, evaluate_candidate
+from .search import SearchData
 from .strategies import REGISTRY, SLEEVE_REGISTRY, StrategySpec, iter_grid
 from .tradability import exit_before_delisting
 
@@ -143,12 +146,12 @@ def _is_evicted(entry: dict, trailing: pd.Series, meta: dict) -> bool:
     strategy, and never an ordinary losing streak within its own historical
     range.
 
-    `entry["backtest_metrics"]` is a FIXED, pre-computed baseline: this same
-    strategy's backtest over its FULL research period (see
-    `prepare_candidate_track`), computed once and used unchanged at every
-    boundary. For a boundary inside the research period the baseline
-    therefore includes bars after that boundary; it is not re-estimated per
-    boundary. Holdout runs are unaffected.
+    `entry["backtest_metrics"]` is a CAUSAL baseline, re-estimated per
+    boundary by `_causal_baseline`: this same strategy's own returns strictly
+    before the boundary, from the first date it holds a position. It never
+    includes a bar on or after the boundary. With fewer than
+    `min_track_days` such bars the baseline is empty (`{}`), no threshold is
+    calibrated, and the incumbent is not force-evicted.
 
     Two independent triggers, either sufficient:
 
@@ -196,8 +199,9 @@ def select_sleeve(
     `{"family": str, "params": dict, "test_id": int | None,
     "returns": pd.Series (daily, ascending DatetimeIndex),
     "backtest_metrics": dict}`. `backtest_metrics` is that strategy's OWN
-    FIXED research-period backtest (used only to calibrate its eviction
-    thresholds -- see `_is_evicted`).
+    baseline as of `as_of`, built by the caller (`walk_forward` uses
+    `_causal_baseline`) and used only to calibrate its eviction thresholds
+    -- see `_is_evicted`. `select_sleeve` uses whatever it is given.
 
     Ranking uses each candidate's TRAILING window (`_trailing_window`,
     `meta["lookback_days"]` observations strictly before `as_of`); a
@@ -259,7 +263,28 @@ class CandidateTrack:
     tickers: list[str]
     weights: pd.DataFrame  # this candidate's own raw target weights, through `end`
     returns: pd.Series  # this candidate's own standalone daily returns, through `end`
-    backtest_metrics: dict  # FIXED research-period baseline, for eviction calibration
+
+
+def _causal_baseline(track: CandidateTrack, as_of: pd.Timestamp, min_days: int) -> dict:
+    """Eviction-calibration baseline for `track` at boundary `as_of`: its own
+    standalone returns strictly before `as_of`, starting at the first date it
+    holds any position (leading warm-up bars are excluded). Returns
+    `{"max_drawdown", "volatility"}` with the definitions `qrl.metrics` uses
+    (max drawdown a positive magnitude; volatility annualized), or `{}` --
+    no calibrated threshold, so no forced eviction -- if fewer than
+    `min_days` bars remain."""
+    held = (track.weights != 0).any(axis=1)
+    if not held.any():
+        return {}
+    first_held = held.idxmax()
+    past = track.returns[(track.returns.index >= first_held) & (track.returns.index < as_of)]
+    past = past.dropna()
+    if len(past) < max(min_days, 2):
+        return {}
+    return {
+        "max_drawdown": float(-drawdown(past).min()),
+        "volatility": float(past.std() * math.sqrt(TRADING_DAYS)),
+    }
 
 
 def _raw_weights(family: str, params: dict, data: SearchData) -> tuple[pd.DataFrame, list[str]]:
@@ -280,12 +305,10 @@ def prepare_candidate_track(
     end: pd.Timestamp,
     *,
     test_id: int | None = None,
-    benchmark_metrics: dict | None = None,
 ) -> CandidateTrack | None:
     """Backtest one candidate standalone, from the start of its own history
-    through `end`, for `walk_forward`'s trailing-lookback ranking, plus its
-    FIXED research-period metrics (`qrl.search.evaluate_candidate`) as the
-    eviction-calibration baseline (see `select_sleeve`'s `_is_evicted`).
+    through `end`, for `walk_forward`'s trailing-lookback ranking and, per
+    boundary, its causal eviction baseline (see `_causal_baseline`).
 
     Returns `None` (never raises) if the candidate cannot be backtested at
     all over this window -- bad params, no valid signal, a missing ticker --
@@ -300,7 +323,6 @@ def prepare_candidate_track(
         result = run_backtest(
             opens, closes, weights, cost_bps=criteria["costs"]["bps_per_unit_turnover"]
         )
-        baseline = evaluate_candidate(family, params, data, criteria, benchmark_metrics, "research")
         return CandidateTrack(
             family=family,
             params=params,
@@ -308,19 +330,18 @@ def prepare_candidate_track(
             tickers=tickers,
             weights=weights,
             returns=result.returns,
-            backtest_metrics=baseline["metrics"],
         )
     except Exception:
         return None
 
 
-def _track_to_candidate_result(track: CandidateTrack) -> dict:
+def _track_to_candidate_result(track: CandidateTrack, baseline: dict) -> dict:
     return {
         "family": track.family,
         "params": track.params,
         "test_id": track.test_id,
         "returns": track.returns,
-        "backtest_metrics": track.backtest_metrics,
+        "backtest_metrics": baseline,
     }
 
 
@@ -333,13 +354,15 @@ def walk_forward(
     end: str | pd.Timestamp,
     *,
     capital_share: float = 1.0,
-    benchmark_metrics: dict | None = None,
 ) -> dict:
     """Walk the sleeve forward across `[start, end]`.
 
     At each boundary from `period_starts(calendar, meta.get("frequency",
     "QS"))` (`calendar = data.close.loc[start:end].index`), `select_sleeve`
-    picks the sleeve using only data strictly before that boundary; the
+    picks the sleeve using only data strictly before that boundary -- the
+    ranking window and the per-candidate eviction baseline alike (rebuilt at
+    each boundary by `_causal_baseline`, with `meta.get("min_track_days",
+    meta["lookback_days"])` as its minimum history); the
     sleeve holds until the next boundary (or `end`). Every period's
     selected members' own weights (scaled to an equal share of
     `capital_share` among that period's selected count) are written into
@@ -374,7 +397,6 @@ def walk_forward(
                 criteria,
                 end,
                 test_id=c.get("test_id"),
-                benchmark_metrics=benchmark_metrics,
             )
             for c in candidate_specs
         )
@@ -390,13 +412,16 @@ def walk_forward(
 
     all_tickers = sorted({t for track in tracks for t in track.tickers})
     combined = pd.DataFrame(0.0, index=calendar, columns=all_tickers)
-    candidate_results = [_track_to_candidate_result(t) for t in tracks]
+    min_days: int = meta.get("min_track_days", meta["lookback_days"])
     track_by_id = {_identity(t): t for t in tracks}
 
     selections_log: list[dict] = []
     current_selection: list[dict] = []
     for i, as_of in enumerate(boundaries):
         period_end = boundaries[i + 1] if i + 1 < len(boundaries) else None
+        candidate_results = [
+            _track_to_candidate_result(t, _causal_baseline(t, as_of, min_days)) for t in tracks
+        ]
         selection = select_sleeve(candidate_results, as_of, meta, current_sleeve=current_selection)
         selections_log.append(
             {
@@ -456,7 +481,6 @@ def tune_meta(
     end: str | pd.Timestamp,
     *,
     capital_share: float = 1.0,
-    benchmark_metrics: dict | None = None,
 ) -> list[dict]:
     """Grid-search meta-settings over `[start, end]`.
 
@@ -500,7 +524,6 @@ def tune_meta(
             start,
             end,
             capital_share=capital_share,
-            benchmark_metrics=benchmark_metrics,
         )
         ledger.record_meta_test(run_id, meta, window, result["metrics"])
         tried.append({"meta": meta, "metrics": result["metrics"]})
