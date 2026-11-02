@@ -486,12 +486,7 @@ def _batch_setup(
 def _checked_run(ledger: Ledger, run_id: int, criteria_hash: str) -> tuple[dict | None, str | None]:
     """(run, None) if the run exists and its criteria hash is unchanged, else
     (None, the reason to refuse)."""
-    run = _get_run(ledger, run_id)
-    if run is None:
-        return None, f"Unknown run {run_id}"
-    if run["criteria_hash"] != criteria_hash:
-        return None, "Criteria hash has changed since this run started; refusing to continue."
-    return run, None
+    return ledger.checked_run(run_id, criteria_hash)
 
 
 def cmd_batch(args: argparse.Namespace) -> int:

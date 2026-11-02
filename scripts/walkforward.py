@@ -46,13 +46,6 @@ DEFAULT_META_SEARCH_SPACE: dict[str, list] = {
 }
 
 
-def _get_run(ledger: Ledger, run_id: int) -> dict | None:
-    for run in ledger.list_runs():
-        if run["run_id"] == run_id:
-            return run
-    return None
-
-
 def _check_data_source(ledger: Ledger, run_id: int, data_source: dict) -> int | None:
     """Returns an exit code if the check fails outright, or None if the
     caller should proceed (a match, or a legacy run with no recorded data
@@ -78,10 +71,10 @@ def _load_candidate_specs(ledger: Ledger, run_id: int, top_n: int) -> list[dict]
     ]
 
 
-def _load_criteria_and_universe(args: argparse.Namespace) -> tuple[dict, dict]:
-    criteria, _criteria_hash = load_criteria(args.criteria)
+def _load_criteria_and_universe(args: argparse.Namespace) -> tuple[dict, str, dict]:
+    criteria, criteria_hash = load_criteria(args.criteria)
     universe = load_universe(args.universe)
-    return criteria, universe
+    return criteria, criteria_hash, universe
 
 
 def _load_data(args: argparse.Namespace, criteria: dict, universe: dict) -> tuple[SearchData, dict]:
@@ -99,7 +92,7 @@ def _research_validation_bounds(criteria: dict) -> tuple:
 
 
 def cmd_tune(args: argparse.Namespace) -> int:
-    criteria, universe = _load_criteria_and_universe(args)
+    criteria, criteria_hash, universe = _load_criteria_and_universe(args)
     data_source = data_source_fingerprint(
         args.synthetic, universe["name"], list(universe["tickers"])
     )
@@ -108,9 +101,9 @@ def cmd_tune(args: argparse.Namespace) -> int:
         search_space = json.loads(Path(args.search_space).read_text())
 
     with Ledger(args.ledger) as ledger:
-        run = _get_run(ledger, args.run)
+        run, problem = ledger.checked_run(args.run, criteria_hash)
         if run is None:
-            print(f"Unknown run {args.run}", file=sys.stderr)
+            print(problem, file=sys.stderr)
             return 2
         check_result = _check_data_source(ledger, args.run, data_source)
         if check_result is not None:
@@ -145,7 +138,7 @@ def cmd_tune(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    criteria, universe = _load_criteria_and_universe(args)
+    criteria, criteria_hash, universe = _load_criteria_and_universe(args)
     data_source = data_source_fingerprint(
         args.synthetic, universe["name"], list(universe["tickers"])
     )
@@ -158,9 +151,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     }
 
     with Ledger(args.ledger) as ledger:
-        run = _get_run(ledger, args.run)
+        run, problem = ledger.checked_run(args.run, criteria_hash)
         if run is None:
-            print(f"Unknown run {args.run}", file=sys.stderr)
+            print(problem, file=sys.stderr)
             return 2
         check_result = _check_data_source(ledger, args.run, data_source)
         if check_result is not None:

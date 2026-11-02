@@ -921,6 +921,20 @@ class Ledger:
             runs.append(run)
         return runs
 
+    def checked_run(self, run_id: int, criteria_hash: str) -> tuple[dict | None, str | None]:
+        """(run, None) if the run exists and its criteria hash is unchanged,
+        else (None, the reason to refuse). Every command that evaluates or
+        extends a run (batch, validate, walk-forward, unseal) calls this first."""
+        for run in self.list_runs():
+            if run["run_id"] == run_id:
+                if run["criteria_hash"] != criteria_hash:
+                    return (
+                        None,
+                        "Criteria hash has changed since this run started; refusing to continue.",
+                    )
+                return run, None
+        return None, f"Unknown run {run_id}"
+
     def check_data_source(self, run_id: int, data_source: dict) -> bool:
         """True if `data_source` matches the fingerprint the run was seeded
         with. False if the run predates data-source tracking (unverifiable,
