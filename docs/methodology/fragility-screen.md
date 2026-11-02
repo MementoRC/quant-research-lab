@@ -357,6 +357,14 @@ trailing-four-quarter measures, any rule amendment.
   not a zero or negative rate. The rate trend is `n/a (interest expense <= 0)`,
   as the interest coverage measure already is. It is evaluated after the
   missing-input check and before the rate is computed. No config key changes.
+- **Decided after the results were seen.** The rule was decided after the
+  fragility results had been seen, so it is not pre-registered. One row was
+  known in advance to be affected: DIS, whose rate trend of -1.1 pp rested on
+  an interest expense <= 0 (class SOUND in `research/fragility.md`).
+- **Rerun.** The screen was rerun on 2026-11-02 under the new rule (same
+  as-of date and cache, no refetch). The earlier runs stay as dated history:
+  `research/fragility_run1.md` to `research/fragility_run5.md`, and
+  `research/fragility.md` as it was before this rerun (git history).
 
 ### 2026-10-05 — run 5 (debt tag fallbacks, untagged no-debt rule)
 
