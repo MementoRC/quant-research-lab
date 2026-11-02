@@ -27,6 +27,14 @@ def _signed(x: float) -> str:
     return f"{x * 100:+g}%"
 
 
+def _rate_text(x: float) -> str:
+    """A rate or shock input as a percentage keeping its digits (0.0425 -> 4.25%,
+    0.04 -> 4.0%); used for rate headings, shock tables and the real-yield text,
+    not result cells."""
+    text = f"{100 * x:g}"
+    return f"{text if '.' in text or 'e' in text else text + '.0'}%"
+
+
 def _pp(x: float | None) -> str:
     """A CAGR difference (0.01 = one percentage point) in percentage points."""
     if x is None:
@@ -102,7 +110,7 @@ def _multi_assumption_note(report: dict) -> list[str]:
     return [
         f"- {_span([r['id'] for r in rows])} are {len(rows)} assumption rows, not funds: for "
         f"each core, {_pct(first['cash_share'])} cash earning each month's inflation plus "
-        f"{_pct(first['real_yield'])} a year, the long-run report's CASH {_signed(first['real_yield'])} "
+        f"{_rate_text(first['real_yield'])} a year, the long-run report's CASH {_signed(first['real_yield'])} "
         "real assumption, "
         f"shown next to that core's SHY pair{pair_ids} to answer the SHY caveat. "
         f"They are comparisons {n + 1}-{n + len(rows)} but not among the {n} portfolios. "
@@ -148,7 +156,7 @@ def _assumption_note(report: dict) -> list[str]:
     return [
         f"- {ca['id']} ({ca['label']}) is an assumption row, not a fund: "
         f"{_pct(ca['cash_share'])} cash earning each month's inflation plus "
-        f"{_pct(ca['real_yield'])} a year, the long-run report's CASH {_signed(ca['real_yield'])} "
+        f"{_rate_text(ca['real_yield'])} a year, the long-run report's CASH {_signed(ca['real_yield'])} "
         "real assumption, "
         "shown to answer the SHY caveat above. "
         f"It is comparison {n + 1} but not one of the {n} portfolios. "
@@ -517,6 +525,7 @@ def render_markdown(report: dict) -> str:
 # point to the same objects; the private names and their behaviour are unchanged.
 pct = _pct
 signed = _signed
+rate_text = _rate_text
 portfolio_section = _portfolio_section
 return_section = _return_section
 window_section = _window_section

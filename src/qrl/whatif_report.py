@@ -15,6 +15,7 @@ from .decision_report import (
     deflation_sentence,
     pct,
     portfolio_section,
+    rate_text,
     return_section,
     scenario_section,
     signed,
@@ -108,7 +109,7 @@ def _cash_notes(report: dict, tcash: float) -> list[str]:
     row = report["cash_assumptions"][0]
     return [
         f"- {row['id']} is an assumption row, not a fund: {pct(row['cash_share'])} cash "
-        f"earning each month's inflation plus {pct(row['real_yield'])} a year "
+        f"earning each month's inflation plus {rate_text(row['real_yield'])} a year "
         f"({signed(row['real_yield'])} real, the yield in `config/decision.yaml`). Its cash "
         "leg and its daily rebalancing to the split pay no trading cost."
         f"{deflation_sentence(report)}",

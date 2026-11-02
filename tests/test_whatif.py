@@ -58,6 +58,22 @@ def test_whatif_public_aliases_are_the_private_objects():
         assert isinstance(getattr(decision_report, const), str)
 
 
+def test_cash_note_shows_the_real_yield_with_one_precision():
+    from qrl.whatif_report import _cash_notes
+
+    row = {"id": "MIX-TCASH", "cash_share": 0.2, "real_yield": 0.0125}
+    note = _cash_notes({"cash_assumptions": [row]}, 0.2)[0]
+    assert "plus 1.25% a year (+1.25% real" in note
+
+
+def test_decision_assumption_note_shows_the_real_yield_with_one_precision():
+    from qrl.decision_report import _assumption_note
+
+    ca = {"id": "A-CASH", "label": "x", "cash_share": 0.2, "real_yield": 0.0125}
+    note = _assumption_note({"cash_assumption": ca, "cash_assumptions": [ca], "portfolios": []})[0]
+    assert "plus 1.25% a year, the long-run report's CASH +1.25% real" in note
+
+
 VALID = ["A", "B", "G", "CASH", "AG", "TCASH"]
 
 
