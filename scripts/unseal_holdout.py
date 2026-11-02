@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from qrl.criteria import load_criteria  # noqa: E402
 from qrl.holdout import HoldoutAlreadyUnsealedError, unseal  # noqa: E402
 from qrl.ledger import DEFAULT_LEDGER_PATH, Ledger, current_git_commit  # noqa: E402
-from qrl.search import SearchData, compute_benchmark_metrics  # noqa: E402
+from qrl.search import SearchData  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
 from qrl.walkforward import walk_forward  # noqa: E402
 
@@ -66,7 +66,6 @@ def cmd_unseal(args: argparse.Namespace) -> int:
     sleeve_tickers = list(universe["tickers"])
     needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
     data = SearchData.load(sorted(needed), synthetic=args.synthetic)
-    bench = compute_benchmark_metrics(data, criteria)
     meta = {
         "n_strategies": args.n_strategies,
         "lookback_days": args.lookback_days,
@@ -108,7 +107,6 @@ def cmd_unseal(args: argparse.Namespace) -> int:
         holdout_close.index[0],
         holdout_close.index[-1],
         capital_share=args.capital_share,
-        benchmark_metrics=bench,
     )
     print("Holdout metrics for the final chosen process:")
     for key, value in result["metrics"].items():

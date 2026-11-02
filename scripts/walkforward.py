@@ -28,7 +28,7 @@ from qrl.ledger import (  # noqa: E402
     data_source_fingerprint,
 )
 from qrl.periods import period_bounds  # noqa: E402
-from qrl.search import SearchData, compute_benchmark_metrics  # noqa: E402
+from qrl.search import SearchData  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
 from qrl.walkforward import tune_meta, walk_forward  # noqa: E402
 
@@ -77,12 +77,10 @@ def _load_criteria_and_universe(args: argparse.Namespace) -> tuple[dict, str, di
     return criteria, criteria_hash, universe
 
 
-def _load_data(args: argparse.Namespace, criteria: dict, universe: dict) -> tuple[SearchData, dict]:
+def _load_data(args: argparse.Namespace, criteria: dict, universe: dict) -> SearchData:
     sleeve_tickers = list(universe["tickers"])
     needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
-    data = SearchData.load(sorted(needed), synthetic=args.synthetic)
-    bench = compute_benchmark_metrics(data, criteria)
-    return data, bench
+    return SearchData.load(sorted(needed), synthetic=args.synthetic)
 
 
 def _research_validation_bounds(criteria: dict) -> tuple:
@@ -112,7 +110,7 @@ def cmd_tune(args: argparse.Namespace) -> int:
         if not candidate_specs:
             print("No passing research candidates to walk-forward.", file=sys.stderr)
             return 2
-        data, bench = _load_data(args, criteria, universe)
+        data = _load_data(args, criteria, universe)
         start, end = _research_validation_bounds(criteria)
         tried = tune_meta(
             candidate_specs,
@@ -124,7 +122,6 @@ def cmd_tune(args: argparse.Namespace) -> int:
             start,
             end,
             capital_share=args.capital_share,
-            benchmark_metrics=bench,
         )
 
     print(
@@ -163,7 +160,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             print("No passing research candidates to walk-forward.", file=sys.stderr)
             return 2
 
-    data, bench = _load_data(args, criteria, universe)
+    data = _load_data(args, criteria, universe)
     start, end = _research_validation_bounds(criteria)
 
     result = walk_forward(
@@ -174,7 +171,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         start,
         end,
         capital_share=args.capital_share,
-        benchmark_metrics=bench,
     )
 
     print(f"Walk-forward over {start.date()}..{end.date()} (research+validation), meta={meta}:")
