@@ -315,12 +315,12 @@ been scored and no result existed. The owner approved this amendment.
   daily-return correlation, 2004-11-18 to 2006-12-31, a gold-data-only
   comparison) is 0.934 on the frozen snapshot, below 0.95, so a gold-holding
   rule is scored on the late window (2023 onward) only (`late_only`,
-  `scripts/international.py:354`; `evaluate_market` uses `cfg.windows[-1:]`,
-  `src/qrl/international.py:480`). All eight gaps are 2000-2004, outside it,
+  `late_only` in `scripts/international.py`; `qrl.international.evaluate_market`
+  uses `cfg.windows[-1:]` when `late_only`). All eight gaps are 2000-2004, outside it,
   and the fill touches nothing from 2004-11-18 on. (2) `core_trend`'s signal
-  uses only the `risk_on` equity leg's prices (`price = close[risk_on]`,
-  `src/qrl/strategies/core_trend.py:16`); `GLD` enters only as the held leg
-  and in the warm-up mask (`:28`), so the weights from 2023 on do not depend
+  uses only the `risk_on` equity leg's prices (`price = close[risk_on]` in
+  `qrl.strategies.core_trend.core_trend`); `GLD` enters only as the held leg
+  and in that function's warm-up mask, so the weights from 2023 on do not depend
   on the proxy-era gold prices. The fill only lets the full-history backtest
   run to the scored window.
 - **Identity.** The rule hash, the config hash and the data hash

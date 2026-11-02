@@ -118,18 +118,18 @@ stale-CPI row is not a difference between the two sides.
 | | Decision helper | Long run |
 |---|---|---|
 | Withdrawal timing | first trading day of each month | each simulated month |
-| Order | withdrawal, then return (after 2026-10-15; was return first, `decision_withdraw.py:79-84`) | withdrawal, then return (`longrun.py:167`) |
-| Step-up | each January by CPI year-on-year (`decision_withdraw.py:42-55`) | every 12 months by the path's own inflation (`longrun.py:150, 163-165`). Inherent: bootstrapped paths start in any month and have no calendar January |
-| Depleted at | value <= 1e-9 (after 2026-10-15; was <= 0) | value <= 1e-9 (`longrun.py:27, 168`) |
-| Stale CPI | same on both sides: the shared 45-day rule (`decision_withdraw.py:17-26`, `longrun.py:275`) | same |
+| Order | withdrawal, then return (after 2026-10-15; was return first, in `decision_withdraw.withdrawal_path`) | withdrawal, then return (`longrun.run_paths`) |
+| Step-up | each January by CPI year-on-year (`decision_withdraw.monthly_withdrawals`) | every 12 months by the path's own inflation (`longrun.run_paths`). Inherent: bootstrapped paths start in any month and have no calendar January |
+| Depleted at | value <= 1e-9 (after 2026-10-15; was <= 0) | value <= 1e-9 (`decision_withdraw.DEPLETED`, imported by `longrun.run_paths`) |
+| Stale CPI | same on both sides: the shared 45-day rule (`decision_withdraw.usable_cpi`, `decision_withdraw.MAX_CPI_AGE`; `longrun.run_longrun` calls the shared `monthly_inflation`) | same |
 
 The stale-CPI split is inside each side, not between them. Cash-assumption
 rows that mix a cash leg with a base portfolio use the strict check on exact
-month-ends (`true_cash.py:18-29`, reached in the long run through
+month-ends (`true_cash.strict_monthly_inflation`, reached in the long run through
 `_assumption_monthly`, `all_assumption_returns` and `cash_leg_returns`). The
 labelled "CASH +1% real (assumption)" row uses the long run's own
 `monthly_inflation` and keeps the 45-day tolerance. Kept by owner decision
-2026-10-11 (`true-cash-sleeve.md:149-152`).
+2026-10-11 (`true-cash-sleeve.md`).
 
 ## Implementation
 
