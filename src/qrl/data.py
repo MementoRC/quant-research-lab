@@ -13,6 +13,8 @@ import pandas as pd
 
 CACHE_DIR = Path("data/cache")
 CHUNK_SIZE = 50
+# Caches written before the .start sidecar existed were fetched from the then-default start.
+_LEGACY_CACHE_START = "1999-01-01"
 _BARS = ["Open", "High", "Low", "Close", "Volume"]
 _FIELD_COLUMNS = {
     "open": "Open",
@@ -117,11 +119,11 @@ def _covers_start(cache_dir: Path, ticker: str, start: str) -> bool:
     """False if the cache was fetched from a start later than the requested
     one. A first bar after `start` alone proves nothing (a fund may have
     launched later), so the start each fetch was requested with is recorded
-    beside the parquet. A cache with no record (legacy) is accepted as before."""
+    beside the parquet. A cache with no record (legacy) is taken to start at
+    `_LEGACY_CACHE_START`."""
     path = _start_path(cache_dir, ticker)
-    if not path.exists():
-        return True
-    return pd.Timestamp(path.read_text().strip()) <= pd.Timestamp(start)
+    cached_start = path.read_text().strip() if path.exists() else _LEGACY_CACHE_START
+    return pd.Timestamp(cached_start) <= pd.Timestamp(start)
 
 
 def _load_frames(
@@ -151,6 +153,8 @@ def _load_frames(
         if cached is None:
             to_fetch.append(t)
         elif _has_columns(cached, columns) and _covers_start(cache_dir, t, start):
+            if not _start_path(cache_dir, t).exists():
+                _record_start(cache_dir, t, _LEGACY_CACHE_START)
             frames[t] = cached
         else:
             stale.append(t)
