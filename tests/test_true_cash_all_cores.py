@@ -414,6 +414,14 @@ def test_decision_mostly_proxied_list_is_the_flagged_dotcom_rows():
     report["proxied_threshold"] = 0.25
     for r in report["windows"]:
         r.update(loss=0.1, proxied_share={})
+    assert "are mostly proxied" not in "\n".join(_window_section({**report, "windows": []}))
+    assert "In `dotcom_2000`, G and G80-CASH20 are mostly proxied." in "\n".join(
+        _window_section(report)
+    )
+    report["dotcom_unpriced"] = {"SHY": 2002}
+    assert "; G and G80-CASH20 are mostly proxied" in "\n".join(_window_section(report))
+    cash = {**report["windows"][0], "portfolio": "CASH", "indicative": False, "loss": 0.0}
+    report["windows"].append(cash)
     assert "and G and G80-CASH20 are mostly proxied" in "\n".join(_window_section(report))
 
 

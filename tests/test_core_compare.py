@@ -5,6 +5,7 @@ Spec: docs/methodology/core-comparison.md.
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -331,8 +332,9 @@ def test_core_compare_markdown_records_hash_and_trial_count(compared):
     assert not any("covid_2020" in ln or "inflation_2022" in ln for ln in table_rows)
     assert "validation and holdout data never used" in md
     assert "| proxied to cash |" in md
-    assert "treated as cash" in md  # footnote: the dotcom cushion is understated
+    assert "| D |" in md
     # synthetic prices cover every ticker, so inject a proxied share into one cell
+    report = copy.deepcopy(report)
     cell = report["candidates"][3]["cells"][0]  # candidate D
     cell["detail"] = {"proxied_share": {"equity": 0.0, "gold": 0.2, "bonds": 0.4}}
     row = next(ln for ln in render_markdown(report).splitlines() if "bonds 40%" in ln)
@@ -397,8 +399,36 @@ def test_core_compare_benchmark_equality_claim_uses_split_and_present_candidates
     assert "## Benchmark" in no_a
 
 
+def _proxy_dotcom_cells(out: dict, **shares: float) -> dict:
+    """A copy of `out` whose `dotcom_2000` cells all report these proxied shares."""
+    out = copy.deepcopy(out)
+    for c in out["candidates"]:
+        for cell in c["cells"]:
+            if cell["scenario"] == "dotcom_2000":
+                cell["detail"] = {"proxied_share": {"equity": 0.0, **shares}}
+    return out
+
+
+def test_core_compare_dotcom_note_names_the_classes_proxied_to_cash(compared):
+    out, _ = compared
+    # synthetic prices cover every ticker, so nothing is proxied and no claim is made
+    assert "did not yet exist" not in render_markdown(_report(out))
+    both = render_markdown(_report(_proxy_dotcom_cells(out, bonds=0.4, gold=0.2)))
+    assert (
+        "the bond and gold ETFs did not yet exist, so bonds/gold weights are treated as cash"
+        in both
+    )
+    assert "treated as cash" in both  # footnote: the dotcom cushion is understated
+    bonds = render_markdown(_report(_proxy_dotcom_cells(out, bonds=0.4)))
+    assert "the bond ETFs did not yet exist, so bonds weights are treated as cash" in bonds
+    assert "gold" not in bonds.split("Note: in `dotcom_2000`")[1].split("\n")[0]
+    equity_only = render_markdown(_report(_proxy_dotcom_cells(out, equity=0.3)))
+    assert "did not yet exist" not in equity_only
+
+
 def test_core_compare_dotcom_note_only_when_that_window_is_present(compared):
     out, _ = compared
+    out = _proxy_dotcom_cells(out, bonds=0.4, gold=0.2)
     assert "did not yet exist" in render_markdown(_report(out))
     kept = [
         {**c, "cells": [x for x in c["cells"] if x["scenario"] != "dotcom_2000"]}

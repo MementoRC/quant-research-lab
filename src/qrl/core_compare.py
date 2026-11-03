@@ -360,12 +360,28 @@ def _benchmark_section(rows: list[dict] | None, report: dict) -> list[str]:
 
 
 def _dotcom_note(report: dict) -> list[str]:
-    """The dot-com cushion note, only when a `dotcom_2000` cell is in the report."""
-    cells = (cell for c in report["candidates"] for cell in c["cells"])
-    if not any(cell["scenario"] == "dotcom_2000" for cell in cells):
+    """The dot-com cushion note, naming the classes (bonds, gold) that a
+    `dotcom_2000` cell proxied to cash (positive `proxied_share`, equity excluded:
+    it is proxied to SPY). Absent when no such cell or class is in the report."""
+    cells = [
+        cell
+        for c in report["candidates"]
+        for cell in c["cells"]
+        if cell["scenario"] == "dotcom_2000"
+    ]
+    classes = sorted(
+        {
+            cls
+            for cell in cells
+            for cls, share in ((cell.get("detail") or {}).get("proxied_share") or {}).items()
+            if share > 0 and cls != "equity"
+        }
+    )
+    if not classes:
         return []
+    etfs = " and ".join(cls.removesuffix("s") for cls in classes)
     return [
-        "Note: in `dotcom_2000` the bond and gold ETFs did not yet exist, so bonds/gold "
+        f"Note: in `dotcom_2000` the {etfs} ETFs did not yet exist, so {'/'.join(classes)} "
         'weights are treated as cash (the "proxied to cash" column); this understates '
         "their cushion in that window.",
         "",
