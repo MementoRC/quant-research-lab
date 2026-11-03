@@ -322,7 +322,7 @@ def _cash_loss(report: dict) -> float | None:
             and r["mode"] == "frozen"
             and not r["unavailable"]
         ):
-            return r["loss"]
+            return float(r["loss"])
     return None
 
 

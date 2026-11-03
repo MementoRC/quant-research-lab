@@ -10,6 +10,7 @@ unseal_holdout=True)` is never called.
 from __future__ import annotations
 
 import inspect
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -187,10 +188,12 @@ def dotcom_unpriced(cfg: DecisionConfig, data: dict[str, pd.DataFrame], end: pd.
     held = {t for p in cfg.portfolios for mix in portfolio_states(p).values() for t in mix}
     out: dict[str, int | None] = {}
     for t in sorted(held):
-        first = close[t].first_valid_index() if t in close.columns else None
-        if first is None:
+        idx = close[t].first_valid_index() if t in close.columns else None
+        if idx is None:
             out[t] = None
-        elif first > start:
+            continue
+        first = cast(pd.Timestamp, idx)  # the close frame has a DatetimeIndex
+        if first > start:
             out[t] = int(first.year)
     return out
 
