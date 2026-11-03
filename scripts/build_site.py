@@ -157,6 +157,12 @@ def _check_holdout_clearance(provenance: dict, ledger_path: Path) -> None:
     figures if the ledger recorded an unsealing. Raises on a mismatch rather
     than publishing. Runs only when the ledger file exists (it is tracked in
     git, so real builds have it)."""
+    # Known gap (audit SP-3, 2026-11-02): this only verifies that SOME holdout
+    # event exists in the ledger, not that it belongs to this process;
+    # holdout_events records no run/process id, only free-text what_unsealed.
+    # Inactive while config/portfolio.yaml holdout_unsealed is false. Must be
+    # tied to the process (e.g. a process_id column on holdout_events) before
+    # any searched core gets a holdout unseal.
     if not provenance.get("holdout_unsealed"):
         return
     if _holdout_event_count(ledger_path) == 0:
