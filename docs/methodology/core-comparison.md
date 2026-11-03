@@ -223,3 +223,16 @@ ticker (QQQ) were added to the report: one at the core share of the capital
 split (rest cash) and one at 100%. They are reference-only, research period
 only, select nothing, and are not candidates: `config/core_candidates.yaml` and
 the trial count (7) are unchanged.
+
+## Amendment 2026-11-02 (audit): `--offline` and the benchmark ticker
+
+Documenting what `scripts/core_compare.py` already does; no behaviour change.
+
+- **`--offline`.** The script takes an `--offline` flag. Without it, prices are
+  re-downloaded (`load_ohlcv(..., refresh=True)`, as `scripts/stress.py` does
+  by default). With it, the price cache is used as is (`refresh=False`).
+- **Load list.** The benchmark ticker (`criteria["pass"]["beat_benchmark"]`,
+  QQQ) is added to the tickers loaded, alongside the equity proxy and every
+  candidate's strategy tickers, so the benchmark rows above can be priced. As
+  for candidates, it must be priced on the last row at or before the research
+  end, or the run stops with an "unpriced at the research end" message.

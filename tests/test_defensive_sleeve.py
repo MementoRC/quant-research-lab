@@ -74,7 +74,7 @@ def test_shipped_a80_blends_hold_80_percent_a_and_20_percent_sleeve():
             assert sum(states[name].values()) == pytest.approx(1.0, abs=1e-9), (sid, name)
 
 
-def test_shipped_decision_config_counts_21_portfolios_with_five_a80_rows():
+def test_shipped_decision_config_counts_config_portfolios_with_five_a80_rows():
     ids = [p.id for p in _shipped().portfolios]
     assert len(ids) == 27
     assert [i for i in ids if i.startswith("A80-")] == A80
