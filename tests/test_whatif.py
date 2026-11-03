@@ -54,7 +54,7 @@ def test_whatif_public_aliases_are_the_private_objects():
         "switching_note",
     ):
         assert getattr(decision_report, name) is getattr(decision_report, f"_{name}")
-    for const in ("DOTCOM_PROXY_NOTE", "KNOWN_GAP_NOTE", "DRAWDOWN_NOTE"):
+    for const in ("KNOWN_GAP_NOTE", "DRAWDOWN_NOTE"):
         assert isinstance(getattr(decision_report, const), str)
 
 
@@ -353,10 +353,23 @@ def test_render_has_its_own_header_and_the_reused_sections(report):
     assert "multiple comparisons" not in md
     assert "A80-CASH20" not in md
     assert "SHY caveat above" not in md
-    assert decision_report.DOTCOM_PROXY_NOTE in md
     assert decision_report.DRAWDOWN_NOTE in md
     assert decision_report.KNOWN_GAP_NOTE in md
     assert "$" not in md
+
+
+def test_render_dotcom_proxy_note_is_computed_from_the_report(report):
+    base = render_whatif(report, GIVEN)
+    assert report["dotcom_unpriced"] == {}  # synthetic prices cover every fund in 2000
+    assert "dot-com window" not in base
+    unpriced = {"SHY": 2002, "RSP": 2003, "GLD": 2004}
+    md = render_whatif({**report, "dotcom_unpriced": unpriced}, GIVEN)
+    (note,) = decision_report.dotcom_proxy_note({"dotcom_unpriced": unpriced, "dotcom_year": 2000})
+    assert note.startswith("- In the dot-com window (2000) RSP, GLD and bonds are proxied")
+    assert md.count(note) == 1
+    other = render_whatif({**report, "dotcom_unpriced": {"GLD": 2001}}, GIVEN)
+    assert "(2000) GLD is proxied" in other
+    assert "RSP, GLD and bonds" not in other
 
 
 def test_render_tcash_note_and_row_scope(report):

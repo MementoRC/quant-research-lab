@@ -116,8 +116,9 @@ A80-CASH20.
   instead, so the new rows are named: decision_report.py's "Switching
   portfolios (A, B, C, F and blends holding A)" (a blend holding any
   switching core), "G, G-EW, G-CASH and A-CASH are mostly proxied" (the
-  flagged rows), and "RSP, GLD and bonds are proxied". `DOTCOM_SLEEVE` (the
-  five A80 rows being equal in dotcom) is unchanged.
+  flagged rows), and "RSP, GLD and bonds are proxied". `_dotcom_sleeve()` (which A80
+  rows are equal in dotcom, computed from the window rows) is unchanged by
+  this change.
 
 ## Header and notes
 

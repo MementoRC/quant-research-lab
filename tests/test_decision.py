@@ -13,10 +13,12 @@ from decision_helpers import END, cpi, criteria, load, prices
 from qrl import decision
 from qrl.decision import (
     data_end,
+    dotcom_unpriced,
     portfolio_returns,
     portfolio_tickers,
     portfolio_weights,
     real_return,
+    run_decision,
     scenario_return,
     scenario_rows,
     start_dates,
@@ -211,6 +213,40 @@ def _inception_masked(data: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
             masked.loc[masked.index < pd.Timestamp(first), ticker] = np.nan
         out[key] = masked
     return out
+
+
+def test_decision_dotcom_unpriced_is_computed_from_the_price_data(tmp_path):
+    cfg = load(tmp_path)
+    end = data_end(criteria())
+    masked = _inception_masked(prices())
+    assert dotcom_unpriced(cfg, masked, end) == {
+        "SHY": 2002,
+        "IEF": 2002,
+        "TLT": 2002,
+        "RSP": 2003,
+        "GLD": 2004,
+    }
+    assert dotcom_unpriced(cfg, prices(), end) == {}  # synthetic prices cover 1999 on
+    later = {k: v.copy() for k, v in masked.items()}
+    later["close"].loc[later["close"].index < pd.Timestamp("2006-03-01"), "GLD"] = np.nan
+    assert dotcom_unpriced(cfg, later, end)["GLD"] == 2006
+    # a held fund that is missing from the frame, or all-NaN, is unpriced with no year
+    gone = {k: v.drop(columns=["GLD"]) for k, v in masked.items()}
+    assert dotcom_unpriced(cfg, gone, end)["GLD"] is None
+    blank = {k: v.copy() for k, v in masked.items()}
+    blank["close"]["RSP"] = np.nan
+    assert dotcom_unpriced(cfg, blank, end)["RSP"] is None
+    assert dotcom_unpriced(cfg, blank, end)["GLD"] == 2004
+    assert run_decision(cfg, masked, cpi(), criteria(), "cd" * 32)["dotcom_year"] == 2000
+    assert run_decision(cfg, masked, cpi(), criteria(), "cd" * 32)["dotcom_unpriced"] == (
+        dotcom_unpriced(cfg, masked, end)
+    )
+
+
+def test_decision_dotcom_unpriced_is_empty_without_that_window(tmp_path):
+    cfg = load(tmp_path)
+    no_dotcom = replace(cfg, windows=[w for w in cfg.windows if w.name != "dotcom_2000"])
+    assert dotcom_unpriced(no_dotcom, _inception_masked(prices()), data_end(criteria())) == {}
 
 
 def test_decision_stress_portfolios_modes(tmp_path):

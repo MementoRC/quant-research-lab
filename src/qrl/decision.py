@@ -10,6 +10,7 @@ unseal_holdout=True)` is never called.
 from __future__ import annotations
 
 import inspect
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -173,6 +174,33 @@ def stress_rows(cfg: DecisionConfig, data: dict[str, pd.DataFrame], criteria: di
         if c.mode in modes[c.portfolio]
     ]
     return window_rows(cells, cfg.proxied_threshold)
+
+
+def dotcom_unpriced(cfg: DecisionConfig, data: dict[str, pd.DataFrame], end: pd.Timestamp) -> dict:
+    """Funds held by some portfolio with no price on `dotcom_2000`'s first day,
+    as {ticker: year of its first price}; a fund missing from the frame or never
+    priced maps to None. {} when that window is not configured. Computed from the
+    (research-cut) close frame, never typed."""
+    start = dotcom_start(cfg)
+    if start is None:
+        return {}
+    close = data["close"].loc[:end]
+    held = {t for p in cfg.portfolios for mix in portfolio_states(p).values() for t in mix}
+    out: dict[str, int | None] = {}
+    for t in sorted(held):
+        idx = close[t].first_valid_index() if t in close.columns else None
+        if idx is None:
+            out[t] = None
+            continue
+        first = cast(pd.Timestamp, idx)  # the close frame has a DatetimeIndex
+        if first > start:
+            out[t] = int(first.year)
+    return out
+
+
+def dotcom_start(cfg: DecisionConfig) -> pd.Timestamp | None:
+    """Start of the configured `dotcom_2000` window; None when not configured."""
+    return next((w.start for w in cfg.windows if w.name == "dotcom_2000"), None)
 
 
 def start_dates(
@@ -471,6 +499,8 @@ def run_decision(
             for s in cfg.scenarios
         ],
         "windows": stress_rows(cfg, data, criteria),
+        "dotcom_unpriced": dotcom_unpriced(cfg, data, data_end(criteria)),
+        "dotcom_year": getattr(dotcom_start(cfg), "year", None),
         "scenario_rows": scenario_rows(cfg.portfolios, cfg.scenarios),
         "withdrawals": withdrawal_rows(cfg, data, cpi, criteria),
         "year_one": year_one_rows(cfg.portfolios, cfg.scenarios, cfg.rates),

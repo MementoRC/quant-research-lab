@@ -11,7 +11,7 @@ import pytest
 from decision_helpers import CANDIDATES_SHA, cpi, criteria, load, prices
 
 from qrl.decision import run_decision
-from qrl.decision_report import render_markdown
+from qrl.decision_report import dotcom_proxy_note, render_markdown
 
 
 @pytest.fixture(scope="module")
@@ -148,8 +148,11 @@ def test_decision_report_records_hashes_and_disclosures(report):
     assert "### Withdrawal rate 3.3% per year" in md
 
 
+UNPRICED = {"SHY": 2002, "IEF": 2002, "TLT": 2002, "RSP": 2003, "GLD": 2004}
+
+
 def test_decision_report_has_every_required_note(report):
-    notes = render_markdown(report).split("## Portfolios")[0]
+    notes = render_markdown({**report, "dotcom_unpriced": UNPRICED}).split("## Portfolios")[0]
     assert "rebalanced daily" in notes
     assert "less frequent" in notes
     assert "smoother than practice" in notes
@@ -220,8 +223,72 @@ def test_decision_report_engine_cost_note_uses_the_report_value():
 
 
 def test_decision_report_dotcom_note_is_not_repeated():
-    md = render_markdown(_hand_report())
-    assert md.count("RSP, GLD and bonds") <= 1
+    md = render_markdown(_hand_report(dotcom_unpriced=UNPRICED))
+    assert md.count("RSP, GLD and bonds") == 1
+
+
+def test_dotcom_proxy_note_is_computed_from_the_unpriced_funds():
+    def note(unpriced: dict, **over) -> str:
+        rep = _hand_report(**{"dotcom_unpriced": unpriced, "dotcom_year": 2000, **over})
+        return "\n".join(dotcom_proxy_note(rep))
+
+    assert "dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet trade)" in (
+        note(UNPRICED)
+    )
+    assert "dot-com window (1999) RSP" in note(UNPRICED, dotcom_year=1999)
+    assert "dot-com window RSP" in note(UNPRICED, dotcom_year=None)
+    # a fund that is never priced is named after the dated ones
+    assert "RSP, XYZ and bonds are proxied" in note({**UNPRICED, "XYZ": None, "GLD": 2002})
+    # years order the non-bond funds; bond funds collapse to "bonds"
+    assert "GLD, RSP and bonds are proxied" in note({**UNPRICED, "GLD": 2001})
+    assert "RSP is proxied" in note({"RSP": 2003})
+    assert "bonds is proxied" in note({"IEF": 2002})
+    assert "GLD, QQQ, RSP and bonds are proxied" in note({**UNPRICED, "QQQ": 2002, "GLD": 2002})
+    assert dotcom_proxy_note(_hand_report(dotcom_unpriced={})) == []
+    assert dotcom_proxy_note(_hand_report()) == []
+    assert "dot-com window" not in render_markdown(_hand_report())
+
+
+def test_dotcom_starts_before_sentence_groups_funds_by_first_year():
+    md = render_markdown(_hand_report(dotcom_unpriced=UNPRICED, windows=[_cash_row(0.0)]))
+    assert "`dotcom_2000` starts before IEF, SHY and TLT (2002), RSP (2003) and GLD (2004): " in md
+    assert "CASH is entirely cash there (0.0% loss by construction)." in md
+    moved = {"SHY": 2002, "IEF": 2003, "TLT": 2003, "RSP": 2003, "GLD": 2005}
+    md = render_markdown(_hand_report(dotcom_unpriced=moved, windows=[_cash_row(0.0)]))
+    assert "starts before SHY (2002), IEF, RSP and TLT (2003) and GLD (2005): " in md
+    assert "(2004)" not in md
+
+
+def _cash_row(loss: float) -> dict:
+    return {
+        "portfolio": "CASH",
+        "window": "dotcom_2000",
+        "mode": "frozen",
+        "loss": loss,
+        "proxied_share": {"equity": 0.0, "gold": 0.0, "bonds": 1.0},
+        "indicative": False,
+        "unavailable": None,
+    }
+
+
+def test_dotcom_cash_claim_uses_cash_rows_actual_loss():
+    for windows in ([], [_cash_row(0.07)]):  # no CASH row, or one that lost money
+        md = render_markdown(_hand_report(dotcom_unpriced=UNPRICED, windows=windows))
+        assert "CASH is entirely cash" not in md
+        assert "starts before IEF, SHY and TLT (2002)" in md
+
+
+def test_dotcom_starts_before_names_never_priced_funds_without_a_year():
+    unpriced = {"SHY": 2002, "XYZ": None, "ABC": None, "GLD": 2004}
+    md = render_markdown(_hand_report(dotcom_unpriced=unpriced))
+    assert "starts before SHY (2002), GLD (2004) and ABC and XYZ (no price)" in md
+
+
+def test_dotcom_starts_before_sentence_is_absent_or_cashless_without_bond_funds():
+    assert "`dotcom_2000` starts before" not in render_markdown(_hand_report())
+    md = render_markdown(_hand_report(dotcom_unpriced={"GLD": 2004}))
+    assert "`dotcom_2000` starts before GLD (2004)." in md
+    assert "CASH is entirely cash" not in md
 
 
 def test_decision_report_year_one_names_the_worse_state_for_switching_only():

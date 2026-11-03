@@ -5,15 +5,13 @@ diffs cleanly. Every figure is a percentage, of capital or of the starting
 value; no currency amount appears anywhere.
 """
 
-from __future__ import annotations
+import re
+
+from .stress import asset_class
 
 SLEEVE_PREFIX = "A80-"  # the defensive-sleeve rows (docs/methodology/defensive-sleeve.md)
 BY_PRODUCT_IDS = ("IEF", "TLT", "RSP", "BONDS")  # sleeves held alone; blend parts only
-DOTCOM_SLEEVE = (
-    "IEF, TLT and BONDS are, like CASH, entirely cash in `dotcom_2000` (0% loss), so the "
-    "A80-CASH20, A80-IEF20, A80-TLT20 and A80-BONDS20 frozen cells are identical there and "
-    "that window cannot tell the bond sleeves apart; A80-RSP20 uses the SPY proxy."
-)
+DOTCOM_WINDOW = "dotcom_2000"
 
 
 def _pct(x: float | None) -> str:
@@ -273,10 +271,143 @@ def _switching_note(report: dict) -> list[str]:
     ]
 
 
-DOTCOM_PROXY_NOTE = (
-    "- In the dot-com window (2000) RSP, GLD and bonds are proxied (they did not yet "
-    "trade), so those cells are indicative only."
-)
+def _unpriced(report: dict) -> dict[str, int | None]:
+    """{fund: first-price year} for funds unpriced at `dotcom_2000`'s start
+    (`qrl.decision.dotcom_unpriced`; None = never priced); {} when the report has none."""
+    return report.get("dotcom_unpriced") or {}
+
+
+def _ordered(unpriced: dict[str, int | None]) -> list[tuple[str, int | None]]:
+    """Funds by first-price year, then name; never-priced funds last."""
+    return sorted(unpriced.items(), key=lambda kv: (kv[1] is None, kv[1] or 0, kv[0]))
+
+
+def dotcom_proxy_note(report: dict) -> list[str]:
+    """The dot-com proxy bullet, naming the non-bond funds unpriced at the window
+    start (by first-price year) and 'bonds' if any bond fund is; [] when none. The
+    year is the window's configured start year (`dotcom_year`), omitted if absent."""
+    unpriced = _unpriced(report)
+    names = [t for t, _ in _ordered(unpriced) if asset_class(t) != "bonds"]
+    if any(asset_class(t) == "bonds" for t in unpriced):
+        names.append("bonds")
+    if not names:
+        return []
+    verb = "is" if len(names) == 1 else "are"
+    year = report.get("dotcom_year")
+    window = f"dot-com window ({year})" if year else "dot-com window"
+    return [
+        f"- In the {window} {_join(names)} {verb} proxied (they did not yet "
+        "trade), so those cells are indicative only."
+    ]
+
+
+def _starts_before(unpriced: dict[str, int | None]) -> str:
+    """'SHY, IEF and TLT (2002), RSP (2003) and GLD (2004)': funds grouped by
+    first-price year, years ascending, funds sorted within a year; funds that
+    never have a price come last as 'XYZ (no price)'."""
+    groups: dict[int | None, list[str]] = {}
+    for ticker, year in _ordered(unpriced):
+        groups.setdefault(year, []).append(ticker)
+    return _join(
+        [f"{_join(ts)} ({'no price' if year is None else year})" for year, ts in groups.items()]
+    )
+
+
+def _cash_loss(report: dict) -> float | None:
+    """The standalone CASH portfolio's `dotcom_2000` frozen loss; None if not in the report."""
+    for r in report["windows"]:
+        if (
+            r["portfolio"] == "CASH"
+            and r["window"] == DOTCOM_WINDOW
+            and r["mode"] == "frozen"
+            and not r["unavailable"]
+        ):
+            return float(r["loss"])
+    return None
+
+
+def _is_cash(report: dict) -> bool:
+    """True when CASH's `dotcom_2000` cell lost nothing (it was entirely cash)."""
+    loss = _cash_loss(report)
+    return loss is not None and abs(loss) < 1e-9
+
+
+def _dotcom_start_sentence(report: dict, proxied: str) -> list[str]:
+    """Which funds `dotcom_2000` starts before, then the mostly proxied portfolios. The
+    CASH-is-cash clause (with CASH's actual loss) appears only when a bond fund (what
+    CASH holds) is among the funds and CASH's cell lost nothing; with no funds listed
+    only the mostly proxied sentence remains (or nothing)."""
+    unpriced = _unpriced(report)
+    if not unpriced:
+        return [f"In `{DOTCOM_WINDOW}`, {proxied} are mostly proxied."] if proxied else []
+    text = f"`dotcom_2000` starts before {_starts_before(unpriced)}"
+    if _is_cash(report) and any(asset_class(t) == "bonds" for t in unpriced):
+        text += f": CASH is entirely cash there ({_pct(_cash_loss(report))} loss by construction)"
+        text += f" and {proxied} are mostly proxied." if proxied else "."
+    else:
+        text += f"; {proxied} are mostly proxied." if proxied else "."
+    return [text]
+
+
+def _leg(portfolio_id: str) -> str:
+    """The sleeve leg of an A80 row id: 'A80-IEF20' -> 'IEF'."""
+    return re.sub(r"\d+$", "", portfolio_id.removeprefix(SLEEVE_PREFIX))
+
+
+def _dotcom_sleeve(report: dict) -> list[str]:
+    """Which A80 sleeve portfolios have identical `dotcom_2000` frozen cells (same
+    proxied shares and loss as the CASH one, in every state: a switching portfolio
+    `X` has cells `X[risk_on]` and `X[risk_off]`), and which use the SPY proxy.
+    Computed from the window rows; [] without a CASH row or an identical pair."""
+    cells: dict[str, dict[str, dict]] = {}  # base id -> {state tag: row}
+    for r in report["windows"]:
+        base, _, state = r["portfolio"].partition("[")
+        if (
+            r["window"] == DOTCOM_WINDOW
+            and r["mode"] == "frozen"
+            and not r["unavailable"]
+            and base.startswith(SLEEVE_PREFIX)
+        ):
+            cells.setdefault(base, {})[state] = r
+
+    def key(states: dict[str, dict]) -> tuple:
+        return tuple(
+            (
+                state,
+                tuple(sorted((c, round(s, 6)) for c, s in r["proxied_share"].items())),
+                round(r["loss"], 9),
+            )
+            for state, r in sorted(states.items())
+        )
+
+    cash = next((pid for pid in cells if _leg(pid) == "CASH"), None)
+    if cash is None:
+        return []
+    same = [pid for pid in cells if key(cells[pid]) == key(cells[cash])]
+    if len(same) < 2:
+        return []
+    legs = [_leg(pid) for pid in same if pid != cash]
+    spy = [
+        pid
+        for pid, states in cells.items()
+        if any(r["proxied_share"].get("equity", 0) > 0 for r in states.values())
+    ]
+    if _is_cash(report):
+        head = (
+            f"{_join(legs)} {'is' if len(legs) == 1 else 'are'}, like CASH, entirely cash in "
+            f"`{DOTCOM_WINDOW}` ({_pct(_cash_loss(report))} loss), so the "
+        )
+    else:
+        head = f"In `{DOTCOM_WINDOW}` the "
+    text = (
+        f"{head}{_join(same)} frozen cells are identical there "
+        "and that window cannot tell the bond sleeves apart"
+    )
+    if spy:
+        text += f"; {_join(spy)} {'uses' if len(spy) == 1 else 'use'} the SPY proxy"
+    return [text + "."]
+
+
 KNOWN_GAP_NOTE = (
     "- Known gap: no portfolio holds an asset that gains from a falling dollar other than gold."
 )
@@ -301,7 +432,7 @@ def _notes(report: dict) -> list[str]:
         *_switching_note(report),
         "- The engine never charges for drift, so the cost of real periodic rebalancing is "
         "slightly understated for every blend.",
-        DOTCOM_PROXY_NOTE,
+        *dotcom_proxy_note(report),
         KNOWN_GAP_NOTE,
         "- Prices are dividend-adjusted, so totals are correct; dividend and interest income "
         "is not separated from sales.",
@@ -379,11 +510,9 @@ def _window_section(report: dict) -> list[str]:
         [
             "Proxies (`qrl.stress`): in a frozen cell, a fund without a price at the window "
             "start is replaced by SPY (equity) or by cash (bonds, gold). A cell more than "
-            f"{threshold:.0%} proxied is marked mostly proxied, indicative only. "
-            "`dotcom_2000` starts before SHY, IEF and TLT (2002), RSP (2003) and GLD (2004): "
-            "CASH is entirely cash there (0% loss by construction)"
-            + (f" and {proxied} are mostly proxied." if proxied else "."),
-            *([DOTCOM_SLEEVE] if _has_sleeves(report) else []),
+            f"{threshold:.0%} proxied is marked mostly proxied, indicative only.",
+            *_dotcom_start_sentence(report, proxied),
+            *(_dotcom_sleeve(report) if _has_sleeves(report) else []),
         ]
     )
     return [

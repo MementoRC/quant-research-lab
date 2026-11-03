@@ -27,7 +27,7 @@ from test_decision_report import _hand_report
 from qrl import decision
 from qrl.decision import portfolio_returns, return_rows, run_decision
 from qrl.decision_config import load_decision_config, portfolio_states
-from qrl.decision_report import _header, _notes, render_markdown
+from qrl.decision_report import _dotcom_sleeve, _header, _notes, render_markdown
 from qrl.longrun import CASH_ASSUMPTION, load_longrun_config
 from qrl.longrun_report import render_markdown as render_longrun
 from qrl.metrics import compute_metrics
@@ -187,7 +187,7 @@ def test_run_decision_carries_the_return_rows(small):
 
 RETURN_HEAD = "## Research-period return (2005-2018, no withdrawals)"
 DOTCOM_SLEEVE = (
-    "IEF, TLT and BONDS are, like CASH, entirely cash in `dotcom_2000` (0% loss), so the "
+    "IEF, TLT and BONDS are, like CASH, entirely cash in `dotcom_2000` (0.0% loss), so the "
     "A80-CASH20, A80-IEF20, A80-TLT20 and A80-BONDS20 frozen cells are identical there and "
     "that window cannot tell the bond sleeves apart; A80-RSP20 uses the SPY proxy."
 )
@@ -251,14 +251,100 @@ def _with_a80():
         for i in ALL_IDS
     ]
     return _hand_report(
-        portfolios=[{"id": i, "label": i, "states": {}} for i in ALL_IDS], year_one=year_one
+        portfolios=[{"id": i, "label": i, "states": {}} for i in ALL_IDS],
+        year_one=year_one,
+        windows=_a80_dotcom_rows(),
+        dotcom_unpriced={"SHY": 2002, "IEF": 2002, "TLT": 2002, "RSP": 2003, "GLD": 2004},
     )
+
+
+def _a80_row(pid: str, loss: float, **share) -> dict:
+    return {
+        "portfolio": pid,
+        "window": "dotcom_2000",
+        "mode": "frozen",
+        "loss": loss,
+        "proxied_share": {"equity": 0.0, "gold": 0.0, "bonds": 0.0, **share},
+        "indicative": False,
+        "unavailable": None,
+    }
+
+
+def _a80_dotcom_rows(**over: dict) -> list[dict]:
+    """Frozen dotcom cells: bond sleeves proxied to cash identically, RSP to SPY."""
+    rows = {
+        "CASH": _a80_row("CASH", 0.0, bonds=1.0),  # the standalone fund: entirely cash
+        "A80-CASH20": _a80_row("A80-CASH20", 0.3, bonds=0.2),
+        "A80-IEF20": _a80_row("A80-IEF20", 0.3, bonds=0.2),
+        "A80-TLT20": _a80_row("A80-TLT20", 0.3, bonds=0.2),
+        "A80-BONDS20": _a80_row("A80-BONDS20", 0.3, bonds=0.2),
+        "A80-RSP20": _a80_row("A80-RSP20", 0.4, equity=0.2),
+    }
+    return [*{**rows, **over}.values()]
 
 
 def test_dotcom_note_tells_that_the_bond_sleeves_are_identical_there():
     md = render_markdown(_with_a80())
     assert md.count(DOTCOM_SLEEVE) == 1
-    assert md.count("(0% loss by construction). IEF, TLT and BONDS are, like CASH,") == 1
+    assert md.count("(0.0% loss by construction). IEF, TLT and BONDS are, like CASH,") == 1
+
+
+def _sleeve_sentence(windows: list[dict]) -> str:
+    md = render_markdown({**_with_a80(), "windows": windows})
+    return next((ln for ln in md.splitlines() if "frozen cells are identical" in ln), "")
+
+
+def test_dotcom_sleeve_sentence_is_computed_from_the_window_rows():
+    # a sleeve whose cell differs drops out of the identical group
+    differ = _a80_dotcom_rows(**{"A80-TLT20": _a80_row("A80-TLT20", 0.25, bonds=0.2)})
+    text = _sleeve_sentence(differ)
+    assert "IEF and BONDS are, like CASH, entirely cash" in text
+    assert "A80-CASH20, A80-IEF20 and A80-BONDS20 frozen cells are identical" in text
+    assert "A80-TLT20" not in text
+    # no equity-proxied sleeve: no SPY clause
+    no_spy = _a80_dotcom_rows(**{"A80-RSP20": _a80_row("A80-RSP20", 0.3, bonds=0.2)})
+    assert "SPY proxy" not in _sleeve_sentence(no_spy)
+    # two equity-proxied sleeves: plural verb
+    two = _a80_dotcom_rows(**{"A80-TLT20": _a80_row("A80-TLT20", 0.4, equity=0.2)})
+    assert "A80-TLT20 and A80-RSP20 use the SPY proxy." in _sleeve_sentence(two)
+
+
+def test_dotcom_sleeve_sentence_from_real_shaped_window_rows():
+    """Rows from `stress_rows` on the shipped config: the A80 cells are named
+    `A80-X20[risk_on]` / `[risk_off]` (A is switching), CASH is a static row."""
+    from test_decision import _inception_masked
+
+    from qrl.decision import dotcom_unpriced, stress_rows
+
+    cfg, data = _shipped(), _inception_masked(prices())
+    rows = stress_rows(cfg, data, criteria())
+    assert any(r["portfolio"] == "A80-CASH20[risk_off]" for r in rows)
+    report = {
+        "windows": rows,
+        "portfolios": [{"id": p.id, "label": p.label, "states": {}} for p in cfg.portfolios],
+        "proxied_threshold": cfg.proxied_threshold,
+        "dotcom_unpriced": dotcom_unpriced(cfg, data, END),
+    }
+    (text,) = _dotcom_sleeve(report)
+    assert text == DOTCOM_SLEEVE
+
+
+def test_dotcom_sleeve_sentence_claims_cash_only_when_cash_lost_nothing():
+    lossy = _a80_dotcom_rows(CASH=_a80_row("CASH", 0.05, bonds=1.0))
+    text = _sleeve_sentence(lossy)
+    assert "entirely cash" not in text
+    assert "In `dotcom_2000` the A80-CASH20, A80-IEF20, A80-TLT20 and A80-BONDS20 frozen" in text
+    no_fund = [r for r in _a80_dotcom_rows() if r["portfolio"] != "CASH"]
+    assert "entirely cash" not in _sleeve_sentence(no_fund)
+    assert "frozen cells are identical" in _sleeve_sentence(no_fund)
+
+
+def test_dotcom_sleeve_sentence_needs_a_cash_row_and_an_identical_pair():
+    rows = _a80_dotcom_rows()
+    assert _sleeve_sentence([r for r in rows if r["portfolio"] != "A80-CASH20"]) == ""
+    lone = _a80_dotcom_rows(**{f"A80-{s}20": _a80_row(f"A80-{s}20", 0.2) for s in ("IEF", "TLT")})
+    lone = [r for r in lone if r["portfolio"] != "A80-BONDS20"]
+    assert _sleeve_sentence(lone) == ""
 
 
 def test_dotcom_sleeve_sentence_is_absent_without_a80_rows():
@@ -289,8 +375,12 @@ def test_mostly_proxied_sentence_names_exactly_the_flagged_dotcom_portfolios():
         _window_row("T", "dotcom_2000", True),
         _window_row("P", "dotcom_2000", True),
     ]
-    md = render_markdown(_hand_report(windows=windows))
-    assert "(0% loss by construction) and P and T are mostly proxied." in md
+    cash = {**_window_row("CASH", "dotcom_2000", False), "loss": 0.0}
+    md = render_markdown(_hand_report(windows=[*windows, cash], dotcom_unpriced={"SHY": 2002}))
+    assert "(0.0% loss by construction) and P and T are mostly proxied." in md
+    no_cash = render_markdown(_hand_report(windows=windows, dotcom_unpriced={"SHY": 2002}))
+    assert "; P and T are mostly proxied." in no_cash
+    assert "entirely cash" not in no_cash
     assert "G-CASH" not in md
 
 

@@ -9,10 +9,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from .decision_report import (
-    DOTCOM_PROXY_NOTE,
     DRAWDOWN_NOTE,
     KNOWN_GAP_NOTE,
     deflation_sentence,
+    dotcom_proxy_note,
     pct,
     portfolio_section,
     rate_text,
@@ -132,7 +132,7 @@ def _notes(report: dict, tcash: float) -> list[str]:
         *switching_note(report),
         "- The engine never charges for drift, so the cost of real periodic rebalancing is "
         "slightly understated.",
-        DOTCOM_PROXY_NOTE,
+        *dotcom_proxy_note(report),
         KNOWN_GAP_NOTE,
         "- CASH here is SHY, not true cash.",
         "- Prices are dividend-adjusted, so totals are correct; dividend and interest income "
