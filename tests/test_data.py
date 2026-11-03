@@ -58,6 +58,36 @@ def test_load_prices_refetches_when_cache_starts_after_requested_start(tmp_path,
     assert len(starts) == 2  # now covered by the 1999 fetch
 
 
+def _legacy_cache_fetches(tmp_path, monkeypatch, **kwargs):
+    """Seed a parquet with no .start sidecar, load it, return the fetch starts."""
+    _fake_df().to_parquet(tmp_path / "AAA.parquet")
+    starts = []
+
+    def fake_chunk(tickers, start, retries=3):
+        starts.append(start)
+        return {t: _fake_df(start=start) for t in tickers}
+
+    monkeypatch.setattr(qdata, "_download_chunk", fake_chunk)
+    qdata.load_prices(["AAA"], cache_dir=tmp_path, **kwargs)
+    return starts
+
+
+def test_legacy_cache_without_sidecar_reused_for_default_start_and_backfilled(
+    tmp_path, monkeypatch
+):
+    assert _legacy_cache_fetches(tmp_path, monkeypatch) == []
+    assert (tmp_path / "AAA.start").read_text() == "1999-01-01"
+
+
+def test_legacy_cache_without_sidecar_refetched_for_earlier_start(tmp_path, monkeypatch):
+    assert _legacy_cache_fetches(tmp_path, monkeypatch, start="1990-01-01") == ["1990-01-01"]
+    assert (tmp_path / "AAA.start").read_text() == "1990-01-01"
+
+
+def test_legacy_cache_without_sidecar_reused_for_later_start(tmp_path, monkeypatch):
+    assert _legacy_cache_fetches(tmp_path, monkeypatch, start="2005-01-01") == []
+
+
 def test_load_prices_migrates_legacy_csv_without_refetching(tmp_path, monkeypatch):
     df = _fake_df()
     df.to_csv(tmp_path / "BBB.csv")
