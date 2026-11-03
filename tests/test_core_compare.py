@@ -198,6 +198,19 @@ def test_core_compare_error_row_for_candidate_without_cagr(monkeypatch):
     assert "error" in out["candidates"][0]["research"]
 
 
+def test_core_compare_errored_research_breach_is_unknown_not_false(monkeypatch):
+    monkeypatch.setattr(core_compare, "compute_metrics", lambda *a, **k: {"days": 1})
+    cfg, _ = load_stress_config(ROOT / "config" / "stress.yaml", HOLDOUT)
+    cand = run_core_compare([STATIC], cfg, _data(), _criteria(), SPLIT, 0.35)["candidates"][0]
+    assert cand["research_breach"] is None
+    assert cand["breach_count"] is None
+    assert core_compare._research_row(cand).endswith("| n/a |")
+    rows = core_compare.benchmark_metrics(
+        _data(start="2005-02-01"), _criteria(), SPLIT, "QQQ", 0.35
+    )
+    assert all(r["research_breach"] is None and r["breach_count"] is None for r in rows)
+
+
 def test_core_compare_markdown_footnote_explains_switching_breach_counts(compared):
     out, _ = compared
     report = {

@@ -29,7 +29,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from qrl.combined import combined_config_for_run, config_path_for  # noqa: E402
 from qrl.criteria import load_criteria  # noqa: E402
+from qrl.factor_run import build_provider, check_factor_run, effective_criteria  # noqa: E402
 from qrl.holdout import HoldoutAlreadyUnsealedError, unseal  # noqa: E402
 from qrl.ledger import DEFAULT_LEDGER_PATH, Ledger, current_git_commit  # noqa: E402
 from qrl.search import SearchData  # noqa: E402
@@ -62,10 +64,30 @@ def cmd_unseal(args: argparse.Namespace) -> int:
     if run is None:
         print(problem, file=sys.stderr)
         return 2
-    universe = load_universe(args.universe)
+    # Same factor / combined hash guards, same order, as validate.py.
+    try:
+        factor = check_factor_run(run, args.factor_config)
+        if factor is not None:
+            criteria = effective_criteria(criteria, factor.research_start)
+            universe = factor.universe
+        else:
+            universe = load_universe(args.universe)
+        rule = run.get("pass_rule") or "standalone"
+        combined_config_for_run(
+            run,
+            config_path_for(rule, args.combined_config, ROOT / "config"),
+            args.profile,
+            args.portfolio,
+            universe_tickers=list(universe["tickers"]),
+            null_membership=factor.membership if factor is not None else None,
+        )
+    except ValueError as err:
+        print(str(err), file=sys.stderr)
+        return 2
     sleeve_tickers = list(universe["tickers"])
     needed = set(sleeve_tickers) | set(DEFAULT_UNIVERSE_TICKERS) | set(criteria["benchmarks"])
-    data = SearchData.load(sorted(needed), synthetic=args.synthetic)
+    provider = build_provider(factor) if factor is not None else None
+    data = SearchData.load(sorted(needed), synthetic=args.synthetic, provider=provider)
     meta = {
         "n_strategies": args.n_strategies,
         "lookback_days": args.lookback_days,
@@ -125,6 +147,10 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ledger", default=str(ROOT / DEFAULT_LEDGER_PATH))
     ap.add_argument("--criteria", default=str(ROOT / "config" / "criteria.yaml"))
     ap.add_argument("--universe", default=str(ROOT / "config" / "universe.yaml"))
+    ap.add_argument("--combined-config", default=None)
+    ap.add_argument("--factor-config", default=None)
+    ap.add_argument("--profile", default=str(ROOT / "config" / "profile.yaml"))
+    ap.add_argument("--portfolio", default=str(ROOT / "config" / "portfolio.yaml"))
     ap.add_argument("--synthetic", action="store_true")
     ap.add_argument(
         "--top", type=int, default=40, help="how many top research survivors to consider"

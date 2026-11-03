@@ -31,6 +31,7 @@ from qrl.decision_report import _header, _notes, render_markdown
 from qrl.longrun import CASH_ASSUMPTION, load_longrun_config
 from qrl.longrun_report import render_markdown as render_longrun
 from qrl.metrics import compute_metrics
+from qrl.stress import window_drawdown
 
 SLEEVES = {
     "CASH": {"SHY": 1.0},
@@ -110,15 +111,32 @@ def test_return_rows_match_compute_metrics(small):
     assert [r["portfolio"] for r in rows] == list(SMALL_IDS)
     cut = {k: v.loc[:END] for k, v in data.items()}
     by_id = {p.id: p for p in small.portfolios}
-    expected = {i: compute_metrics(portfolio_returns(by_id[i], cut, FIRST, 5.0)) for i in SMALL_IDS}
+    series = {i: portfolio_returns(by_id[i], cut, FIRST, 5.0) for i in SMALL_IDS}
+    expected = {i: compute_metrics(s) for i, s in series.items()}
     for r in rows:
         m = expected[r["portfolio"]]
         assert set(r) == {"portfolio", "cagr", "max_drawdown", "lost_return"}
         assert r["cagr"] == pytest.approx(m["cagr"], abs=1e-12)
-        assert r["max_drawdown"] == pytest.approx(m["max_drawdown"], abs=1e-12)
+        # Amended definition (report-wording.md): the start counts as a peak.
+        assert r["max_drawdown"] == pytest.approx(
+            window_drawdown(series[r["portfolio"]]), abs=1e-12
+        )
+        assert r["max_drawdown"] >= m["max_drawdown"] - 1e-12
         assert r["max_drawdown"] > 0  # positive, as metrics.py returns it
         assert r["lost_return"] == pytest.approx(expected["A"]["cagr"] - m["cagr"], abs=1e-12)
     assert rows[0]["lost_return"] == 0.0
+
+
+def test_return_rows_drawdown_counts_a_first_day_loss(small, monkeypatch):
+    idx = pd.bdate_range(FIRST, periods=300)
+    rets = pd.Series(0.001, index=idx)
+    rets.iloc[0] = -0.10  # the start is a peak: this loss is a drawdown
+    monkeypatch.setattr(decision, "portfolio_returns", lambda *a, **k: rets)
+    rows = return_rows(small, prices(), criteria())
+    assert compute_metrics(rets)["max_drawdown"] < 0.05  # metrics.py misses the first-day loss
+    for r in rows:
+        assert r["max_drawdown"] == pytest.approx(window_drawdown(rets), abs=1e-12)
+        assert r["max_drawdown"] > 0.09
 
 
 def test_return_rows_start_at_the_research_start_and_stop_at_the_data_end(small, monkeypatch):

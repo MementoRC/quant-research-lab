@@ -18,8 +18,8 @@
 | --- | --- |
 | FRAGILE | 13 |
 | WATCH | 54 |
-| SOUND | 137 |
-| INSUFFICIENT DATA | 46 |
+| SOUND | 136 |
+| INSUFFICIENT DATA | 47 |
 | NOT APPLICABLE | 50 |
 
 ## Fragile and watch
@@ -204,7 +204,6 @@
 | CVX | SOUND | 2025-12-31 | 17.2x | 2.1x | 0.6x | +1.6 pp | 7.34 | 5 |  |
 | DELL | SOUND | 2026-01-30 | 5.2x | 2.3x | 0.7x | +1.2 pp | 3.51 | 6 |  |
 | DHR | SOUND | 2025-12-31 | 17.7x | n/a (missing cash) | n/a (missing cash) | +0.6 pp | 7.71 | 5 |  |
-| DIS | SOUND | 2025-09-27 | n/a (interest expense <= 0) | 3.6x | 0.7x | -1.1 pp | 5.83 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | DVN | SOUND | 2025-12-31 | 8.0x | 2.6x | 0.4x | -0.3 pp | 6.14 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | EBAY | SOUND | 2025-12-31 | 9.3x | 3.4x | 0.6x | +1.0 pp | 11.96 | 5 |  |
 | ETN | SOUND | 2025-12-31 | 21.5x | 2.6x | 0.5x | n/a (missing interest (3y back)) | 6.35 | 6 |  |
@@ -309,6 +308,7 @@
 | DAL | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | 2.3x | 0.8x | n/a (missing interest (latest), interest (3y back)) | 3.28 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | DASH | INSUFFICIENT DATA | 2025-12-31 | n/a (missing interest expense) | net cash | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | little net debt: -8.4% of assets | 4.71 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | DHI | INSUFFICIENT DATA | 2025-09-30 | n/a (missing EBIT, interest expense) | n/a (missing debt) | 0.6x | n/a (missing debt (latest), debt (1y back), debt (3y back), debt (4y back), interest (latest), interest (3y back)) | n/a (missing current assets, current liabilities, EBIT) | n/a (missing debt (latest), current assets (latest), current liabilities (latest), debt (1y back), current assets (1y back), current liabilities (1y back)) |  |
+| DIS | INSUFFICIENT DATA | 2025-09-27 | n/a (interest expense <= 0) | 3.6x | 0.7x | n/a (interest expense <= 0) | 5.83 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | ED | INSUFFICIENT DATA | 2025-12-31 | 2.4x | n/a (missing FCF) | n/a (missing FCF) | +1.2 pp | 4.68 | n/a (missing gross profit (latest), gross profit (1y back)) |  |
 | EL | INSUFFICIENT DATA | 2026-06-30 | 2.3x | n/a (missing cash) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y, cash) | +0.8 pp | n/a (missing equity, liabilities) | 6 |  |
 | EME | INSUFFICIENT DATA | 2025-12-31 | 142.5x | n/a (missing debt) | n/a (missing debt due in 1y, debt due in 2y, debt due in 3y) | n/a (missing debt (latest), debt (1y back)) | 8.04 | n/a (missing debt (latest), debt (1y back)) |  |

@@ -86,6 +86,62 @@ def test_walkforward_refuses_changed_criteria_hash(tmp_path, monkeypatch, capsys
     assert REFUSAL in capsys.readouterr().err
 
 
+def _seed_factor_run(tmp_path, mutate: str):
+    """Seed a factor + combined_null run, then edit factor.yaml or combined yaml.
+    Returns (ledger path, shared config argv)."""
+    from test_combined_null import LOOSE_NULL, _cfg_args, _copy_configs
+    from test_factor_run import _seed_factor, _write_setup
+
+    paths = _copy_configs(tmp_path, combined_null=LOOSE_NULL)
+    factor = _write_setup(tmp_path)
+    assert _seed_factor(tmp_path, paths, factor) == 0
+    target = factor if mutate == "factor" else paths["combined"]
+    target.write_text(target.read_text() + "# edited after seeding\n")
+    cfg = ["--factor-config", str(factor), *_cfg_args(paths)]
+    return str(tmp_path / "ledger.sqlite"), cfg
+
+
+@pytest.mark.parametrize("mutate", ["factor", "combined"])
+@pytest.mark.parametrize("command", ["run", "tune"])
+def test_walkforward_refuses_changed_factor_or_combined_hash(
+    tmp_path, monkeypatch, capsys, command, mutate
+):
+    mod = _load_script("walkforward")
+    for name in ("walk_forward", "tune_meta"):
+        monkeypatch.setattr(mod, name, _boom)
+    monkeypatch.setattr(mod.SearchData, "load", _boom)
+    ledger, cfg = _seed_factor_run(tmp_path, mutate)
+    rc = mod.main(["--ledger", ledger, "--synthetic", *cfg, command, "--run", "1"])
+    assert rc == 2
+    expected = "factor.yaml hash has changed" if mutate == "factor" else "Combined config hash"
+    assert expected in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("mutate", ["factor", "combined"])
+def test_unseal_refuses_changed_factor_or_combined_hash(tmp_path, monkeypatch, capsys, mutate):
+    mod = _load_script("unseal_holdout")
+    monkeypatch.setattr(mod.SearchData, "load", _boom)
+    monkeypatch.setattr(mod, "unseal", _boom)
+    monkeypatch.setattr(mod, "walk_forward", _boom)
+    ledger, cfg = _seed_factor_run(tmp_path, mutate)
+    rc = mod.main(
+        [
+            "--run",
+            "1",
+            "--reason",
+            "guard test",
+            "--confirm",
+            "--synthetic",
+            "--ledger",
+            ledger,
+            *cfg,
+        ]
+    )
+    assert rc == 2
+    expected = "factor.yaml hash has changed" if mutate == "factor" else "Combined config hash"
+    assert expected in capsys.readouterr().err
+
+
 def test_unseal_refuses_changed_criteria_hash_without_unsealing(tmp_path, monkeypatch, capsys):
     mod = _load_script("unseal_holdout")
     monkeypatch.setattr(mod.SearchData, "load", _boom)
