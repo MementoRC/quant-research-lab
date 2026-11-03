@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .decision_report import below_peak, pct, signed
+from .decision_report import below_peak, pct, rate_text, signed
 from .shock import YEAR_KEYS
 from .whatif import MIX_CASH_ID, MIX_ID, Shares, split_shares
 from .whatif_report import listing, noncash_line
@@ -18,13 +18,6 @@ STATE_NOTE = (
     "For switching rows, the state shown is the fixed-weight state that ends lowest at its "
     "worst start year during the stretch; it is not the live rule's choice."
 )
-
-
-def rate_text(x: float) -> str:
-    """A rate or shock input as a percentage keeping its digits (0.0425 -> 4.25%,
-    0.04 -> 4.0%); used for rate headings and the shock table, not result cells."""
-    text = f"{100 * x:g}"
-    return f"{text if '.' in text or 'e' in text else text + '.0'}%"
 
 
 def _mix_lines(given: Shares | None) -> list[str]:

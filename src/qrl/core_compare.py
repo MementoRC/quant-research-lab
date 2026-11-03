@@ -331,7 +331,20 @@ def _cell_row(cand_id: str, cell: dict) -> str:
     )
 
 
-def _benchmark_section(rows: list[dict] | None) -> list[str]:
+def _benchmark_equal_note(report: dict) -> str:
+    """The claim that the split-QQQ benchmark's stress cells equal candidate A's
+    `A[risk_on]` rows; empty unless A and that branch are in the report."""
+    has_branch = any(
+        c["id"] == "A" and any(cell["portfolio"] == "A[risk_on]" for cell in c["cells"])
+        for c in report["candidates"]
+    )
+    if not has_branch:
+        return ""
+    share = report["capital_split"]["core"]
+    return f" Stress cells for {share:.0%} QQQ equal candidate A's `A[risk_on]` rows above."
+
+
+def _benchmark_section(rows: list[dict] | None, report: dict) -> list[str]:
     if not rows:
         return []
     return [
@@ -341,8 +354,20 @@ def _benchmark_section(rows: list[dict] | None) -> list[str]:
         "|---|---|---|---|---|---|---|",
         *(_research_row(r) for r in rows),
         "",
-        "Breaches: research-period drawdown vs the cap only (0/1). Stress cells for 80% QQQ "
-        "equal candidate A's `A[risk_on]` rows above.",
+        "Breaches: research-period drawdown vs the cap only (0/1)." + _benchmark_equal_note(report),
+        "",
+    ]
+
+
+def _dotcom_note(report: dict) -> list[str]:
+    """The dot-com cushion note, only when a `dotcom_2000` cell is in the report."""
+    cells = (cell for c in report["candidates"] for cell in c["cells"])
+    if not any(cell["scenario"] == "dotcom_2000" for cell in cells):
+        return []
+    return [
+        "Note: in `dotcom_2000` the bond and gold ETFs did not yet exist, so bonds/gold "
+        'weights are treated as cash (the "proxied to cash" column); this understates '
+        "their cushion in that window.",
         "",
     ]
 
@@ -373,17 +398,14 @@ def render_markdown(report: dict) -> str:
         "|---|---|---|---|---|---|---|",
         *(_research_row(c) for c in report["candidates"]),
         "",
-        *_benchmark_section(report.get("benchmark")),
+        *_benchmark_section(report.get("benchmark"), report),
         "## Stress cells",
         "",
         "| id | portfolio | scenario | mode | loss | proxied to cash | flag |",
         "|---|---|---|---|---|---|---|",
         *(_cell_row(c["id"], cell) for c in report["candidates"] for cell in c["cells"]),
         "",
-        "Note: in `dotcom_2000` the bond and gold ETFs did not yet exist, so bonds/gold "
-        'weights are treated as cash (the "proxied to cash" column); this understates '
-        "their cushion in that window.",
-        "",
+        *_dotcom_note(report),
         "Note: for switching candidates the breach count covers the replay cell plus both "
         "branch cells (`[risk_on]`, `[risk_off]`), plus the research-period breach.",
         "",

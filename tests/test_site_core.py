@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from qrl.site_core import (
     DECISION_PATH,
     FRAGILITY_PATH,
@@ -274,6 +276,54 @@ def test_staged_entry_parses_committed_report():
     assert block["sections"]
     assert all(s["title"] for s in block["sections"])
     assert any(s["tables"] for s in block["sections"])
+
+
+def _decision_with(tmp_path, body: str) -> Path:
+    (tmp_path / "research").mkdir(exist_ok=True)
+    (tmp_path / DECISION_PATH).write_text(body)
+    return tmp_path
+
+
+def test_duplicate_section_title_fails_loudly(tmp_path):
+    root = _decision_with(tmp_path, "# T\n\n## Same\n\n- a\n\n## Same\n\n- b\n")
+    with pytest.raises(ValueError, match=r"decision\.md:7: duplicate section title 'Same'"):
+        build_decision(root)
+
+
+def test_table_row_with_extra_cell_fails_loudly(tmp_path):
+    body = "# T\n\n## S\n\n| a | b |\n| - | - |\n| 1 | 2 | 3 |\n"
+    with pytest.raises(ValueError, match=r"decision\.md: table .* 3 cells, header has 2"):
+        build_decision(_decision_with(tmp_path, body))
+
+
+def test_table_row_with_missing_cell_fails_loudly(tmp_path):
+    body = "# T\n\n## S\n\n| a | b |\n| - | - |\n| 1 |\n"
+    with pytest.raises(ValueError, match="1 cells, header has 2"):
+        build_decision(_decision_with(tmp_path, body))
+
+
+def test_compare_table_cell_mismatch_fails_loudly(tmp_path):
+    (tmp_path / "research").mkdir()
+    (tmp_path / "research" / "core_compare.md").write_text(
+        "# T\n\n## Research period\n\n| a | b |\n| - | - |\n| 1 | 2 | 3 |\n"
+    )
+    with pytest.raises(ValueError, match="core_compare.md"):
+        build_core_comparison(tmp_path)
+
+
+def test_table_title_does_not_leak_across_a_paragraph(tmp_path):
+    body = (
+        "# T\n\n## S\n\n### First\n\n| a |\n| - |\n| 1 |\n\n"
+        "Some prose in between.\n\n| b |\n| - |\n| 2 |\n"
+    )
+    tables = build_decision(_decision_with(tmp_path, body))["sections"][0]["tables"]
+    assert [t["title"] for t in tables] == ["First", None]
+
+
+def test_table_title_covers_consecutive_tables_without_prose(tmp_path):
+    body = "# T\n\n## S\n\n### First\n\n| a |\n| - |\n| 1 |\n\n| b |\n| - |\n| 2 |\n"
+    tables = build_decision(_decision_with(tmp_path, body))["sections"][0]["tables"]
+    assert [t["title"] for t in tables] == ["First", "First"]
 
 
 def test_bullets_strip_all_backticks():

@@ -382,6 +382,33 @@ def test_core_compare_markdown_benchmark_section_only_when_present(compared):
     assert md.replace(md[md.index("## Benchmark") : md.index("## Stress cells")], "") == base
 
 
+def test_core_compare_benchmark_equality_claim_uses_split_and_present_candidates(compared):
+    out, _ = compared
+    rows = core_compare.benchmark_metrics(_data(), _criteria(), SPLIT, "QQQ", 0.35)
+    share = f"{SPLIT['core']:.0%}"
+    md = render_markdown(_report(out, benchmark=rows))
+    assert f"Stress cells for {share} QQQ equal candidate A's `A[risk_on]` rows above." in md
+    other = {**SPLIT, "core": 0.6, "sleeve": 0.4}
+    md60 = render_markdown(_report(out, benchmark=rows, capital_split=other))
+    assert "Stress cells for 60% QQQ equal" in md60
+    without_a = [c for c in out["candidates"] if c["id"] != "A"]
+    no_a = render_markdown(_report({**out, "candidates": without_a}, benchmark=rows))
+    assert "equal candidate A" not in no_a
+    assert "## Benchmark" in no_a
+
+
+def test_core_compare_dotcom_note_only_when_that_window_is_present(compared):
+    out, _ = compared
+    assert "did not yet exist" in render_markdown(_report(out))
+    kept = [
+        {**c, "cells": [x for x in c["cells"] if x["scenario"] != "dotcom_2000"]}
+        for c in out["candidates"]
+    ]
+    md = render_markdown(_report({**out, "candidates": kept}))
+    assert "did not yet exist" not in md
+    assert "for switching candidates" in md
+
+
 def _fake_ohlcv(drop: str | None = None):
     def fake(tickers, refresh=False):
         open_, close = synthetic_prices(tickers, start="1999-01-01", end="2021-12-31")

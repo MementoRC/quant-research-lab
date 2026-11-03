@@ -24,30 +24,44 @@ _BULLET = re.compile(r"^- ([^:]+): (.*)$")
 _EVENT_ID = re.compile(r"event id (\d+)")
 
 
-def _sections(text: str) -> dict[str, list[str]]:
-    """Split on `## ` headings; the key "" holds everything before the first."""
+def _sections(text: str, report: str = "report") -> dict[str, list[str]]:
+    """Split on `## ` headings; the key "" holds everything before the first.
+
+    A repeated title raises rather than silently replacing the earlier section.
+    """
     out: dict[str, list[str]] = {"": []}
     current = ""
-    for line in text.splitlines():
+    for n, line in enumerate(text.splitlines(), start=1):
         if line.startswith("## "):
             current = line[3:].strip()
+            if current in out:
+                raise ValueError(f"{report}:{n}: duplicate section title {current!r}")
             out[current] = []
         else:
             out[current].append(line)
     return out
 
 
-def _table(lines: list[str]) -> list[dict[str, str]]:
+def _checked_cells(row: str, width: int, report: str, where: str) -> list[str]:
+    cells = [c.strip() for c in row.strip().strip("|").split("|")]
+    if len(cells) != width:
+        raise ValueError(
+            f"{report}: table {where!r} row has {len(cells)} cells, header has {width}: {row}"
+        )
+    return cells
+
+
+def _table(lines: list[str], report: str = "report", where: str = "") -> list[dict[str, str]]:
     """Rows of the first pipe table in `lines`, keyed by header cell."""
     rows = [ln.strip() for ln in lines if ln.strip().startswith("|")]
     if len(rows) < 2:
         return []
 
-    def cells(row: str) -> list[str]:
-        return [c.strip() for c in row.strip("|").split("|")]
-
-    header = cells(rows[0])
-    return [dict(zip(header, cells(r), strict=False)) for r in rows[2:]]
+    header = _cells(rows[0])
+    return [
+        dict(zip(header, _checked_cells(r, len(header), report, where), strict=True))
+        for r in rows[2:]
+    ]
 
 
 def _bullets(lines: list[str]) -> dict[str, str]:
@@ -73,16 +87,16 @@ def _parse_windows_and_cut_date(windows_str: str) -> tuple[list[str], str]:
 
 
 def parse_compare(text: str) -> dict:
-    sections = _sections(text)
+    sections = _sections(text, COMPARE_PATH)
     header = _bullets(sections[""])
     return {
         "header": header,
-        "research": _table(sections.get("Research period", [])),
+        "research": _table(sections.get("Research period", []), COMPARE_PATH, "Research period"),
     }
 
 
 def parse_reveal(text: str) -> dict:
-    sections = _sections(text)
+    sections = _sections(text, REVEAL_PATH)
     banner = next((ln[2:].strip() for ln in sections[""] if ln.startswith("> ")), "")
     m = _EVENT_ID.search(banner)
     header = _bullets(sections[""])
@@ -94,8 +108,8 @@ def parse_reveal(text: str) -> dict:
         "windows": windows,
         "cut_date": cut_date,
         "header": header,
-        "cells": _table(sections.get("Stress cells", [])),
-        "breaches": _table(sections.get("Breaches", [])),
+        "cells": _table(sections.get("Stress cells", []), REVEAL_PATH, "Stress cells"),
+        "breaches": _table(sections.get("Breaches", []), REVEAL_PATH, "Breaches"),
     }
 
 
@@ -121,12 +135,14 @@ def build_fragility(root: Path) -> dict | None:
     path = root / FRAGILITY_PATH
     if not path.exists():
         return None
-    sections = _sections(path.read_text())
+    sections = _sections(path.read_text(), FRAGILITY_PATH)
     return {
         "source": FRAGILITY_PATH,
         "header": _bullets(sections[""]),
-        "summary": _table(sections.get("Summary", [])),
-        "flagged": _table(sections.get("Fragile and watch", [])),
+        "summary": _table(sections.get("Summary", []), FRAGILITY_PATH, "Summary"),
+        "flagged": _table(
+            sections.get("Fragile and watch", []), FRAGILITY_PATH, "Fragile and watch"
+        ),
     }
 
 
@@ -134,10 +150,11 @@ def _cells(row: str) -> list[str]:
     return [c.strip() for c in row.strip().strip("|").split("|")]
 
 
-def _parse_section(title: str, lines: list[str]) -> dict:
+def _parse_section(title: str, lines: list[str], report: str = "report") -> dict:
     """One `## ` section: its bullets, paragraphs and every pipe table in order.
 
-    A `### ` heading titles the tables that follow it until the next heading.
+    A `### ` heading titles the next table only: any non-table text after it
+    (bullet, paragraph or another heading) clears the pending title.
     """
     bullets: list[str] = []
     paragraphs: list[str] = []
@@ -147,11 +164,15 @@ def _parse_section(title: str, lines: list[str]) -> dict:
 
     def flush() -> None:
         if len(pending) >= 2:
+            header = _cells(pending[0])
             tables.append(
                 {
                     "title": sub,
-                    "columns": _cells(pending[0]),
-                    "rows": [_cells(r) for r in pending[2:]],
+                    "columns": header,
+                    "rows": [
+                        _checked_cells(r, len(header), report, f"{title} / {sub}")
+                        for r in pending[2:]
+                    ],
                 }
             )
         pending.clear()
@@ -166,8 +187,10 @@ def _parse_section(title: str, lines: list[str]) -> dict:
             sub = line[4:].strip()
         elif line.startswith("- "):
             bullets.append(line[2:].strip())
+            sub = None
         elif line:
             paragraphs.append(line)
+            sub = None
     flush()
     return {"title": title, "bullets": bullets, "paragraphs": paragraphs, "tables": tables}
 
@@ -176,11 +199,11 @@ def _build_report(root: Path, rel_path: str) -> dict | None:
     path = root / rel_path
     if not path.exists():
         return None
-    sections = _sections(path.read_text())
+    sections = _sections(path.read_text(), rel_path)
     return {
         "source": rel_path,
         "header": _bullets(sections[""]),
-        "sections": [_parse_section(t, ls) for t, ls in sections.items() if t],
+        "sections": [_parse_section(t, ls, rel_path) for t, ls in sections.items() if t],
     }
 
 
