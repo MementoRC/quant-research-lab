@@ -169,6 +169,44 @@ def test_holdout_events_round_trip(tmp_path):
         assert row["reason"] == "one-time final check"
 
 
+def test_holdout_event_stores_run_id(tmp_path):
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        with_run = ledger.record_holdout_event("x", "r", git_commit="abc", run_id="7")
+        without = ledger.record_holdout_event("y", "r", git_commit="abc")
+        stored = {e["event_id"]: e["run_id"] for e in ledger.list_holdout_events()}
+
+    assert stored == {with_run: "7", without: None}
+
+
+def test_holdout_events_migration_adds_run_id_to_legacy_ledger(tmp_path):
+    ledger_path = tmp_path / "legacy.sqlite"
+    conn = sqlite3.connect(str(ledger_path))
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE holdout_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                what_unsealed TEXT NOT NULL,
+                git_commit TEXT,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO holdout_events (what_unsealed, reason, created_at)
+            VALUES ('old', 'old reason', '2020-01-01T00:00:00+00:00');
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    with Ledger(ledger_path) as ledger:
+        events = ledger.list_holdout_events()
+        columns = {row[1] for row in ledger._conn.execute("PRAGMA table_info(holdout_events)")}
+
+    assert "run_id" in columns
+    assert [e["run_id"] for e in events] == [None]
+
+
 def test_summary_funnel_counts(tmp_path):
     with Ledger(tmp_path / "ledger.sqlite") as ledger:
         run_id = _make_run(ledger)

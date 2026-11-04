@@ -138,14 +138,17 @@ def _visible_end(r: dict, criteria: dict, common_end: pd.Timestamp) -> pd.Timest
     return min(common_end, period_bounds(criteria, "validation")[1])
 
 
-def _holdout_event_count(ledger_path: Path) -> int | None:
-    """Rows in the ledger's `holdout_events`, or None if there is no ledger
-    file. Read-only: never creates or migrates the ledger."""
+def _holdout_event_count(ledger_path: Path, run_id: str) -> int | None:
+    """Rows in the ledger's `holdout_events` recorded for `run_id`, or None if
+    there is no ledger file. A ledger from before the `run_id` column counts
+    as 0. Read-only: never creates or migrates the ledger."""
     if not ledger_path.exists():
         return None
     conn = sqlite3.connect(f"file:{ledger_path}?mode=ro", uri=True)
     try:
-        return conn.execute("SELECT COUNT(*) FROM holdout_events").fetchone()[0]
+        return conn.execute(
+            "SELECT COUNT(*) FROM holdout_events WHERE run_id = ?", (run_id,)
+        ).fetchone()[0]
     except sqlite3.OperationalError:
         return 0
     finally:
@@ -154,22 +157,34 @@ def _holdout_event_count(ledger_path: Path) -> int | None:
 
 def _check_holdout_clearance(provenance: dict, ledger_path: Path) -> None:
     """`holdout_unsealed: true` in the portfolio config only grants holdout
-    figures if the ledger recorded an unsealing. Raises on a mismatch rather
-    than publishing. Runs only when the ledger file exists (it is tracked in
-    git, so real builds have it)."""
-    # Known gap (audit SP-3, 2026-11-02): this only verifies that SOME holdout
-    # event exists in the ledger, not that it belongs to this process;
-    # holdout_events records no run/process id, only free-text what_unsealed.
-    # Inactive while config/portfolio.yaml holdout_unsealed is false. Must be
-    # tied to the process (e.g. a process_id column on holdout_events) before
-    # any searched core gets a holdout unseal.
+    figures if the ledger recorded an unsealing for the run being published
+    (`provenance.ledger_run_id` == a `holdout_events.run_id`). Fails closed:
+    a missing run id, a missing ledger, or no matching event all raise rather
+    than publishing."""
     if not provenance.get("holdout_unsealed"):
         return
-    if _holdout_event_count(ledger_path) == 0:
+    run_id = provenance.get("ledger_run_id")
+    if run_id is None or str(run_id) == "":
+        raise RuntimeError(
+            "config/portfolio.yaml says holdout_unsealed: true, but provenance."
+            "ledger_run_id is empty, so no holdout_events row can be tied to this "
+            "portfolio. Set ledger_run_id to the unsealed run or set "
+            "holdout_unsealed back to false; refusing to publish holdout figures."
+        )
+    count = _holdout_event_count(ledger_path, str(run_id))
+    if count is None:
         raise RuntimeError(
             "config/portfolio.yaml says holdout_unsealed: true, but the ledger "
-            f"({ledger_path}) has no holdout_events row. Run qrl.holdout.unseal or "
-            "set holdout_unsealed back to false; refusing to publish holdout figures."
+            f"({ledger_path}) does not exist, so no holdout_events row can be "
+            "checked. Restore the ledger or set holdout_unsealed back to false; "
+            "refusing to publish holdout figures."
+        )
+    if count == 0:
+        raise RuntimeError(
+            "config/portfolio.yaml says holdout_unsealed: true, but the ledger "
+            f"({ledger_path}) has no holdout_events row for run {run_id}. Run "
+            "scripts/unseal_holdout.py --run for that run or set holdout_unsealed "
+            "back to false; refusing to publish holdout figures."
         )
 
 

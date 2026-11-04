@@ -112,6 +112,7 @@ def cmd_unseal(args: argparse.Namespace) -> int:
                 confirm=args.confirm,
                 force=args.force,
                 git_commit=current_git_commit(ROOT),
+                run_id=str(args.run),
             )
         except (ValueError, HoldoutAlreadyUnsealedError) as err:
             print(f"Refused: {err}", file=sys.stderr)

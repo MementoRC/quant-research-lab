@@ -48,6 +48,7 @@ def unseal(
     confirm: bool = False,
     force: bool = False,
     git_commit: str | None = None,
+    run_id: str | None = None,
 ):
     """Unseal the holdout period of `obj` (anything `qrl.periods.slice_period`
     accepts -- a price frame, a weights frame, ...) for the final chosen
@@ -58,7 +59,9 @@ def unseal(
     git commit, and reason) once `ledger.list_holdout_events()` already has
     a record, unless `force=True` and `reason` is non-empty -- a forced
     repeat is itself recorded, with `forced=True`, never merged into or
-    mistaken for the honest first unsealing.
+    mistaken for the honest first unsealing. `run_id` (optional) names the
+    research run the unsealing clears; the site's holdout clearance matches it
+    against the published portfolio's `ledger_run_id`.
 
     This is the one place in `src/` that sets the `unseal_holdout` flag on
     `qrl.periods.slice_period` -- see this module's docstring and
@@ -84,5 +87,7 @@ def unseal(
         if not reason:
             raise ValueError("A forced repeat unsealing still requires a reason.")
 
-    ledger.record_holdout_event(what_unsealed, reason, git_commit=git_commit, forced=bool(prior))
+    ledger.record_holdout_event(
+        what_unsealed, reason, git_commit=git_commit, forced=bool(prior), run_id=run_id
+    )
     return slice_period(obj, criteria, "holdout", unseal_holdout=True)

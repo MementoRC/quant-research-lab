@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from qrl.ledger import Ledger
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "build_site.py"
 
@@ -220,8 +222,11 @@ def test_searched_portfolio_has_no_holdout_figures_while_baseline_does(tmp_path,
 def test_unsealed_provenance_allows_holdout_for_a_searched_portfolio(tmp_path, monkeypatch):
     unsealed_yaml = _PORTFOLIO_WITH_SLEEVE.replace(
         "holdout_unsealed: false", "holdout_unsealed: true"
-    )
+    ).replace("ledger_run_id: null", 'ledger_run_id: "7"')
     fake_root = _seed_fake_root(tmp_path, unsealed_yaml)
+    # The clearance check needs an unsealing recorded for the same run id.
+    with Ledger(fake_root / "research" / "ledger.sqlite") as ledger:
+        ledger.record_holdout_event("test", "synthetic test event", git_commit="abc", run_id="7")
     out_path = tmp_path / "site_data" / "results.json"
 
     module = _load_build_site()
