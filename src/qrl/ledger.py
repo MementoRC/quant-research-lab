@@ -149,7 +149,8 @@ CREATE TABLE IF NOT EXISTS holdout_events (
     what_unsealed TEXT NOT NULL,
     git_commit TEXT,
     reason TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    run_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS reveal_events (
@@ -250,7 +251,7 @@ _SELECT_NOTES_BY_RUN = (
 _SELECT_METRICS_BY_RUN = "SELECT metrics_json FROM tests WHERE run_id = ?"
 _SELECT_VALIDATED_TEST_ID = "SELECT 1 FROM validation_events WHERE test_id = ?"
 _SELECT_HOLDOUT_EVENTS = (
-    "SELECT event_id, what_unsealed, git_commit, reason, forced, created_at "
+    "SELECT event_id, what_unsealed, git_commit, reason, forced, created_at, run_id "
     "FROM holdout_events ORDER BY event_id"
 )
 _SELECT_META_TESTS_ALL = (
@@ -418,6 +419,10 @@ class Ledger:
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(holdout_events)")}
         if "forced" not in columns:
             self._conn.execute("ALTER TABLE holdout_events ADD COLUMN forced INTEGER DEFAULT 0")
+        # SP-3: which research run an unsealing cleared, so the site can tie
+        # its holdout clearance to the run it publishes. NULL on older events.
+        if "run_id" not in columns:
+            self._conn.execute("ALTER TABLE holdout_events ADD COLUMN run_id TEXT")
 
     def _migrate_runs_columns(self) -> None:
         """Additive migration (same style as `_migrate_validation_events_columns`):
@@ -603,12 +608,14 @@ class Ledger:
         reason: str,
         git_commit: str | None = None,
         forced: bool = False,
+        *,
+        run_id: str | None = None,
     ) -> int:
         commit = git_commit if git_commit is not None else current_git_commit()
         cur = self._conn.execute(
             "INSERT INTO holdout_events (what_unsealed, git_commit, reason, forced, "
-            "created_at) VALUES (?, ?, ?, ?, ?)",
-            (what_unsealed, commit, reason, int(bool(forced)), _utcnow()),
+            "created_at, run_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (what_unsealed, commit, reason, int(bool(forced)), _utcnow(), run_id),
         )
         self._conn.commit()
         return _require_rowid(cur)
@@ -995,6 +1002,7 @@ class Ledger:
                 "reason": row["reason"],
                 "forced": bool(row["forced"]),
                 "created_at": row["created_at"],
+                "run_id": row["run_id"],
             }
             for row in rows
         ]

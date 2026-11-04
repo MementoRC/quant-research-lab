@@ -61,14 +61,24 @@ def _fake_root(tmp_path: Path, portfolio_yaml: str) -> Path:
     return fake_root
 
 
-def _build(monkeypatch, tmp_path: Path, portfolio_yaml: str, *, holdout_events: int | None):
+def _build(
+    monkeypatch,
+    tmp_path: Path,
+    portfolio_yaml: str,
+    *,
+    holdout_events: int | None,
+    run_id: str | None = None,
+):
     """Run build_site.main() against a fake root. `holdout_events=None` means
-    no ledger file; otherwise a temp ledger with that many holdout rows."""
+    no ledger file; otherwise a temp ledger with that many holdout rows, each
+    recorded under `run_id`."""
     fake_root = _fake_root(tmp_path, portfolio_yaml)
     if holdout_events is not None:
         with Ledger(fake_root / "research" / "ledger.sqlite") as ledger:
             for _ in range(holdout_events):
-                ledger.record_holdout_event("test", "synthetic test event", git_commit="abc")
+                ledger.record_holdout_event(
+                    "test", "synthetic test event", git_commit="abc", run_id=run_id
+                )
     module = _load_build_site()
     monkeypatch.setattr(module, "ROOT", fake_root)
     out_path = tmp_path / "site_data" / "results.json"
@@ -133,8 +143,11 @@ def test_search_origin_core_with_ledger_clearance_shows_the_full_window(tmp_path
     payload = _build(
         monkeypatch,
         tmp_path,
-        _SEARCH_CORE_PORTFOLIO.replace("UNSEALED", "true"),
+        _SEARCH_CORE_PORTFOLIO.replace("UNSEALED", "true").replace(
+            "ledger_run_id: null", 'ledger_run_id: "7"'
+        ),
         holdout_events=1,
+        run_id="7",
     )
 
     core = _entry(payload, "portfolio_core")
@@ -145,6 +158,32 @@ def test_search_origin_core_with_ledger_clearance_shows_the_full_window(tmp_path
     for key in ("equity", "drawdown"):
         values = payload["series"][key]["portfolio_core"]
         assert all(v is not None for d, v in zip(dates, values, strict=True) if d > VALIDATION_END)
+
+
+def _unsealed_portfolio(run_id_yaml: str) -> str:
+    return _SEARCH_CORE_PORTFOLIO.replace("UNSEALED", "true").replace(
+        "ledger_run_id: null", f"ledger_run_id: {run_id_yaml}"
+    )
+
+
+def test_holdout_unsealed_with_only_another_runs_event_raises(tmp_path, monkeypatch):
+    with pytest.raises(RuntimeError, match="holdout_events"):
+        _build(monkeypatch, tmp_path, _unsealed_portfolio('"7"'), holdout_events=1, run_id="8")
+
+
+def test_holdout_unsealed_with_legacy_event_without_run_id_raises(tmp_path, monkeypatch):
+    with pytest.raises(RuntimeError, match="holdout_events"):
+        _build(monkeypatch, tmp_path, _unsealed_portfolio('"7"'), holdout_events=1)
+
+
+def test_holdout_unsealed_with_null_ledger_run_id_raises(tmp_path, monkeypatch):
+    with pytest.raises(RuntimeError, match="holdout_events"):
+        _build(monkeypatch, tmp_path, _unsealed_portfolio("null"), holdout_events=1, run_id="7")
+
+
+def test_holdout_unsealed_without_a_ledger_file_raises(tmp_path, monkeypatch):
+    with pytest.raises(RuntimeError, match="holdout_events"):
+        _build(monkeypatch, tmp_path, _unsealed_portfolio('"7"'), holdout_events=None)
 
 
 def test_holdout_unsealed_with_empty_holdout_events_raises(tmp_path, monkeypatch):

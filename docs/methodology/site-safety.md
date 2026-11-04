@@ -23,7 +23,7 @@ scope here.
    (`:291`). Today every shown entry is allowed the holdout (fixed
    baselines, benchmarks, a baseline core and an empty sleeve), so nothing
    leaks. The first search-origin core or sleeve member would publish its
-   2023+ performance with no `holdout_events` row.
+   2023+ performance with no `holdout_events` row for its run.
 
 ## Not a test
 
@@ -85,10 +85,12 @@ The label must not depend on a file CI never builds.
   in `site/index.html`), so the line simply stops at the validation end.
 - Holdout clearance comes from a cross-check, not from config alone.
   `provenance.holdout_unsealed: true` in `config/portfolio.yaml` grants it
-  only if `research/ledger.sqlite` has at least one `holdout_events` row.
-  Otherwise the build fails with an error that names the mismatch, instead
-  of publishing. The cross-check runs only when the ledger file exists (it is
-  tracked in git, so real builds have it).
+  only if `research/ledger.sqlite` has a `holdout_events` row whose `run_id`
+  equals `provenance.ledger_run_id` (`scripts/unseal_holdout.py` records the
+  run it unsealed). It fails closed: a null `ledger_run_id`, a missing ledger
+  file, a ledger without the `run_id` column, or only events for other runs
+  (or legacy events with no run id) all stop the build with an error that
+  names the mismatch, instead of publishing. The check is read-only.
 - The holdout slice at `build_site.py:293` stays as the single
   `slice_period(..., unseal_holdout=True)` call, reached only when
   `r["allow_holdout"]` lets `"holdout"` into `names` (this keeps
@@ -107,9 +109,10 @@ In `tests/test_build_site_dashboard.py` or a new
    over `common_start..2022-12-31`, and every equity/drawdown value after
    that date is `null`.
 2. The same entry with `holdout_unsealed: true` and a ledger with a
-   `holdout_events` row: full window, no nulls.
-3. `holdout_unsealed: true` with an empty `holdout_events` table: the build
-   raises.
+   `holdout_events` row for the same `ledger_run_id`: full window, no nulls.
+3. `holdout_unsealed: true` with an empty `holdout_events` table, a row for a
+   different run, a legacy row without a run id, a null `ledger_run_id`, or no
+   ledger file: the build raises.
 4. Baseline strategies and benchmarks: output unchanged (full window).
 5. A `research.json` whose universes are `us_large_cap_stocks` gives
    `research_funnel.survivorship.biased == true`.

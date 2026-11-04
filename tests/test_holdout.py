@@ -55,6 +55,19 @@ def test_unseal_records_event_and_returns_the_holdout_slice(tmp_path):
     assert events[0]["reason"] == "final chosen process"
     assert events[0]["git_commit"] == "deadbeef"
     assert events[0]["forced"] is False
+    assert events[0]["run_id"] is None
+
+
+def test_unseal_records_the_run_id(tmp_path):
+    criteria, _ = load_criteria(ROOT / "config" / "criteria.yaml")
+
+    with Ledger(tmp_path / "ledger.sqlite") as ledger:
+        unseal(
+            ledger, _sample_frame(), criteria, "final", confirm=True, git_commit="abc", run_id="7"
+        )
+        events = ledger.list_holdout_events()
+
+    assert [e["run_id"] for e in events] == ["7"]
 
 
 # ---------------------------------------------------------------------------
