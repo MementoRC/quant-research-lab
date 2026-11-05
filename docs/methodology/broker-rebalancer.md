@@ -124,12 +124,12 @@ In order:
    status "no new session": no reconcile, no orders; (b) the same-session
    rerun check (see Journal); (c) the unknown-position check (universe = the
    frame's columns). Checking "no new session" first means late data on the
-   evening after a submitted run exits 0 instead of counting as a rerun. This covers weekends, holidays and late
-   data. A stale symbol with a zero target that is not held is ignored
-   (stated explicitly). The separate daily health check (one-business-day
-   tolerance, exits non-zero) catches a persistent vendor lag, not the
-   rebalancer. Data-dependent refusals (a missing or NaN close, NaN or
-   negative weights, risk caps) are checked during sizing.
+   evening after a submitted run exits 0 instead of counting as a rerun. This
+   covers weekends, holidays and late data. A stale symbol with a zero target
+   that is not held is ignored (stated explicitly). The separate daily health
+   check (one-business-day tolerance, exits non-zero) catches a persistent
+   vendor lag, not the rebalancer. Data-dependent refusals (a missing or NaN
+   close, NaN or negative weights, risk caps) are checked during sizing.
 3. **Reconcile.** `expected = pre-trade positions + submitted deltas` from the
    previous journal. Reconcile runs at the start of the next evening's run,
    after the open fills. Positions must match exactly, symbol by symbol, in
