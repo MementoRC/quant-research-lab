@@ -77,6 +77,9 @@ Implemented or Closed), matching its `Status:` line.
 - [international-test.md](international-test.md) — final test of an accepted
   index-level rule on non-US markets, replacing the spent 2023+ holdout
   (implemented 2026-10-22; owner-approved 2026-10-21; not run).
+- [broker-rebalancer.md](broker-rebalancer.md) — daily automatic rebalancer
+  that trades the combined portfolio on an Interactive Brokers paper account,
+  paper only (approved 2026-11-05; not implemented yet).
 
 ## Former paths
 

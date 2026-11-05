@@ -76,9 +76,19 @@ build = "python -m build"
 [feature.dev.tasks]
 serve = "python -m http.server -d site 8000"
 
+# IB paper rebalancer (docs/methodology/broker-rebalancer.md). The connector
+# needs Python >= 3.12; Part B adds it as a pinned pypi git dependency.
+# default/dev/ci never install it.
+[feature.broker.dependencies]
+python = "3.12.*"
+
+[feature.broker.tasks]
+rebalance = "python scripts/rebalance.py"
+
 [environments]
 default = { solve-group = "default" }
 dev = { features = ["ci", "dev"], solve-group = "default" }
 ci = { features = ["ci"], solve-group = "default" }
 quality-extended = { features = ["ci"], solve-group = "default" }
 quality-ci = { features = ["ci"], solve-group = "default" }
+broker = { features = ["broker", "ci"], solve-group = "broker" }

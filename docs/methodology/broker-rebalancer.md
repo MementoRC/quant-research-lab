@@ -1,7 +1,7 @@
 # Broker rebalancer: daily automatic trading of the combined portfolio on an IB paper account
 
-Status: Approved 2026-11-05, not implemented; IB adapter blocked on hb-market-connector #181.
-Implements [PLAN.md](../../PLAN.md) milestone 3.4 (amendment 2026-11-05).
+Status: Approved 2026-11-05, in progress.
+Implements PLAN.md milestone 3.4, amendment 2026-11-05.
 The forward paper track (`config/paper.yaml`, `src/qrl/paper.py`) is
 unaffected.
 
@@ -32,22 +32,28 @@ and no locked file is edited. It adds no trials to any search run.
 
 ## Components
 
-- `src/qrl/broker.py`: the `Broker` Protocol, fully typed:
-  - `positions() -> list[Position]`
+- src/qrl/broker.py: the `Broker` Protocol, fully typed:
+  - `account() -> AccountInfo`
+  - `holdings() -> list[Holding]`
   - `cash() -> float`
   - `open_orders() -> list[OpenOrder]`
   - `submit(orders: list[Order]) -> list[SubmittedOrder]`
   - `flatten() -> list[SubmittedOrder]`
 
-  Dataclasses: `Position(symbol, shares: int)`; `Order(symbol, side BUY/SELL,
-  shares: int > 0)`; `OpenOrder(symbol, side, shares, order_id)`;
-  `SubmittedOrder(order: Order, order_id: int, status: str)`. `FakeBroker` is
-  an in-memory implementation for tests.
-- `src/qrl/rebalance.py`: a pure planner,
-  `plan(target_weights, closes, positions, cash, cfg) -> Plan(orders, skipped
-  with reasons, refusals)`. All sizing and safety rules live here.
+  Dataclasses: `AccountInfo(account_id, base_currency, paper, port)` (the
+  connection spec's paper flag and port, for the paper check);
+  `Holding(symbol, sec_type, currency, quantity: Decimal)` (a position as IB
+  reports it, for the USD/STK/whole-share check); `Position(symbol, shares:
+  int)`, built by `to_positions(holdings)` once the Gate has passed;
+  `Order(symbol, side BUY/SELL, shares: int > 0)`; `OpenOrder(symbol, side,
+  shares, order_id)`; `SubmittedOrder(order: Order, order_id: int, status:
+  str)`. `FakeBroker` is an in-memory implementation for tests.
+- src/qrl/rebalance.py: a pure planner,
+  `plan(target_weights, closes, positions, cash, cfg, limits) -> Plan(orders,
+  skipped with reasons, refusals)` (limits: the `config/profile.yaml` `risk:`
+  caps, see Refusals). All sizing and safety rules live here.
   `scripts/` is not covered by `pytest --cov`, so logic stays in `src/qrl`.
-- `src/qrl/broker_ib.py`: the IB adapter over
+- src/qrl/broker_ib.py: the IB adapter over
   `market_connector.exchanges.interactive_brokers.factory.build_ib_gateway(IbConnectionSpec(host,
   port, client_id, account_id, paper=True, fetch_all_open_orders=True))`. The
   connector is async-only (`await gateway.start()` / `stop()`,
@@ -57,9 +63,9 @@ and no locked file is edited. It adds no trials to any search run.
   `cancel_all()`). Open orders come from the sync `gateway.get_open_orders()`.
   The adapter wraps each session in one `asyncio.run` with try/finally `stop`.
   It is importable only in the `broker` pixi environment (lazy import).
-- `scripts/rebalance.py` and a pixi task `rebalance` in environment `broker`.
+- scripts/rebalance.py and a pixi task `rebalance` in environment `broker`.
   IO only.
-- `config/broker.yaml` (new, not hash-locked, strictly validated, unknown keys
+- config/broker.yaml (new, not hash-locked, strictly validated, unknown keys
   rejected):
 
   | key | rule |
@@ -113,11 +119,12 @@ In order:
 2. **Data and session.** Run the `qrl.health` daily checks. Build the
    combined weights frame and the closes, then compute the session date: the
    date of the latest bar for all held and non-zero-target symbols (not the
-   wall-clock date). Only then, in order: (a) the same-session rerun check
-   (see Journal); (b) the unknown-position check (universe = the frame's
-   columns); (c) the "no new session" exit. If the session date is earlier
-   than today's date in America/New_York, exit 0 with status "no new
-   session": no reconcile, no orders. This covers weekends, holidays and late
+   wall-clock date). Only then, in order: (a) the "no new session" exit: if the
+   session date is earlier than today's date in America/New_York, exit 0 with
+   status "no new session": no reconcile, no orders; (b) the same-session
+   rerun check (see Journal); (c) the unknown-position check (universe = the
+   frame's columns). Checking "no new session" first means late data on the
+   evening after a submitted run exits 0 instead of counting as a rerun. This covers weekends, holidays and late
    data. A stale symbol with a zero target that is not held is ignored
    (stated explicitly). The separate daily health check (one-business-day
    tolerance, exits non-zero) catches a persistent vendor lag, not the
@@ -215,8 +222,9 @@ hb-data-type-primitives, hb-event-bus, hb-rate-limit) plus `ib_async>=2.1,<3`.
 - Each of the three paper-check parts failing on its own.
 - A fractional position quantity refused; a non-USD base currency refused; a
   non-STK or non-USD position refused.
-- The order of the Gate checks, and of the step 2 checks (rerun, unknown
-  position, "no new session").
+- The order of the Gate checks, and of the step 2 checks ("no new session",
+  rerun, unknown position), including late data on the evening after a
+  submitted run (exit 0, not a rerun).
 - `events.jsonl` written on "no new session", and no dated journal touched.
 - The reconcile baseline chosen by `recorded_at`, not filename.
 - A test that importing `qrl.broker` or `qrl.rebalance` never imports
