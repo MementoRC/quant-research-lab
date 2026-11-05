@@ -154,14 +154,22 @@ class FakeBroker:
     def flatten(self) -> list[SubmittedOrder]:
         self.cancel_all_calls += 1
         self.pending.clear()
+        # int() truncation is safe: the Gate refuses fractional holdings before any fill.
         longs = [Order(h.symbol, "SELL", int(h.quantity)) for h in self.held if h.quantity > 0]
         return self.submit(longs)
 
     def fill_all(self, prices: dict[str, float]) -> None:
+        kinds = {h.symbol: (h.sec_type, h.currency) for h in self.held}
         shares = {h.symbol: h.quantity for h in self.held}
         for o in self.pending:
+            if o.symbol not in prices:
+                raise ValueError(f"no fill price for {o.symbol}")
             sign = 1 if o.side == "BUY" else -1
             shares[o.symbol] = shares.get(o.symbol, Decimal(0)) + sign * o.shares
             self.cash_usd -= sign * o.shares * prices[o.symbol]
         self.pending.clear()
-        self.held = [Holding(s, "STK", "USD", q) for s, q in sorted(shares.items()) if q != 0]
+        self.held = [
+            Holding(s, *kinds.get(s, ("STK", "USD")), q)
+            for s, q in sorted(shares.items())
+            if q != 0
+        ]

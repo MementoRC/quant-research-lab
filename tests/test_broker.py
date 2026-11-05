@@ -72,6 +72,20 @@ def test_fake_broker_fill_all_moves_shares_and_cash():
     assert broker.open_orders() == []
 
 
+def test_fake_broker_fill_all_keeps_existing_currency():
+    broker = FakeBroker(held=[Holding("VOD", "STK", "GBP", Decimal("3"))])
+    broker.submit([Order("VOD", "BUY", 2)])
+    broker.fill_all({"VOD": 10.0})
+    assert broker.holdings() == [Holding("VOD", "STK", "GBP", Decimal("5"))]
+
+
+def test_fake_broker_fill_all_needs_a_price():
+    broker = FakeBroker()
+    broker.submit([Order("QQQ", "BUY", 1)])
+    with pytest.raises(ValueError, match="no fill price for QQQ"):
+        broker.fill_all({})
+
+
 def test_fake_broker_flatten_cancels_first_then_sells_longs_only():
     broker = FakeBroker(
         held=[
