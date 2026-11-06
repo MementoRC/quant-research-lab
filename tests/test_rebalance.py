@@ -131,3 +131,33 @@ def test_held_symbol_outside_the_universe_is_refused():
 
 def test_non_positive_equity_is_refused():
     assert "equity" in _refused(plan(_w(QQQ=0.8), _w(QQQ=500.0), [], -1_000.0, CFG, LIMITS))
+
+
+def test_inf_weight_is_refused():
+    _refused(plan(_w(QQQ=float("inf")), _w(QQQ=500.0), [], 1e5, CFG, LIMITS))
+
+
+def test_zero_close_is_refused():
+    assert "latest close: QQQ" in _refused(plan(_w(QQQ=0.8), _w(QQQ=0.0), [], 1e5, CFG, LIMITS))
+
+
+def test_inf_close_is_refused():
+    assert "latest close: QQQ" in _refused(
+        plan(_w(QQQ=0.8), _w(QQQ=float("inf")), [], 1e5, CFG, LIMITS)
+    )
+
+
+def test_non_finite_cash_is_refused():
+    for cash in (float("inf"), float("nan")):
+        assert "equity" in _refused(plan(_w(QQQ=0.8), _w(QQQ=500.0), [], cash, CFG, LIMITS))
+
+
+def test_duplicate_position_symbol_is_refused():
+    positions = [Position("QQQ", 1), Position("QQQ", 2)]
+    text = _refused(plan(_w(QQQ=0.8), _w(QQQ=500.0), positions, 1e5, CFG, LIMITS))
+    assert "duplicate position symbol(s): QQQ" in text
+
+
+def test_short_position_is_refused():
+    text = _refused(plan(_w(QQQ=0.8), _w(QQQ=500.0), [Position("QQQ", -3)], 1e5, CFG, LIMITS))
+    assert "short position(s): QQQ" in text

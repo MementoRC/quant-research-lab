@@ -77,9 +77,24 @@ def _weight_refusals(weights: pd.Series, limits: RiskLimits) -> list[str]:
 
 
 def _close_refusals(symbols: set[str], closes: pd.Series) -> list[str]:
-    """A held or non-zero-target symbol without a positive latest close; never valued at 0."""
-    bad = sorted(s for s in symbols if s not in closes.index or not closes[s] > 0)
+    """A held or non-zero-target symbol without a positive finite latest close; never valued at 0."""
+    bad = sorted(
+        s
+        for s in symbols
+        if s not in closes.index or not (math.isfinite(closes[s]) and closes[s] > 0)
+    )
     return [f"missing or NaN latest close: {', '.join(bad)}"] if bad else []
+
+
+def _position_refusals(positions: list[Position]) -> list[str]:
+    """Duplicate symbols (a dict would silently keep the last) and short positions."""
+    symbols = [p.symbol for p in positions]
+    dupes = sorted({s for s in symbols if symbols.count(s) > 1})
+    short = sorted(p.symbol for p in positions if p.shares < 0)
+    return [
+        *([f"duplicate position symbol(s): {', '.join(dupes)}"] if dupes else []),
+        *([f"short position(s): {', '.join(short)}"] if short else []),
+    ]
 
 
 def _universe_refusals(held: Mapping[str, int], weights: pd.Series) -> list[str]:
@@ -101,11 +116,12 @@ def plan(
 
     Refuses (no orders) on a held symbol outside the weights' index, any NaN or
     negative weight, a `qrl.risk` cap breach (one-row combined frame, empty
-    sleeve), a held or non-zero-target symbol without a positive close, or
-    equity <= 0."""
+    sleeve), a held or non-zero-target symbol without a positive finite close,
+    a duplicate or short position, or equity that is not positive and finite."""
     held = {p.symbol: p.shares for p in positions if p.shares != 0}
     relevant = set(held) | {str(s) for s, w in target_weights.items() if w > 0}
     refusals = [
+        *_position_refusals(positions),
         *_universe_refusals(held, target_weights),
         *_weight_refusals(target_weights, limits),
         *_close_refusals(relevant, closes),
@@ -113,8 +129,8 @@ def plan(
     if refusals:
         return Plan(refusals=tuple(refusals))
     equity = cash + sum(n * float(closes[s]) for s, n in held.items())
-    if not equity > 0:
-        return Plan(refusals=(f"equity {equity:.2f} is not positive",), equity=equity)
+    if not math.isfinite(equity) or equity <= 0:
+        return Plan(refusals=(f"equity {equity:.2f} is not positive and finite",), equity=equity)
     targets = _targets(target_weights, closes, equity * (1 - cfg.cash_buffer))
     orders, skipped = _orders(held, targets, closes, equity, cfg.deadband)
     return Plan(tuple(orders), tuple(skipped), (), equity, targets)
