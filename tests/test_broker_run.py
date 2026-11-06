@@ -12,10 +12,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from qrl.broker import FakeBroker, Holding, Order
+from qrl.broker import AccountInfo, FakeBroker, Holding, OpenOrder, Order
 from qrl.broker_config import BrokerConfig
 from qrl.broker_journal import read_journal, write_journal
-from qrl.broker_run import RunContext, evening_run
+from qrl.broker_run import RunContext, accept_positions_run, evening_run, flatten_run
 from qrl.health import CheckResult, HealthReport
 from qrl.live_weights import Market
 from qrl.risk import RiskLimits
@@ -481,6 +481,134 @@ def test_combined_frame_running_past_the_session_is_refused(tmp_path):
     assert (result.status, result.exit_code) == ("refused", 1)
     assert "after session 2026-11-04" in result.detail
     assert broker.submitted == []
+
+
+LONGS = [Holding("QQQ", "STK", "USD", Decimal("10")), Holding("XYZ", "STK", "USD", Decimal("5"))]
+
+
+def test_flatten_works_while_disabled_and_sells_every_long_including_unknown(tmp_path):
+    broker = FakeBroker(held=list(LONGS), pending=[OpenOrder("QQQ", "BUY", 3, 7)])
+    result = flatten_run(_ctx(tmp_path, broker, _market(), cfg=replace(CFG, enabled=False)))
+    assert (result.status, result.exit_code) == ("flattened", 0)
+    assert result.path == tmp_path / "2026-11-04-flatten-183000.json"
+    assert broker.cancel_all_calls == 1
+    assert [o.order for o in broker.submitted] == [
+        Order("QQQ", "SELL", 10),
+        Order("XYZ", "SELL", 5),
+    ]
+    journal = json.loads(result.path.read_text())
+    assert (journal["kind"], journal["expected_positions"]) == ("flatten", {})
+    assert journal["pre_trade_positions"] == {"QQQ": 10, "XYZ": 5}
+    assert journal["recorded_at"] == "2026-11-04T23:30:00+00:00"
+
+
+def test_second_flatten_is_idempotent(tmp_path):
+    broker = FakeBroker(held=list(LONGS))
+    flatten_run(_ctx(tmp_path, broker, _market()))
+    later = datetime(2026, 11, 4, 23, 30, 1, tzinfo=UTC)
+    result = flatten_run(_ctx(tmp_path, broker, _market(), later))
+    assert result.exit_code == 0
+    assert broker.cancel_all_calls == 2
+    assert [(o.symbol, o.shares) for o in broker.open_orders()] == [("QQQ", 10), ("XYZ", 5)]
+    assert _journals(tmp_path) == [
+        "2026-11-04-flatten-183000.json",
+        "2026-11-04-flatten-183001.json",
+    ]
+
+
+def test_flatten_refuses_short_positions_before_cancelling(tmp_path):
+    broker = FakeBroker(held=[Holding("QQQ", "STK", "USD", Decimal("-5"))])
+    result = flatten_run(_ctx(tmp_path, broker, _market()))
+    assert (result.status, result.exit_code) == ("refused", 1)
+    assert "short" in result.detail
+    assert broker.cancel_all_calls == 0
+    assert _journals(tmp_path) == []
+
+
+def test_flatten_still_runs_the_paper_and_usd_stk_checks(tmp_path):
+    live = FakeBroker(info=AccountInfo("U1", "USD", True, 4002), held=list(LONGS))
+    assert "DU" in flatten_run(_ctx(tmp_path, live, _market())).detail
+    fut = FakeBroker(held=[Holding("ES", "FUT", "USD", Decimal("1"))])
+    assert "not STK in USD" in flatten_run(_ctx(tmp_path, fut, _market())).detail
+    other = FakeBroker(info=AccountInfo("DU999", "USD", True, 4002), held=list(LONGS))
+    assert "not the configured account" in flatten_run(_ctx(tmp_path, other, _market())).detail
+    assert (live.cancel_all_calls, fut.cancel_all_calls, other.cancel_all_calls) == (0, 0, 0)
+
+
+def test_after_flatten_runs_refuse_until_filled_then_reconcile_to_zero(tmp_path):
+    broker = FakeBroker(held=list(LONGS))
+    flatten_run(_ctx(tmp_path, broker, _market()))
+    blocked = evening_run(_ctx(tmp_path, broker, _market("2026-11-05"), NEXT_EVENING))
+    assert "open order" in blocked.detail
+    broker.fill_all({"QQQ": 500.0, "XYZ": 10.0})  # cash 5_050
+    later = datetime(2026, 11, 5, 23, 45, tzinfo=UTC)
+    result = evening_run(_ctx(tmp_path, broker, _market("2026-11-05"), later))
+    assert result.status == "submitted"
+    journal = json.loads(result.path.read_text())
+    assert journal["reconcile"] == {"status": "ok", "baseline": "2026-11-04T23:30:00+00:00"}
+    assert journal["submitted"][0]["shares"] == 7  # floor(0.8 * 4_999.5 / 500)
+
+
+def test_a_failed_flatten_call_is_an_error_event_and_writes_no_baseline(tmp_path):
+    broker = FakeBroker(held=list(LONGS))
+
+    def broken() -> list:
+        raise RuntimeError("socket closed")
+
+    broker.flatten = broken
+    result = flatten_run(_ctx(tmp_path, broker, _market()))
+    assert (result.status, result.exit_code) == ("error", 1)
+    assert "flatten failed: RuntimeError('socket closed')" in _events(tmp_path)[-1]["detail"]
+    assert _journals(tmp_path) == []
+
+
+def test_a_failed_flatten_journal_write_leaves_the_order_ids_in_the_error_event(
+    tmp_path, monkeypatch
+):
+    from qrl import broker_run
+
+    def full_disk(path, record):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(broker_run, "write_journal", full_disk)
+    result = flatten_run(_ctx(tmp_path, FakeBroker(held=list(LONGS)), _market()))
+    assert (result.status, result.exit_code) == ("error", 1)
+    assert "journal write failed" in result.detail
+    assert [o["symbol"] for o in _events(tmp_path)[-1]["orders"]] == ["QQQ", "XYZ"]
+
+
+def test_keyboard_interrupt_during_flatten_is_recorded_then_propagates(tmp_path):
+    broker = FakeBroker(held=list(LONGS))
+
+    def interrupted() -> list:
+        raise KeyboardInterrupt
+
+    broker.flatten = interrupted
+    with pytest.raises(KeyboardInterrupt):
+        flatten_run(_ctx(tmp_path, broker, _market()))
+    assert "flatten failed" in _events(tmp_path)[-1]["detail"]
+
+
+def test_accept_positions_records_ib_positions_trades_nothing_and_unblocks(tmp_path):
+    broker = _after_first_run(tmp_path)
+    broker.pending.clear()
+    broker.held = [Holding("QQQ", "STK", "USD", Decimal("150"))]
+    broker.cash_usd = 25_000.0
+    assert evening_run(_ctx(tmp_path, broker, _market("2026-11-05"), NEXT_EVENING)).exit_code == 1
+
+    accept_at = datetime(2026, 11, 5, 23, 40, tzinfo=UTC)
+    accepted = accept_positions_run(_ctx(tmp_path, broker, _market("2026-11-05"), accept_at))
+    assert (accepted.status, accepted.exit_code) == ("accepted", 0)
+    assert accepted.path == tmp_path / "2026-11-05-accept-184000.json"
+    assert json.loads(accepted.path.read_text())["expected_positions"] == {"QQQ": 150}
+    assert len(broker.submitted) == 1
+
+    rerun_at = datetime(2026, 11, 5, 23, 50, tzinfo=UTC)
+    result = evening_run(_ctx(tmp_path, broker, _market("2026-11-05"), rerun_at))
+    assert result.status == "submitted"
+    journal = json.loads(result.path.read_text())
+    assert journal["reconcile"]["baseline"] == "2026-11-05T23:40:00+00:00"
+    assert journal["submitted"][0]["shares"] == 8  # target 158, held 150
 
 
 def test_nan_close_on_the_session_row_is_refused(tmp_path):

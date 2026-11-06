@@ -1,5 +1,5 @@
 """Runs of the IB paper rebalancer (spec: docs/methodology/broker-rebalancer.md):
-the evening run. Every input is injected (broker, market loader, risk limits, journal folder,
+the evening run, the --flatten kill switch and --accept-positions. Every input is injected (broker, market loader, risk limits, journal folder,
 clock) so tests drive the runs with FakeBroker; `scripts/rebalance.py` only
 wires the real objects.
 
@@ -21,9 +21,9 @@ from typing import Any, NoReturn
 
 import pandas as pd
 
-from qrl.broker import Broker, Order, Position, SubmittedOrder, to_positions
+from qrl.broker import Broker, Holding, Order, Position, SubmittedOrder, to_positions
 from qrl.broker_config import BrokerConfig
-from qrl.broker_gate import gate
+from qrl.broker_gate import account_refusal, gate, paper_refusal
 from qrl.broker_journal import (
     append_event,
     dated_path,
@@ -31,6 +31,7 @@ from qrl.broker_journal import (
     latest_baseline,
     order_records,
     reconcile,
+    stamped_path,
     utc_iso,
     write_journal,
 )
@@ -206,27 +207,48 @@ def _trade(
     submitted: list[SubmittedOrder] = []
     submit_error, interrupt = _submit_each(ctx.broker, list(result.orders), submitted)
     path = dated_path(ctx.root, session)
+
+    def record() -> dict[str, Any]:
+        return _journal(
+            ctx, stamp, session, weights, closes, cash, result, held, submitted, reconciled
+        )
+
+    # Only a run that submitted orders writes the dated journal. One whose journal
+    # was not written does not block a same-session rerun by the dated file; only
+    # the Gate's open-orders check and then reconcile against the older baseline
+    # stand in the way.
+    write = record if submitted else None
+    _settle(ctx, stamp, path, write, submitted, submit_error, interrupt)
+    return RunResult("submitted", 0, f"{len(submitted)} order(s) queued for the next open", path)
+
+
+def _settle(
+    ctx: RunContext,
+    stamp: datetime,
+    path: Path,
+    record: Callable[[], dict[str, Any]] | None,
+    submitted: list[SubmittedOrder],
+    submit_error: str | None,
+    interrupt: BaseException | None,
+) -> None:
+    """Journal what went out (when `record` is given), then turn any submit or
+    journal failure into one "error" events line carrying the order records and
+    raise it (an interrupt is re-raised as itself). Returns only when all is
+    well. Shared by the evening run and the flatten run."""
     problems = [submit_error] if submit_error else []
-    if submitted:  # only a run that submitted orders writes the dated journal
+    if record is not None:
         try:
-            record = _journal(
-                ctx, stamp, session, weights, closes, cash, result, held, submitted, reconciled
-            )
-            write_journal(path, record | {"submit_error": submit_error})
+            write_journal(path, record() | {"submit_error": submit_error})
         except BaseException as exc:  # the orders are out; keep them traceable in events.jsonl
             problems.append(f"journal write failed: {exc!r}")
             if interrupt is None and not isinstance(exc, Exception):
                 interrupt = exc  # an interrupt during the write; a first one wins
-    # A run whose journal was not written does not block a same-session rerun by
-    # the dated file; only the Gate's open-orders check and then reconcile
-    # against the older baseline stand in the way.
     if problems:
         detail = "; ".join(problems)
         _append_error(ctx, stamp, detail, submitted)
         if interrupt is not None and not isinstance(interrupt, Exception):
             raise interrupt  # KeyboardInterrupt, SystemExit: propagate after journaling
         raise _HaltError(RunResult("error", 1, detail))
-    return RunResult("submitted", 0, f"{len(submitted)} order(s) queued for the next open", path)
 
 
 def _append_error(
@@ -311,3 +333,85 @@ def _evening(ctx: RunContext, stamp: datetime) -> RunResult:
 def evening_run(ctx: RunContext) -> RunResult:
     """The daily evening run; see the module docstring for the order of steps."""
     return _guarded(ctx, _evening)
+
+
+def _checked_holdings(ctx: RunContext, stamp: datetime) -> list[Holding]:
+    """Kill switch and accept: only the paper check, the configured-account
+    check and the USD/STK check (whole shares included, since orders and
+    journals are whole shares). `enabled`, data, reconcile, universe, session
+    and open-order checks are skipped."""
+    info = ctx.broker.account()
+    refusal = paper_refusal(info)
+    if refusal is None and info.account_id != ctx.cfg.account_id:
+        refusal = (
+            f"account {info.account_id!r} is not the configured account {ctx.cfg.account_id!r}"
+        )
+    holdings: list[Holding] = []
+    if refusal is None:
+        holdings = ctx.broker.holdings()
+        refusal = account_refusal(info, holdings)
+    if refusal is not None:
+        _halt(ctx, stamp, "refused", refusal)
+    return holdings
+
+
+def _whole(holdings: list[Holding]) -> dict[str, int]:
+    return {p.symbol: p.shares for p in to_positions(holdings) if p.shares != 0}
+
+
+def _flatten(ctx: RunContext, stamp: datetime) -> RunResult:
+    holdings = _checked_holdings(ctx, stamp)
+    shorts = sorted(h.symbol for h in holdings if h.quantity < 0)
+    if shorts:
+        _halt(ctx, stamp, "refused", f"short position(s), not flattened: {', '.join(shorts)}")
+    held = _whole(holdings)
+    submitted: list[SubmittedOrder] = []
+    error: str | None = None
+    interrupt: BaseException | None = None
+    try:
+        submitted.extend(ctx.broker.flatten())
+    except BaseException as exc:  # the cancels or sells may be out; record, then re-raise
+        error, interrupt = f"flatten failed: {exc!r}", exc
+    path = stamped_path(ctx.root, "flatten", stamp)
+
+    def record() -> dict[str, Any]:
+        return {
+            "kind": "flatten",
+            "recorded_at": utc_iso(stamp),
+            "pre_trade_positions": held,
+            "submitted": order_records(submitted),
+            "expected_positions": expected_positions(held, submitted),
+        }
+
+    # A failed flatten() leaves no known orders, so no baseline is written for it.
+    _settle(ctx, stamp, path, None if error else record, submitted, error, interrupt)
+    detail = f"cancelled all open orders; {len(submitted)} sell order(s) queued"
+    return RunResult("flattened", 0, detail, path)
+
+
+def _accept(ctx: RunContext, stamp: datetime) -> RunResult:
+    held = _whole(_checked_holdings(ctx, stamp))
+    path = stamped_path(ctx.root, "accept", stamp)
+    write_journal(
+        path,
+        {
+            "kind": "accept",
+            "recorded_at": utc_iso(stamp),
+            "positions": held,
+            "expected_positions": held,
+        },
+    )
+    return RunResult("accepted", 0, f"IB positions accepted as expected: {held}", path)
+
+
+def flatten_run(ctx: RunContext) -> RunResult:
+    """Kill switch: cancel_all, then a DAY market SELL per long position
+    (unknown symbols included). Works while `enabled` is false; a second
+    call is idempotent. Refuses shorts."""
+    return _guarded(ctx, _flatten)
+
+
+def accept_positions_run(ctx: RunContext) -> RunResult:
+    """After a reconcile mismatch: record IB's positions as the expected
+    positions. Trades nothing."""
+    return _guarded(ctx, _accept)
