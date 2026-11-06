@@ -10,6 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from qrl.broker import FakeBroker, Holding, Order
 from qrl.broker_config import BrokerConfig
@@ -349,8 +350,11 @@ def test_partial_submit_journals_what_was_sent_then_records_the_error(tmp_path):
     journal = json.loads((tmp_path / "2026-11-04.json").read_text())
     assert [o["symbol"] for o in journal["submitted"]] == ["GLD"]
     assert journal["expected_positions"] == {}
-    assert journal["submit_error"] == "RuntimeError('socket closed')"
-    assert _events(tmp_path)[-1]["status"] == "error"
+    assert journal["submit_error"] == "submit of BUY QQQ failed: RuntimeError('socket closed')"
+    event = _events(tmp_path)[-1]
+    assert event["status"] == "error"
+    assert "BUY QQQ" in event["detail"]
+    assert [o["symbol"] for o in event["orders"]] == ["GLD"]
 
 
 def test_submit_failing_on_the_first_order_writes_no_journal(tmp_path):
@@ -359,3 +363,92 @@ def test_submit_failing_on_the_first_order_writes_no_journal(tmp_path):
     result = evening_run(_ctx(tmp_path, broker, _market()))
     assert (result.status, result.exit_code) == ("error", 1)
     assert _journals(tmp_path) == []
+    assert "submit of BUY QQQ failed" in _events(tmp_path)[-1]["detail"]
+
+
+def test_a_failed_journal_write_leaves_the_order_ids_in_the_error_event(tmp_path, monkeypatch):
+    from qrl import broker_run
+
+    def full_disk(path, record):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(broker_run, "write_journal", full_disk)
+    broker = FakeBroker(cash_usd=1e5)
+    result = evening_run(_ctx(tmp_path, broker, _market()))
+    assert (result.status, result.exit_code) == ("error", 1)
+    assert "journal write failed" in result.detail
+    (event,) = _events(tmp_path)
+    assert event["status"] == "error"
+    assert event["orders"] == [
+        {"symbol": "QQQ", "side": "BUY", "shares": 158, "order_id": 1, "status": "submitted"}
+    ]
+    assert _journals(tmp_path) == []
+
+
+def test_keyboard_interrupt_mid_batch_journals_what_was_sent_then_propagates(tmp_path):
+    broker = FakeBroker(cash_usd=80_000.0, held=[Holding("GLD", "STK", "USD", Decimal("100"))])
+    real = broker.submit
+
+    def submit(orders: list[Order]):
+        if orders[0].symbol == "QQQ":
+            raise KeyboardInterrupt
+        return real(orders)
+
+    broker.submit = submit
+    with pytest.raises(KeyboardInterrupt):
+        evening_run(_ctx(tmp_path, broker, _market()))
+    journal = json.loads((tmp_path / "2026-11-04.json").read_text())
+    assert [o["symbol"] for o in journal["submitted"]] == ["GLD"]
+    assert "BUY QQQ" in journal["submit_error"]
+    assert _events(tmp_path)[-1]["orders"][0]["symbol"] == "GLD"
+
+
+def test_rerun_after_a_partial_submit_is_refused(tmp_path):
+    broker = FakeBroker(cash_usd=80_000.0, held=[Holding("GLD", "STK", "USD", Decimal("100"))])
+    _fail_submit_on(broker, "QQQ")
+    evening_run(_ctx(tmp_path, broker, _market()))
+    broker.pending.clear()
+    result = evening_run(_ctx(tmp_path, broker, _market()))
+    assert (result.status, result.exit_code) == ("refused", 1)
+    assert "rerun" in result.detail
+
+
+def test_all_orders_rejected_still_writes_the_journal_with_positions_unchanged(tmp_path):
+    held = [Holding("QQQ", "STK", "USD", Decimal("100"))]
+    broker = FakeBroker(cash_usd=50_000.0, held=held, reject=frozenset({"QQQ"}))
+    result = evening_run(_ctx(tmp_path, broker, _market()))
+    assert (result.status, result.exit_code) == ("submitted", 0)
+    journal = json.loads(result.path.read_text())
+    assert journal["submitted"][0]["status"] == "rejected"
+    assert journal["expected_positions"] == {"QQQ": 100}
+
+
+def test_combined_frame_without_the_session_row_is_refused(tmp_path):
+    market = _market()
+    market = replace(market, combined=market.combined.iloc[:-1])  # ends 11-03; session is 11-04
+    broker = FakeBroker(cash_usd=1e5)
+    result = evening_run(_ctx(tmp_path, broker, market))
+    assert (result.status, result.exit_code) == ("refused", 1)
+    assert "no combined weights for session 2026-11-04" in result.detail
+    assert (broker.submitted, _journals(tmp_path)) == ([], [])
+
+
+def test_combined_frame_running_past_the_session_is_refused(tmp_path):
+    market = _market()
+    later = pd.DataFrame({"QQQ": 0.8, "GLD": 0.0}, index=[pd.Timestamp("2026-11-05")])
+    market = replace(market, combined=pd.concat([market.combined, later]))
+    broker = FakeBroker(cash_usd=1e5)
+    result = evening_run(_ctx(tmp_path, broker, market))
+    assert (result.status, result.exit_code) == ("refused", 1)
+    assert "after session 2026-11-04" in result.detail
+    assert broker.submitted == []
+
+
+def test_nan_close_on_the_session_row_is_refused(tmp_path):
+    market = _market()
+    market.close["QQQ"] = float("nan")
+    broker = FakeBroker(cash_usd=1e5)
+    result = evening_run(_ctx(tmp_path, broker, market))
+    assert (result.status, result.exit_code) == ("refused", 1)
+    assert "missing or NaN latest close: QQQ" in result.detail
+    assert broker.submitted == []

@@ -1,6 +1,5 @@
 """Runs of the IB paper rebalancer (spec: docs/methodology/broker-rebalancer.md):
-the evening run (Task 10), and `--flatten` / `--accept-positions` (Task 11).
-Every input is injected (broker, market loader, risk limits, journal folder,
+the evening run. Every input is injected (broker, market loader, risk limits, journal folder,
 clock) so tests drive the runs with FakeBroker; `scripts/rebalance.py` only
 wires the real objects.
 
@@ -100,17 +99,21 @@ def _cash(ctx: RunContext, stamp: datetime) -> float:
 
 
 def _submit_each(
-    broker: Broker, orders: list[Order]
-) -> tuple[list[SubmittedOrder], Exception | None]:
-    """Submit one order at a time so a failure partway still tells us which
-    orders IB accepted; returns those and the error, if any."""
-    submitted: list[SubmittedOrder] = []
-    for order in orders:
-        try:
+    broker: Broker, orders: list[Order], submitted: list[SubmittedOrder]
+) -> tuple[str | None, BaseException | None]:
+    """Submit one order at a time, appending what IB accepted to `submitted`,
+    so a failure partway still tells us which orders went out. Catches
+    BaseException (KeyboardInterrupt too) so the caller journals them before
+    re-raising; returns the error text naming the failed order, and the
+    exception."""
+    label = ""
+    try:
+        for order in orders:
+            label = f"{order.side} {order.symbol}"
             submitted.extend(broker.submit([order]))
-        except Exception as exc:
-            return submitted, exc
-    return submitted, None
+    except BaseException as exc:
+        return f"submit of {label} failed: {exc!r}", exc
+    return None, None
 
 
 def _healthy_market(ctx: RunContext, stamp: datetime, today: date) -> Market:
@@ -142,6 +145,19 @@ def _session_checks(
     outside = sorted(set(held) - set(universe))
     if outside:
         _halt(ctx, stamp, "refused", f"held symbol(s) outside the universe: {', '.join(outside)}")
+
+
+def _session_weights(
+    ctx: RunContext, stamp: datetime, combined: pd.DataFrame, session: date
+) -> pd.Series:
+    """The combined weights on the session date itself, never merely the last row."""
+    day = pd.Timestamp(session)
+    if day not in combined.index:
+        _halt(ctx, stamp, "refused", f"no combined weights for session {session}")
+    if combined.index[-1] > day:
+        detail = f"combined weights run to {combined.index[-1].date()}, after session {session}"
+        _halt(ctx, stamp, "refused", detail)
+    return combined.loc[day]
 
 
 def _reconcile(ctx: RunContext, stamp: datetime, held: Mapping[str, int]) -> dict[str, str]:
@@ -185,19 +201,39 @@ def _trade(
             detail += f"; {'; '.join(result.notes)}"
         _halt(ctx, stamp, "nothing to trade", detail, exit_code=0, skipped=skipped)
     held = {p.symbol: p.shares for p in positions if p.shares != 0}
-    submitted, error = _submit_each(ctx.broker, list(result.orders))
+    submitted: list[SubmittedOrder] = []
+    submit_error, interrupt = _submit_each(ctx.broker, list(result.orders), submitted)
     path = dated_path(ctx.root, session)
+    problems = [submit_error] if submit_error else []
     if submitted:  # only a run that submitted orders writes the dated journal
-        write_journal(
-            path,
-            _journal(
+        try:
+            record = _journal(
                 ctx, stamp, session, weights, closes, cash, result, held, submitted, reconciled
             )
-            | {"submit_error": None if error is None else repr(error)},
-        )
-    if error is not None:
-        raise error  # recorded by _guarded as one "error" events line, exit 1
+            write_journal(path, record | {"submit_error": submit_error})
+        except Exception as exc:  # the orders are out; keep them traceable in events.jsonl
+            problems.append(f"journal write failed: {exc!r}")
+    if problems:
+        detail = "; ".join(problems)
+        _append_error(ctx, stamp, detail, submitted)
+        if interrupt is not None and not isinstance(interrupt, Exception):
+            raise interrupt  # KeyboardInterrupt, SystemExit: propagate after journaling
+        raise _HaltError(RunResult("error", 1, detail))
     return RunResult("submitted", 0, f"{len(submitted)} order(s) queued for the next open", path)
+
+
+def _append_error(
+    ctx: RunContext, stamp: datetime, detail: str, submitted: list[SubmittedOrder]
+) -> None:
+    """One "error" events line carrying the submitted order records. If they
+    cannot be written as strict JSON, fall back to their str()."""
+    record: dict[str, Any] = {"recorded_at": utc_iso(stamp), "status": "error", "detail": detail}
+    if submitted:
+        record["orders"] = order_records(submitted)
+    try:
+        append_event(ctx.root, record)
+    except (TypeError, ValueError):
+        append_event(ctx.root, {**record, "orders": str(record.get("orders"))})
 
 
 def _journal(
@@ -245,11 +281,12 @@ def _evening(ctx: RunContext, stamp: datetime) -> RunResult:
     if refusal is not None:
         _halt(ctx, stamp, "refused", refusal)
     market = _healthy_market(ctx, stamp, ny_date(stamp))
-    weights = market.combined.iloc[-1]
     positions = to_positions(holdings)
     held = {p.symbol: p.shares for p in positions if p.shares != 0}
-    session = session_date(market.close, set(held) | {str(s) for s, w in weights.items() if w > 0})
+    latest = market.combined.iloc[-1]  # only to pick the symbols that fix the session date
+    session = session_date(market.close, set(held) | {str(s) for s, w in latest.items() if w > 0})
     _session_checks(ctx, stamp, session, held, market.combined.columns)
+    weights = _session_weights(ctx, stamp, market.combined, session)
     reconciled = _reconcile(ctx, stamp, held)
     closes: pd.Series = market.close.loc[pd.Timestamp(session)]
     return _trade(ctx, stamp, session, weights, closes, positions, reconciled)
