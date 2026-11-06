@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from qrl.broker import Broker  # noqa: E402
 from qrl.broker_config import BrokerConfig, load_broker_config  # noqa: E402
+from qrl.broker_journal import append_event, utc_iso  # noqa: E402
 from qrl.broker_run import (  # noqa: E402
     RunContext,
     accept_positions_run,
@@ -78,6 +79,17 @@ def _open_broker(cfg: BrokerConfig) -> AbstractContextManager[Broker]:
     return IbBroker(cfg)
 
 
+def _connect_failed(cfg: BrokerConfig, exc: Exception, root: Path) -> int:
+    """Connecting to the gateway failed (refused, timeout, auth): record one
+    "error" events line and exit 1 instead of ending in a traceback."""
+    detail = f"could not connect to IB gateway at {cfg.host}:{cfg.port}: {exc!r}"
+    append_event(
+        root, {"recorded_at": utc_iso(datetime.now(UTC)), "status": "error", "detail": detail}
+    )
+    print(f"error: {detail}")
+    return 1
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -103,14 +115,19 @@ def main(argv: list[str] | None = None) -> int:
         run = accept_positions_run
     else:
         run = evening_run
-    with _open_broker(cfg) as broker:
+    root = Path(args.journal_dir)
+    with ExitStack() as stack:
+        try:
+            broker = stack.enter_context(_open_broker(cfg))
+        except Exception as exc:
+            return _connect_failed(cfg, exc, root)
         result = run(
             RunContext(
                 cfg=cfg,
                 broker=broker,
                 load_market=_market_loader(portfolio_cfg, profile["capital_split"], limits),
                 limits=limits,
-                root=Path(args.journal_dir),
+                root=root,
                 now=lambda: datetime.now(UTC),
             )
         )

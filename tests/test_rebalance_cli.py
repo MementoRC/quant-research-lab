@@ -60,6 +60,26 @@ def test_main_wires_a_run_and_returns_its_exit_code(tmp_path, monkeypatch, capsy
     assert "refused: disabled" in capsys.readouterr().out
 
 
+class _RefusingBroker:
+    def __enter__(self):
+        raise ConnectionRefusedError("refused")
+
+    def __exit__(self, *exc_info):
+        raise AssertionError("never entered")
+
+
+def test_main_records_a_gateway_connection_failure_and_exits_1(tmp_path, monkeypatch, capsys):
+    config = BrokerConfig(True, "10.0.0.5", 4002, 17, "DU123")
+    monkeypatch.setattr(cli, "load_broker_config", lambda path: config)
+    monkeypatch.setattr(cli, "_open_broker", lambda cfg: _RefusingBroker())
+    assert cli.main(["--journal-dir", str(tmp_path)]) == 1
+    (event,) = [json.loads(x) for x in (tmp_path / "events.jsonl").read_text().splitlines()]
+    assert event["status"] == "error"
+    assert "could not connect to IB gateway at 10.0.0.5:4002" in event["detail"]
+    assert "refused" in event["detail"]
+    assert "could not connect" in capsys.readouterr().out
+
+
 def test_main_flatten_works_while_disabled(tmp_path, monkeypatch):
     # FakeBroker reports account DU123 on port 4002, which the connection check compares.
     disabled = BrokerConfig(False, "127.0.0.1", 4002, 17, "DU123")

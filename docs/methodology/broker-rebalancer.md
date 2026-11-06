@@ -1,6 +1,6 @@
 # Broker rebalancer: daily automatic trading of the combined portfolio on an IB paper account
 
-Status: Approved 2026-11-05; Part A implemented 2026-11-05 (PR pending); IB adapter blocked on hb-market-connector #181.
+Status: Approved 2026-11-05; implemented 2026-11-05 (PR pending); connector pinned at 5829aa1.
 Implements PLAN.md milestone 3.4, amendment 2026-11-05.
 The forward paper track (`config/paper.yaml`, `src/qrl/paper.py`) is
 unaffected.
@@ -22,11 +22,14 @@ and no locked file is edited. It adds no trials to any search run.
 
 - Trade the combined portfolio.
 - Fully automatic: no human confirm step.
-- Evening run after the close. Orders are DAY market orders with
-  `outside_rth=False`, which IB queues to the next regular-session open. This
-  matches the engine's timing contract: weights from the close of day t
-  execute at the open of day t+1.
-- Switch to market-on-open when hb-market-connector issue #180 lands.
+- Evening run after the close. Orders are market-on-open (MOO: a MARKET
+  order with time in force `OPG`, `outside_rth=False`), which IB holds for
+  the next opening auction. This matches the engine's timing contract:
+  weights from the close of day t execute at the open of day t+1. The
+  connector sets no local cut-off; IB rejects a late MOO order. The
+  exchanges' MOO cut-off is about 09:28 ET (an exchange rule, not stated
+  by the connector), long after the 18:30 ET run.
+- Market-on-open since hb-market-connector #180 landed (#184).
 - Install the connector from a pinned git commit.
 - Paper only.
 
@@ -53,16 +56,18 @@ and no locked file is edited. It adds no trials to any search run.
   skipped with reasons, refusals)` (limits: the `config/profile.yaml` `risk:`
   caps, see Refusals). All sizing and safety rules live here.
   `scripts/` is not covered by `pytest --cov`, so logic stays in `src/qrl`.
-- src/qrl/broker_ib.py: the IB adapter over
+- `src/qrl/broker_ib.py`: the IB adapter over
   `market_connector.exchanges.interactive_brokers.factory.build_ib_gateway(IbConnectionSpec(host,
   port, client_id, account_id, paper=True, fetch_all_open_orders=True))`. The
   connector is async-only (`await gateway.start()` / `stop()`,
   `get_positions`, `place_order(InstrumentRef(symbol, STOCK,
   quote_currency="USD"), HBOrder(order_type=MARKET, side, amount=Decimal,
-  time_in_force=DAY, outside_rth=False))`, `cancel_order(handle)`,
-  `cancel_all()`). Open orders come from the sync `gateway.get_open_orders()`.
-  The adapter wraps each session in one `asyncio.run` with try/finally `stop`.
-  It is importable only in the `broker` pixi environment (lazy import).
+  time_in_force=OPG, outside_rth=False))`, `cancel_order(handle)`,
+  `cancel_all()`). `cash()` reads `get_account_summary("USD").total_cash_value`
+  (#181, landed as #185). Open orders come from the sync
+  `gateway.get_open_orders()`. The adapter is a context manager holding one
+  event loop and one connected gateway for the whole run; `__exit__` stops
+  the gateway and closes the loop. It is importable only in the `broker` pixi environment (lazy import).
 - `scripts/rebalance.py` and a pixi task `rebalance` in environment `broker`.
   IO only.
 - `config/broker.yaml` (new, not hash-locked, strictly validated, unknown keys
@@ -92,10 +97,12 @@ parts go in one PR. A gated live test confirms it later.
 
 The connector's `get_balance("USD")` returns AvailableFunds. That is
 margin-based, not cash. The adapter's `cash()` must return the USD
-TotalCashValue. This depends on hb-market-connector #181 (an account-summary
-accessor). The first task of the implementation plan checks whether the
-connector already exposes it. If it does not, the adapter is blocked until
-#181 lands. Never fall back to AvailableFunds.
+TotalCashValue. It comes from `get_account_summary("USD")` (hb-market-connector
+#181, landed as #185); an unreported value refuses the run. The summary's
+`currency` is the requested code ("BASE" when none is given), not the base
+currency's name, so the base is taken to be USD exactly when the USD summary
+has a NetLiquidation, which IB reports only in the base currency; otherwise
+the run refuses. Never fall back to AvailableFunds.
 
 Refuse when the account base currency is not USD, or when any position is not
 STK or not USD.
@@ -157,7 +164,8 @@ In order:
    plus the surviving sells' proceeds minus the cash buffer (no cash after the
    buffer means no buys; sells are never touched, and the plan records a note).
    The buffer itself stays for open-versus-close price moves.
-6. **Submit** DAY market orders, `outside_rth=False`.
+6. **Submit** market-on-open orders (MARKET, time in force `OPG`),
+   `outside_rth=False`.
 7. **Journal** to `reports/broker/<session-date>.json` (private, gitignored,
    never under `site/`): inputs, weights, equity, plan, pre-trade and expected
    positions, order ids and status, skips. Only a run that submits orders
@@ -206,7 +214,8 @@ In order:
   even when `enabled` is false and skips the data, reconcile, universe and
   session checks.
 - It calls `cancel_all()` first, then sends one DAY market SELL for each long
-  position, unknown symbols included. Short positions mean refuse and report.
+  position (DAY, not MOO, so it also works during the session), unknown
+  symbols included. Short positions mean refuse and report.
 - It journals to `reports/broker/<NY-date>-flatten-<HHMMSS>.json`.
 - A second `--flatten` is allowed and idempotent, because it calls
   `cancel_all()` first.
@@ -253,8 +262,8 @@ hb-data-type-primitives, hb-event-bus, hb-rate-limit) plus `ib_async>=2.1,<3`.
 
 - Whole shares plus the cash buffer leave a small cash drag.
 - The deadband lets weights drift where the engine rebalances exactly daily.
-- Queued market orders approximate the opening auction; they are not
-  market-on-open.
+- MOO orders fill in the opening auction, close to the engine's open price
+  but not identical to the data vendor's open.
 - IB paper fills and commissions differ from the criteria `cost_bps`.
 - IB cash may earn interest while the engine assumes 0%.
 - Paper market data is delayed. It is not used for sizing; sizing uses our
@@ -271,8 +280,9 @@ hb-data-type-primitives, hb-event-bus, hb-rate-limit) plus `ib_async>=2.1,<3`.
   CRON_TZ=America/New_York
   30 18 * * 1-5 cd /path/to/repo && pixi run -e broker rebalance
   ```
-- hb-market-connector changes: #180 (MOC/MOO), #181 (account summary:
-  TotalCashValue, NetLiquidation, fill history), #182 (fractional shares).
+- hb-market-connector #182 (fractional shares). #180 and #181 landed (#184,
+  #185). Fill history (`get_fills(since)`, #185) is not used: reconcile stays
+  position-based.
 
 ## Implementation notes (2026-11-05)
 

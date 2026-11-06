@@ -79,8 +79,8 @@ Implemented or Closed), matching its `Status:` line.
   (implemented 2026-10-22; owner-approved 2026-10-21; not run).
 - [broker-rebalancer.md](broker-rebalancer.md) — daily automatic rebalancer
   that trades the combined portfolio on an Interactive Brokers paper account,
-  paper only (approved 2026-11-05; Part A implemented, IB adapter blocked on
-  hb-market-connector #181; `pixi run -e broker rebalance`).
+  paper only (approved 2026-11-05; implemented 2026-11-05, PR pending;
+  `pixi run -e broker rebalance`).
 
 ## Former paths
 
