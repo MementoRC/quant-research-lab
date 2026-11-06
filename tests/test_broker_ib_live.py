@@ -1,7 +1,8 @@
 """Live IB PAPER check, skipped unless IB_GATEWAY_HOST is set. Read-only: no
 orders. Run: IB_GATEWAY_HOST=127.0.0.1 pixi run -e broker pytest tests/test_broker_ib_live.py -q
 
-The account id comes from IB_ACCOUNT_ID if set, else config/broker.yaml."""
+The account id comes from IB_ACCOUNT_ID if set, else config/broker.yaml. The
+port comes from IB_GATEWAY_PORT if set, else config/broker.yaml."""
 
 from __future__ import annotations
 
@@ -28,9 +29,11 @@ def test_paper_gateway_read_only_round_trip():
     from qrl.broker_ib import IbBroker
 
     cfg = load_broker_config(ROOT / "config" / "broker.yaml")
+    gateway_port = os.environ.get("IB_GATEWAY_PORT")
     cfg = replace(
         cfg,
         host=os.environ["IB_GATEWAY_HOST"],
+        port=int(gateway_port) if gateway_port else cfg.port,
         account_id=os.environ.get("IB_ACCOUNT_ID") or cfg.account_id,
     )
     with IbBroker(cfg) as broker:
