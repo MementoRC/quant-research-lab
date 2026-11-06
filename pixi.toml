@@ -81,6 +81,14 @@ serve = "python -m http.server -d site 8000"
 # default/dev/ci never install it.
 [feature.broker.dependencies]
 python = "3.12.*"
+# ib_async 2.x caps tzdata <2026; the conda solve would otherwise pin 2026.x.
+python-tzdata = ">=2025.2,<2026"
+
+[feature.broker.pypi-dependencies]
+# Standalone connector repo, pinned to origin/development on 2026-11-05 (#184 MOO, #185 account summary).
+hb-market-connector = { git = "https://github.com/MementoRC/hb-market-connector.git", rev = "5829aa1b3b062f2081ee8b29d80b910de40306be" }
+# The connector declares no optional extras, so its IB client is listed here.
+ib_async = ">=2.1.0,<3.0.0"
 
 [feature.broker.tasks]
 rebalance = "python scripts/rebalance.py"
