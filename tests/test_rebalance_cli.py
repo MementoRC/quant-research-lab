@@ -66,3 +66,12 @@ def test_main_flatten_works_while_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "load_broker_config", lambda path: disabled)
     monkeypatch.setattr(cli, "_open_broker", lambda cfg: nullcontext(FakeBroker()))
     assert cli.main(["--flatten", "--journal-dir", str(tmp_path)]) == 0
+
+
+def test_main_dispatches_accept_positions_and_journals_it(tmp_path, monkeypatch):
+    config = BrokerConfig(True, "127.0.0.1", 4002, 17, "DU123")
+    monkeypatch.setattr(cli, "load_broker_config", lambda path: config)
+    monkeypatch.setattr(cli, "_open_broker", lambda cfg: nullcontext(FakeBroker()))
+    assert cli.main(["--accept-positions", "--journal-dir", str(tmp_path)]) == 0
+    (journal,) = tmp_path.glob("*-accept-*.json")
+    assert json.loads(journal.read_text())["kind"] == "accept"
