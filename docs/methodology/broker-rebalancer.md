@@ -32,7 +32,7 @@ and no locked file is edited. It adds no trials to any search run.
 
 ## Components
 
-- src/qrl/broker.py: the `Broker` Protocol, fully typed:
+- `src/qrl/broker.py`: the `Broker` Protocol, fully typed:
   - `account() -> AccountInfo`
   - `holdings() -> list[Holding]`
   - `cash() -> float`
@@ -48,7 +48,7 @@ and no locked file is edited. It adds no trials to any search run.
   `Order(symbol, side BUY/SELL, shares: int > 0)`; `OpenOrder(symbol, side,
   shares, order_id)`; `SubmittedOrder(order: Order, order_id: int, status:
   str)`. `FakeBroker` is an in-memory implementation for tests.
-- src/qrl/rebalance.py: a pure planner,
+- `src/qrl/rebalance.py`: a pure planner,
   `plan(target_weights, closes, positions, cash, cfg, limits) -> Plan(orders,
   skipped with reasons, refusals)` (limits: the `config/profile.yaml` `risk:`
   caps, see Refusals). All sizing and safety rules live here.
@@ -63,9 +63,9 @@ and no locked file is edited. It adds no trials to any search run.
   `cancel_all()`). Open orders come from the sync `gateway.get_open_orders()`.
   The adapter wraps each session in one `asyncio.run` with try/finally `stop`.
   It is importable only in the `broker` pixi environment (lazy import).
-- scripts/rebalance.py and a pixi task `rebalance` in environment `broker`.
+- `scripts/rebalance.py` and a pixi task `rebalance` in environment `broker`.
   IO only.
-- config/broker.yaml (new, not hash-locked, strictly validated, unknown keys
+- `config/broker.yaml` (new, not hash-locked, strictly validated, unknown keys
   rejected):
 
   | key | rule |
