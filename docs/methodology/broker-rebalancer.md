@@ -1,6 +1,6 @@
 # Broker rebalancer: daily automatic trading of the combined portfolio on an IB paper account
 
-Status: Approved 2026-11-05, in progress.
+Status: Approved 2026-11-05; Part A implemented 2026-11-05 (PR pending); IB adapter blocked on hb-market-connector #181.
 Implements PLAN.md milestone 3.4, amendment 2026-11-05.
 The forward paper track (`config/paper.yaml`, `src/qrl/paper.py`) is
 unaffected.
@@ -273,3 +273,16 @@ hb-data-type-primitives, hb-event-bus, hb-rate-limit) plus `ib_async>=2.1,<3`.
   ```
 - hb-market-connector changes: #180 (MOC/MOO), #181 (account summary:
   TotalCashValue, NetLiquidation, fill history), #182 (fractional shares).
+
+## Implementation notes (2026-11-05)
+
+- Helpers: `qrl.live_weights` (combined weights, shared with
+  `scripts/daily_check.py`), `qrl.broker_config`, `qrl.broker_session`,
+  `qrl.broker_journal`, `qrl.broker_gate`, `qrl.broker_run`.
+- A failing `qrl.health` report refuses the run (exit 1). A plan with no
+  orders is "nothing to trade" (events line, exit 0). `--flatten` and
+  `--accept-positions` also refuse fractional quantities.
+- The rebalancer loads prices with `refresh=True`, like the paper track.
+- `OrderHandle` has no symbol, side or quantity, so the IB adapter keeps its
+  own order-id-to-order mapping; open orders it did not place are reported
+  as UNKNOWN (the Gate only needs to know they exist).

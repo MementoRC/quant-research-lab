@@ -37,7 +37,7 @@ class Plan:
 
 def _targets(weights: pd.Series, closes: pd.Series, investable: float) -> dict[str, int]:
     return {
-        str(s): math.floor(float(w) * investable / float(closes[s]))
+        str(s): math.floor(float(w) * investable / float(closes[str(s)]))
         for s, w in weights.items()
         if w > 0
     }

@@ -18,7 +18,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 import pandas as pd
 
@@ -161,7 +161,7 @@ def _session_weights(
     if combined.index[-1] > day:
         detail = f"combined weights run to {combined.index[-1].date()}, after session {session}"
         _halt(ctx, stamp, "refused", detail)
-    return combined.loc[day]
+    return cast("pd.Series", combined.loc[day])
 
 
 def _reconcile(ctx: RunContext, stamp: datetime, held: Mapping[str, int]) -> dict[str, str]:
@@ -334,7 +334,7 @@ def _evening(ctx: RunContext, stamp: datetime) -> RunResult:
     _session_checks(ctx, stamp, session, held, market.combined.columns)
     weights = _session_weights(ctx, stamp, market.combined, session)
     reconciled = _reconcile(ctx, stamp, held)
-    closes: pd.Series = market.close.loc[pd.Timestamp(session)]
+    closes = cast("pd.Series", market.close.loc[pd.Timestamp(session)])
     return _trade(ctx, stamp, session, weights, closes, positions, reconciled)
 
 
