@@ -1,6 +1,6 @@
 # Broker rebalancer: daily automatic trading of the combined portfolio on an IB paper account
 
-Status: Approved 2026-11-05; implemented 2026-11-05 (PR pending); connector pinned at 5829aa1.
+Status: Implemented 2026-11-05 (PR #102); connector pinned at 5829aa1.
 Implements PLAN.md milestone 3.4, amendment 2026-11-05.
 The forward paper track (`config/paper.yaml`, `src/qrl/paper.py`) is
 unaffected.
