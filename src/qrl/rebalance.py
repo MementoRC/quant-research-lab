@@ -81,7 +81,7 @@ def _cap_buys(
     scale = budget / cost
     buys = [Order(o.symbol, "BUY", math.floor(o.shares * scale)) for o in orders if o.side == "BUY"]
     return sells + [o for o in buys if o.shares > 0], [
-        f"buys scaled by {scale:.4f} to stay within cash"
+        f"buys scaled by {scale:.4g} to stay within cash"
     ]
 
 
@@ -131,7 +131,9 @@ def plan(
 ) -> Plan:
     """Size whole-share targets as floor(w x equity x (1 - cash_buffer) / close),
     equity = IB cash + held shares at our closes; skip deltas inside the
-    deadband unless the target is 0; list sells before buys.
+    deadband unless the target is 0; list sells before buys. Buys are then
+    capped at cash + surviving sell proceeds - cash_buffer x equity (scaled
+    down, rounding down); a cap is recorded in `notes`, not refused.
 
     Refuses (no orders) on a held symbol outside the weights' index, any NaN or
     negative weight, a `qrl.risk` cap breach (one-row combined frame, empty

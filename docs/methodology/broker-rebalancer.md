@@ -179,8 +179,12 @@ In order:
   `fetch_all_open_orders=True`). Never auto-cancel.
 - The session's journal already records submitted orders, so a same-session
   rerun errors.
-- Any held or non-zero-target symbol has a missing or NaN latest close.
-- A position quantity is not a whole number of shares.
+- Any held or non-zero-target symbol has a missing, NaN, infinite or
+  non-positive latest close.
+- A position quantity is not a whole number of shares, a symbol appears in two
+  positions, or a position is short.
+- Equity (IB cash plus held shares at our closes) is not a positive, finite
+  number.
 - The target weights fail the `qrl.risk` caps from `config/profile.yaml`
   `risk:` (long-only, gross <= 1.0; no leverage, per the owner decision). The
   planner builds a one-row combined frame and calls
