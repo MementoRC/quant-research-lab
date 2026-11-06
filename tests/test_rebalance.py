@@ -79,3 +79,55 @@ def test_sells_are_listed_before_buys():
 def test_unheld_zero_weight_symbol_is_ignored():
     result = plan(_w(QQQ=0.0, GLD=0.0), _w(QQQ=500.0, GLD=200.0), [], 1_000.0, CFG, LIMITS)
     assert (result.orders, result.skipped, result.refusals) == ((), (), ())
+
+
+def _refused(result) -> str:
+    assert result.orders == ()
+    assert result.refusals
+    return "; ".join(result.refusals)
+
+
+def test_nan_weight_is_refused():
+    w = pd.Series({"QQQ": float("nan"), "GLD": 0.0})
+    assert "NaN or negative" in _refused(plan(w, _w(QQQ=500.0, GLD=200.0), [], 1e5, CFG, LIMITS))
+
+
+def test_negative_weight_is_refused():
+    assert "NaN or negative" in _refused(
+        plan(_w(QQQ=0.8, GLD=-0.1), _w(QQQ=500.0, GLD=200.0), [], 1e5, CFG, LIMITS)
+    )
+
+
+def test_risk_cap_breach_is_refused():
+    text = _refused(plan(_w(QQQ=0.7, GLD=0.4), _w(QQQ=500.0, GLD=200.0), [], 1e5, CFG, LIMITS))
+    assert "gross exposure" in text
+
+
+def test_missing_close_for_a_target_is_refused():
+    assert "missing or NaN latest close: QQQ" in _refused(
+        plan(_w(QQQ=0.8), _w(GLD=200.0), [], 1e5, CFG, LIMITS)
+    )
+
+
+def test_nan_close_for_a_held_zero_target_symbol_is_refused_not_valued_at_zero():
+    closes = pd.Series({"QQQ": 500.0, "GLD": float("nan")})
+    text = _refused(plan(_w(QQQ=0.8, GLD=0.0), closes, [Position("GLD", 3)], 1e5, CFG, LIMITS))
+    assert "missing or NaN latest close: GLD" in text
+
+
+def test_nan_close_for_an_unheld_zero_target_symbol_is_ignored():
+    closes = pd.Series({"QQQ": 500.0, "GLD": float("nan")})
+    result = plan(_w(QQQ=0.8, GLD=0.0), closes, [], 100_000.0, CFG, LIMITS)
+    assert result.refusals == ()
+    assert result.orders == (Order("QQQ", "BUY", 158),)
+
+
+def test_held_symbol_outside_the_universe_is_refused():
+    text = _refused(
+        plan(_w(QQQ=0.8), _w(QQQ=500.0, XYZ=10.0), [Position("XYZ", 5)], 1e5, CFG, LIMITS)
+    )
+    assert "outside the universe: XYZ" in text
+
+
+def test_non_positive_equity_is_refused():
+    assert "equity" in _refused(plan(_w(QQQ=0.8), _w(QQQ=500.0), [], -1_000.0, CFG, LIMITS))
