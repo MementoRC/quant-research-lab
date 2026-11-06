@@ -83,6 +83,15 @@ def test_wrong_types_are_refused(tmp_path, key, value):
         load_broker_config(_write(tmp_path, **{key: value}))
 
 
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("port", 4001), ("port", 7496), ("account_id", "U1234567"), ("account_id", "du123")],
+)
+def test_live_port_and_non_paper_account_are_refused(tmp_path, key, value):
+    with pytest.raises(ValueError, match=key):
+        load_broker_config(_write(tmp_path, **{key: value}))
+
+
 def test_unknown_key_is_refused(tmp_path):
     with pytest.raises(ValueError, match=r"unknown key.*'live'"):
         load_broker_config(_write(tmp_path, live=True))
