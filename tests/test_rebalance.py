@@ -158,6 +158,40 @@ def test_duplicate_position_symbol_is_refused():
     assert "duplicate position symbol(s): QQQ" in text
 
 
+def test_buys_are_capped_when_deadband_skips_leave_sells_unsold():
+    held = [Position("A", 100), Position("B", 100), Position("C", 100)]
+    closes = _w(A=100.0, B=100.0, C=100.0, D=100.0)
+    # each of A, B, C targets 97 shares: a 300 sell, inside the 500 deadband
+    result = plan(_w(A=0.0985, B=0.0985, C=0.0985, D=0.7), closes, held, 70_000.0, CFG, LIMITS)
+    assert [s.symbol for s in result.skipped] == ["A", "B", "C"]
+    (buy,) = result.orders
+    assert (buy.symbol, buy.side) == ("D", "BUY")
+    assert buy.shares * 100.0 <= 70_000.0 - 0.01 * 100_000.0
+    assert result.notes == ("buys scaled by 0.9957 to stay within cash",)
+
+
+def test_buys_are_unchanged_when_no_cap_is_needed():
+    result = plan(_w(QQQ=0.8), _w(QQQ=500.0), [], 100_000.0, CFG, LIMITS)
+    assert result.orders == (Order("QQQ", "BUY", 158),)
+    assert result.notes == ()
+
+
+def test_buys_are_dropped_but_sells_stay_when_no_cash_after_buffer():
+    held = [Position("A", 500), Position("B", 500), Position("C", 5)]
+    # A and B each sell ~47 shares (inside the 5% deadband, so skipped); D buys 86
+    result = plan(
+        _w(A=0.456, B=0.456, C=0.0, D=0.087),
+        _w(A=100.0, B=100.0, C=100.0, D=100.0),
+        held,
+        0.0,
+        replace(CFG, deadband=0.05),
+        LIMITS,
+    )
+    assert result.orders == (Order("C", "SELL", 5),)
+    assert [s.symbol for s in result.skipped] == ["A", "B"]
+    assert result.notes == ("buys dropped: no cash after buffer",)
+
+
 def test_short_position_is_refused():
     text = _refused(plan(_w(QQQ=0.8), _w(QQQ=500.0), [Position("QQQ", -3)], 1e5, CFG, LIMITS))
     assert "short position(s): QQQ" in text

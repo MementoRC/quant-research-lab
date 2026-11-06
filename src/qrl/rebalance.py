@@ -32,6 +32,7 @@ class Plan:
     refusals: tuple[str, ...] = ()
     equity: float = 0.0
     targets: Mapping[str, int] = field(default_factory=dict)
+    notes: tuple[str, ...] = ()
 
 
 def _targets(weights: pd.Series, closes: pd.Series, investable: float) -> dict[str, int]:
@@ -64,6 +65,24 @@ def _orders(
         orders.append(Order(symbol, "BUY" if delta > 0 else "SELL", abs(delta)))
     orders.sort(key=lambda o: (o.side != "SELL", o.symbol))
     return orders, skipped
+
+
+def _cap_buys(
+    orders: list[Order], closes: pd.Series, budget: float
+) -> tuple[list[Order], list[str]]:
+    """Scale buys down (rounding down) so their cost at our closes stays within
+    `budget`; drop them all if there is none. Sells are never touched."""
+    cost = sum(o.shares * float(closes[o.symbol]) for o in orders if o.side == "BUY")
+    if cost <= budget:
+        return orders, []
+    sells = [o for o in orders if o.side == "SELL"]
+    if budget <= 0:
+        return sells, ["buys dropped: no cash after buffer"]
+    scale = budget / cost
+    buys = [Order(o.symbol, "BUY", math.floor(o.shares * scale)) for o in orders if o.side == "BUY"]
+    return sells + [o for o in buys if o.shares > 0], [
+        f"buys scaled by {scale:.4f} to stay within cash"
+    ]
 
 
 def _weight_refusals(weights: pd.Series, limits: RiskLimits) -> list[str]:
@@ -133,4 +152,6 @@ def plan(
         return Plan(refusals=(f"equity {equity:.2f} is not positive and finite",), equity=equity)
     targets = _targets(target_weights, closes, equity * (1 - cfg.cash_buffer))
     orders, skipped = _orders(held, targets, closes, equity, cfg.deadband)
-    return Plan(tuple(orders), tuple(skipped), (), equity, targets)
+    proceeds = sum(o.shares * float(closes[o.symbol]) for o in orders if o.side == "SELL")
+    orders, notes = _cap_buys(orders, closes, cash + proceeds - cfg.cash_buffer * equity)
+    return Plan(tuple(orders), tuple(skipped), (), equity, targets, tuple(notes))

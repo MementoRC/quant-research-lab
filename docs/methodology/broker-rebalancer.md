@@ -150,8 +150,12 @@ In order:
 5. **Orders.** `delta = target - held`. Skip if `|delta x close| < deadband x
    equity`, unless the target is 0 (full exits always go). There is no minimum
    order size beyond the deadband. Sells are listed before buys, but that is
-   best effort only: queued market orders all hit the same open. The cash
-   buffer is what covers buys outrunning sells.
+   best effort only: queued market orders all hit the same open. Sells that
+   the deadband skips leave shares unsold, so buys are capped: they are scaled
+   down, rounding down, until their cost at our closes is no more than cash
+   plus the surviving sells' proceeds minus the cash buffer (no cash after the
+   buffer means no buys; sells are never touched, and the plan records a note).
+   The buffer itself stays for open-versus-close price moves.
 6. **Submit** DAY market orders, `outside_rth=False`.
 7. **Journal** to `reports/broker/<session-date>.json` (private, gitignored,
    never under `site/`): inputs, weights, equity, plan, pre-trade and expected
