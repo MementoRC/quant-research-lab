@@ -167,7 +167,10 @@ In order:
    journal, so a rerun of a session that already submitted cannot damage that
    session's journal. The same-session rerun refusal fires if the dated file
    exists. Every journal file and events line records `recorded_at` as a UTC
-   ISO timestamp.
+   ISO timestamp. Journal writes are atomic and never overwrite: a crash can
+   leave a stray `.tmp` file but never a truncated journal. A journal that
+   cannot be read (bad JSON, or a missing or naive `recorded_at`) halts the
+   run with an error naming the file; it is never skipped.
 
 ## Refusals (no orders sent)
 

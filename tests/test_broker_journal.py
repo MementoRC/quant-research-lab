@@ -6,6 +6,7 @@ import json
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from qrl.broker import Order, SubmittedOrder
@@ -15,6 +16,7 @@ from qrl.broker_journal import (
     expected_positions,
     latest_baseline,
     order_records,
+    read_journal,
     reconcile,
     stamped_path,
     utc_iso,
@@ -85,6 +87,73 @@ def test_baseline_ignores_other_files_and_handles_none(tmp_path):
     write_journal(tmp_path / "notes.json", {"recorded_at": "2030-01-01T00:00:00+00:00"})
     append_event(tmp_path, {"recorded_at": "2030-01-01T00:00:00+00:00", "status": "refused"})
     assert latest_baseline(tmp_path) is None
+
+
+def test_corrupt_json_halts_with_the_file_name(tmp_path):
+    (tmp_path / "2026-11-04.json").write_text('{"kind": "reb', encoding="utf-8")
+    with pytest.raises(ValueError, match="2026-11-04.json"):
+        latest_baseline(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "extra", [{}, {"recorded_at": "garbage"}, {"recorded_at": "2026-11-04T23:30:00"}]
+)
+def test_bad_recorded_at_halts_with_the_file_name(tmp_path, extra):
+    write_journal(tmp_path / "2026-11-04.json", {"kind": "rebalance", **extra})
+    with pytest.raises(ValueError, match="2026-11-04.json"):
+        latest_baseline(tmp_path)
+
+
+def test_write_journal_refuses_nan(tmp_path):
+    path = tmp_path / "2026-11-04.json"
+    with pytest.raises(ValueError, match="Out of range float"):
+        write_journal(path, {"x": float("nan")})
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_write_journal_serializes_dates_and_numpy(tmp_path):
+    path = tmp_path / "2026-11-04.json"
+    write_journal(
+        path,
+        {"d": date(2026, 11, 4), "t": datetime(2026, 11, 4, tzinfo=UTC), "n": np.int64(3)},
+    )
+    assert json.loads(path.read_text()) == {
+        "d": "2026-11-04",
+        "t": "2026-11-04T00:00:00+00:00",
+        "n": 3,
+    }
+    append_event(tmp_path, {"d": date(2026, 11, 4), "n": np.float64(0.5)})
+    assert json.loads((tmp_path / "events.jsonl").read_text()) == {"d": "2026-11-04", "n": 0.5}
+    with pytest.raises(ValueError, match="Out of range float"):
+        append_event(tmp_path, {"x": float("inf")})
+
+
+def test_failed_write_leaves_no_partial_or_tmp_file(tmp_path):
+    path = tmp_path / "2026-11-04.json"
+    with pytest.raises(TypeError):
+        write_journal(path, {"x": object()})
+    assert list(tmp_path.iterdir()) == []
+    write_journal(path, {"kind": "rebalance"})
+    assert [p.name for p in tmp_path.iterdir()] == ["2026-11-04.json"]
+    with pytest.raises(FileExistsError):
+        write_journal(path, {"kind": "other"})
+    assert [p.name for p in tmp_path.iterdir()] == ["2026-11-04.json"]
+
+
+def test_stamped_path_collision_raises(tmp_path):
+    now = datetime(2026, 11, 4, 23, 30, 5, tzinfo=UTC)
+    write_journal(stamped_path(tmp_path, "flatten", now), {"kind": "flatten"})
+    with pytest.raises(FileExistsError):
+        write_journal(stamped_path(tmp_path, "flatten", now), {"kind": "flatten"})
+
+
+def test_read_journal_round_trip_and_bad_file(tmp_path):
+    path = tmp_path / "2026-11-04.json"
+    write_journal(path, {"kind": "rebalance", "n": 1})
+    assert read_journal(path) == {"kind": "rebalance", "n": 1}
+    path.write_text("[1]", encoding="utf-8")
+    with pytest.raises(ValueError, match="2026-11-04.json"):
+        read_journal(path)
 
 
 def test_expected_positions_count_dead_orders_as_zero():
