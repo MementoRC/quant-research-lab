@@ -654,20 +654,28 @@ def test_accept_journal_write_failure_is_an_error_event(tmp_path, monkeypatch):
 
 def test_accept_file_records_what_it_overrides(tmp_path):
     broker = _after_first_run(tmp_path)  # baseline QQQ 158, one open order
+    broker.pending.clear()  # accept refuses while orders are open
     broker.held = [Holding("QQQ", "STK", "USD", Decimal("150"))]
     accept_at = datetime(2026, 11, 5, 23, 40, tzinfo=UTC)
     accepted = accept_positions_run(_ctx(tmp_path, broker, _market("2026-11-05"), accept_at))
     journal = json.loads(accepted.path.read_text())
     assert journal["previous_baseline"] == "2026-11-04T23:30:00+00:00"
     assert journal["overridden_mismatches"] == ["QQQ: expected 158, IB holds 150"]
-    assert journal["open_orders"] == 1
+
+
+def test_accept_refuses_while_orders_are_open(tmp_path):
+    broker = _after_first_run(tmp_path)  # one open order
+    accept_at = datetime(2026, 11, 5, 23, 40, tzinfo=UTC)
+    result = accept_positions_run(_ctx(tmp_path, broker, _market("2026-11-05"), accept_at))
+    assert (result.status, result.exit_code) == ("refused", 1)
+    assert "1 open order(s); wait for them to fill or cancel" in result.detail
+    assert not list(tmp_path.glob("*-accept-*.json"))
 
 
 def test_first_accept_has_no_previous_baseline(tmp_path):
     result = accept_positions_run(_ctx(tmp_path, FakeBroker(held=list(LONGS)), _market()))
     journal = json.loads(result.path.read_text())
     assert (journal["previous_baseline"], journal["overridden_mismatches"]) == (None, [])
-    assert journal["open_orders"] == 0
 
 
 def test_accept_positions_records_ib_positions_trades_nothing_and_unblocks(tmp_path):

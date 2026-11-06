@@ -407,6 +407,14 @@ def _flatten(ctx: RunContext, stamp: datetime) -> RunResult:
 
 def _accept(ctx: RunContext, stamp: datetime) -> RunResult:
     held = _whole(_checked_holdings(ctx, stamp))
+    orders = ctx.broker.open_orders()
+    if orders:  # queued orders would move the positions being accepted
+        _halt(
+            ctx,
+            stamp,
+            "refused",
+            f"{len(orders)} open order(s); wait for them to fill or cancel",
+        )
     path = stamped_path(ctx.root, "accept", stamp)
     # The audit trail of what this accept overrides; an unreadable journal raises
     # (ValueError) and the run ends as an error event, as in the evening run.
@@ -421,7 +429,6 @@ def _accept(ctx: RunContext, stamp: datetime) -> RunResult:
             "expected_positions": held,
             "previous_baseline": baseline["recorded_at"] if baseline else None,
             "overridden_mismatches": overridden,
-            "open_orders": len(ctx.broker.open_orders()),
         },
     )
     return RunResult("accepted", 0, f"IB positions accepted as expected: {held}", path)

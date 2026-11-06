@@ -65,7 +65,18 @@ and no locked file is edited. It adds no trials to any search run.
   time_in_force=OPG, outside_rth=False))`, `cancel_order(handle)`,
   `cancel_all()`). `cash()` reads `get_account_summary("USD").total_cash_value`
   (#181, landed as #185). Open orders come from the sync
-  `gateway.get_open_orders()`. The adapter is a context manager holding one
+  `gateway.get_open_orders()`, after the adapter repeats the all-open-orders
+  request itself (the connector only logs a failed sync at connect); a
+  failure raises. `account()` reports IB's own facts: the connector echoes the
+  configured account id in its summary, so the adapter reads IB's
+  managed-accounts list (the connector's ib_async `IB` instance, reached
+  through the transport's private `_ib`; there is no public accessor). An
+  empty or unreadable list refuses the run. If the configured id is not in
+  the list the first managed account is reported, so the Gate refuses as "not
+  the configured account". `paper` is true only if the reported id and every
+  managed account are DU-prefixed (a mixed live and paper login is refused).
+  The adapter also refuses a live port or non-DU account in its own config.
+  The adapter is a context manager holding one
   event loop and one connected gateway for the whole run; `__exit__` stops
   the gateway and closes the loop. It is importable only in the `broker` pixi environment (lazy import).
 - `scripts/rebalance.py` and a pixi task `rebalance` in environment `broker`.
@@ -149,7 +160,8 @@ In order:
    On a mismatch: record it, send no orders, exit non-zero. Trading stays
    halted until a human runs `rebalance --accept-positions`, which writes
    `reports/broker/<NY-date>-accept-<HHMMSS>.json`; its recorded IB positions
-   become the expected positions. That run trades nothing.
+   become the expected positions. That run trades nothing, and refuses while
+   any order is open ("N open order(s); wait for them to fill or cancel").
 4. **Size.** Any held or non-zero-target symbol with a missing or NaN latest
    close: refuse the whole run. Never value it at 0.
    `equity = IB cash + sum(shares x our close)`. Cash is TotalCashValue (see
@@ -227,13 +239,15 @@ In order:
 ## Packaging
 
 A new pixi feature and environment `broker` with the pypi dependency
-`hb-market-connector[interactive-brokers]` from git
-`https://github.com/MementoRC/hummingbot.git`, subdirectory
-`sub-packages/market-connector`, at a pinned rev (chosen at implementation;
-it must be a commit on GitHub). The default, dev and ci environments are
-unchanged; CI never installs the connector. The connector requires Python
->= 3.12 and pulls four MementoRC git dependencies (hb-logger,
-hb-data-type-primitives, hb-event-bus, hb-rate-limit) plus `ib_async>=2.1,<3`.
+`hb-market-connector`, a standalone repo, from git
+`https://github.com/MementoRC/hb-market-connector.git` (no subdirectory) at
+the pinned commit 5829aa1, plus `ib_async>=2.1,<3` (the connector declares no
+extra for it). The broker feature caps `python-tzdata` below 2026, because
+`ib_async` 2.x caps `tzdata` below 2026; the other environments are not
+affected. The default, dev and ci environments are unchanged; CI never
+installs the connector. The connector requires Python >= 3.12 and pulls four
+MementoRC git dependencies (hb-logger, hb-data-type-primitives,
+hb-event-bus, hb-rate-limit).
 
 ## Testing
 

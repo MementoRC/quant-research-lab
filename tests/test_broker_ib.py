@@ -49,8 +49,12 @@ def _pos(symbol: str, qty: str, sec_type: str = "STK", currency: str = "USD") ->
     )
 
 
-def _gateway(positions=(), summaries=USD_BASE, open_orders=()) -> MagicMock:
+def _gateway(positions=(), summaries=USD_BASE, open_orders=(), managed=("DU123",)) -> MagicMock:
     gw = MagicMock()
+    # The connector's ib_async IB instance: IB's own managed-accounts list, and the
+    # all-open-orders request the adapter repeats before reading open orders.
+    gw.unified_transport._ib.managedAccounts = MagicMock(return_value=list(managed))
+    gw.unified_transport._ib.reqAllOpenOrdersAsync = AsyncMock(return_value=[])
     gw.start = AsyncMock()
     gw.stop = AsyncMock()
     gw.get_positions = AsyncMock(return_value=list(positions))
@@ -149,8 +153,60 @@ def test_unreported_total_cash_value_raises_lookup_error_instead_of_falling_back
     gw.get_balance.assert_not_called()
 
 
-def _reporting(account: str) -> MagicMock:
-    return _gateway(summaries={**USD_BASE, "USD": _summary("USD", "1", "2", account=account)})
+def _reporting(account: str, managed: tuple[str, ...] | None = None) -> MagicMock:
+    return _gateway(
+        summaries={**USD_BASE, "USD": _summary("USD", "1", "2", account=account)},
+        managed=(account,) if managed is None else managed,
+    )
+
+
+def test_an_empty_managed_accounts_list_fails_closed():
+    with (
+        _connected(_gateway(managed=())) as broker,
+        pytest.raises(RuntimeError, match="no managed"),
+    ):
+        broker.account()
+
+
+def test_an_unreadable_managed_accounts_list_fails_closed():
+    gw = _gateway()
+    gw.unified_transport._ib.managedAccounts = MagicMock(side_effect=OSError("down"))
+    with _connected(gw) as broker, pytest.raises(RuntimeError, match="managed accounts"):
+        broker.account()
+
+
+def test_a_configured_id_absent_from_the_managed_list_is_refused_by_the_gate():
+    # The connector echoes the configured id in the summary; IB manages another account.
+    with _connected(_gateway(managed=("DU555",))) as broker:
+        info = broker.account()
+    assert info.account_id == "DU555"
+    assert "not the configured account" in connection_refusal(info, CFG)
+
+
+def test_a_mixed_live_and_paper_login_is_not_paper():
+    with _connected(_gateway(managed=("DU123", "U777"))) as broker:
+        info = broker.account()
+    assert (info.account_id, info.paper) == ("DU123", False)
+    assert "not a paper connection" in connection_refusal(info, CFG)
+
+
+def test_all_du_managed_accounts_containing_the_configured_id_pass():
+    with _connected(_gateway(managed=("DU999", "DU123"))) as broker:
+        info = broker.account()
+    assert info == AccountInfo("DU123", "USD", True, 4002)
+    assert connection_refusal(info, CFG) is None
+
+
+def test_open_orders_resync_with_ib_and_fail_closed_when_it_fails():
+    gw = _gateway()
+    with _connected(gw) as broker:
+        broker.open_orders()
+    gw.unified_transport._ib.reqAllOpenOrdersAsync.assert_awaited_once()
+
+    bad = _gateway()
+    bad.unified_transport._ib.reqAllOpenOrdersAsync = AsyncMock(side_effect=OSError("no answer"))
+    with _connected(bad) as broker, pytest.raises(OSError, match="no answer"):
+        broker.open_orders()
 
 
 def test_usd_base_account_reports_the_gateways_account_paper_by_du_prefix_and_port():

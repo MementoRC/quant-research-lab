@@ -79,15 +79,21 @@ def _open_broker(cfg: BrokerConfig) -> AbstractContextManager[Broker]:
     return IbBroker(cfg)
 
 
-def _connect_failed(cfg: BrokerConfig, exc: Exception, root: Path) -> int:
-    """Connecting to the gateway failed (refused, timeout, auth): record one
-    "error" events line and exit 1 instead of ending in a traceback."""
-    detail = f"could not connect to IB gateway at {cfg.host}:{cfg.port}: {exc!r}"
+def _stop_run(root: Path, status: str, detail: str) -> int:
+    """End a run before it reaches `qrl.broker_run`: one events line, one printed
+    line, exit 1, instead of a traceback."""
     append_event(
-        root, {"recorded_at": utc_iso(datetime.now(UTC)), "status": "error", "detail": detail}
+        root, {"recorded_at": utc_iso(datetime.now(UTC)), "status": status, "detail": detail}
     )
-    print(f"error: {detail}")
+    print(f"{status}: {detail}")
     return 1
+
+
+def _connect_failed(cfg: BrokerConfig, exc: Exception, root: Path) -> int:
+    """Connecting to the gateway failed (refused, timeout, auth)."""
+    return _stop_run(
+        root, "error", f"could not connect to IB gateway at {cfg.host}:{cfg.port}: {exc!r}"
+    )
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -105,20 +111,29 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
-    cfg = load_broker_config(ROOT / "config" / "broker.yaml")
-    profile, _ = load_profile_with_hash(ROOT / "config" / "profile.yaml")
-    limits = load_risk_limits(profile)
-    portfolio_cfg = load_portfolio_config(ROOT / "config" / "portfolio.yaml")
+    root = Path(args.journal_dir)
+    try:
+        cfg = load_broker_config(ROOT / "config" / "broker.yaml")
+        profile, _ = load_profile_with_hash(ROOT / "config" / "profile.yaml")
+        limits = load_risk_limits(profile)
+        portfolio_cfg = load_portfolio_config(ROOT / "config" / "portfolio.yaml")
+    except Exception as exc:
+        return _stop_run(root, "error", f"could not load the configuration: {exc!r}")
     if args.flatten:
         run = flatten_run
     elif args.accept_positions:
         run = accept_positions_run
     else:
         run = evening_run
-    root = Path(args.journal_dir)
+        if not cfg.enabled:  # the Gate's own refusal, before any connection is opened
+            return _stop_run(root, "refused", "disabled: `enabled` is false in config/broker.yaml")
+    try:
+        manager = _open_broker(cfg)
+    except ValueError as exc:  # the adapter's paper-only refusal of a hand-built config
+        return _stop_run(root, "refused", str(exc))
     with ExitStack() as stack:
         try:
-            broker = stack.enter_context(_open_broker(cfg))
+            broker = stack.enter_context(manager)
         except Exception as exc:
             return _connect_failed(cfg, exc, root)
         result = run(

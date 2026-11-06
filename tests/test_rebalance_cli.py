@@ -80,6 +80,50 @@ def test_main_records_a_gateway_connection_failure_and_exits_1(tmp_path, monkeyp
     assert "could not connect" in capsys.readouterr().out
 
 
+def _events(tmp_path):
+    return [json.loads(x) for x in (tmp_path / "events.jsonl").read_text().splitlines()]
+
+
+def test_a_config_load_failure_is_an_error_event_not_a_traceback(tmp_path, monkeypatch, capsys):
+    def boom(path):
+        raise ValueError("port 4001 is a live port")
+
+    monkeypatch.setattr(cli, "load_broker_config", boom)
+    monkeypatch.setattr(cli, "_open_broker", lambda cfg: pytest.fail("must not connect"))
+    assert cli.main(["--journal-dir", str(tmp_path)]) == 1
+    (event,) = _events(tmp_path)
+    assert event["status"] == "error"
+    assert "could not load the configuration" in event["detail"]
+    assert "live port" in event["detail"]
+    assert "could not load" in capsys.readouterr().out
+
+
+def test_a_disabled_evening_run_never_builds_the_broker(tmp_path, monkeypatch, capsys):
+    disabled = BrokerConfig(False, "127.0.0.1", 4002, 17, "DU123")
+    monkeypatch.setattr(cli, "load_broker_config", lambda path: disabled)
+    monkeypatch.setattr(cli, "_open_broker", lambda cfg: pytest.fail("must not connect"))
+    assert cli.main(["--journal-dir", str(tmp_path)]) == 1
+    (event,) = _events(tmp_path)
+    assert (event["status"], "disabled" in event["detail"]) == ("refused", True)
+    assert "refused: disabled" in capsys.readouterr().out
+
+
+def test_the_adapters_paper_only_refusal_is_logged_as_a_refusal(tmp_path, monkeypatch, capsys):
+    config = BrokerConfig(True, "127.0.0.1", 4002, 17, "DU123")
+
+    def refuse(cfg):
+        raise ValueError("IbBroker is paper only: port 4001 refused")
+
+    monkeypatch.setattr(cli, "load_broker_config", lambda path: config)
+    monkeypatch.setattr(cli, "_open_broker", refuse)
+    assert cli.main(["--journal-dir", str(tmp_path)]) == 1
+    (event,) = _events(tmp_path)
+    assert event["status"] == "refused"
+    assert "paper only" in event["detail"]
+    assert "could not connect" not in event["detail"]
+    assert "refused: IbBroker is paper only" in capsys.readouterr().out
+
+
 def test_main_flatten_works_while_disabled(tmp_path, monkeypatch):
     # FakeBroker reports account DU123 on port 4002, which the connection check compares.
     disabled = BrokerConfig(False, "127.0.0.1", 4002, 17, "DU123")

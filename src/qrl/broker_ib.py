@@ -38,6 +38,7 @@ from qrl.broker import AccountInfo, Holding, OpenOrder, Order, SubmittedOrder
 from qrl.broker_config import LIVE_PORTS, BrokerConfig, is_paper_account_id
 
 T = TypeVar("T")
+_SYNC_TIMEOUT = 15.0  # seconds to wait for IB's all-open-orders answer
 
 
 def connection_spec(cfg: BrokerConfig) -> IbConnectionSpec:
@@ -70,12 +71,38 @@ async def _total_cash_usd(gateway: Any) -> float:
     return float(summary.total_cash_value)
 
 
-async def _account_facts(gateway: Any) -> tuple[str, str]:
-    """(account id, base currency) as the gateway's USD summary reports them."""
+def _ib(gateway: Any) -> Any:
+    """The connector's ib_async `IB` instance. The connector has no public accessor
+    for it, so this reads the transport's `_ib`; if that moves, fail closed."""
+    try:
+        return gateway.unified_transport._ib
+    except AttributeError as exc:
+        raise RuntimeError("cannot reach the ib_async IB instance; refusing to trade") from exc
+
+
+async def _account_facts(gateway: Any) -> tuple[str, str, bool]:
+    """(account id, base currency, every managed account is paper).
+
+    The summary's `account` is only the configured id echoed by the connector, so
+    it proves nothing. IB's own managed-accounts list (`IB.managedAccounts()`) is
+    the independent fact. An empty or unreadable list fails closed. If the
+    configured id is not in the list, the first managed account is reported, so
+    the Gate refuses with "not the configured account"."""
     summary = await gateway.get_account_summary("USD")
+    try:
+        managed = [str(a) for a in _ib(gateway).managedAccounts()]
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"cannot read IB's managed accounts: {exc!r}") from exc
+    if not managed:
+        raise RuntimeError("IB reports no managed accounts; refusing to trade")
     if not summary.account:
         raise RuntimeError("IB gateway reported no account id; refusing to trade")
-    return str(summary.account), "USD" if summary.net_liquidation is not None else "UNKNOWN"
+    reported = str(summary.account)
+    account_id = reported if reported in managed else managed[0]
+    base = "USD" if summary.net_liquidation is not None else "UNKNOWN"
+    return account_id, base, all(is_paper_account_id(a) for a in managed)
 
 
 def _ids(handle: Any) -> set[int]:
@@ -167,13 +194,15 @@ class IbBroker:
         return OpenOrder(order.symbol, order.side, order.shares, order_id)
 
     def account(self) -> AccountInfo:
-        """What the gateway reports, never an echo of the config: the Gate's
-        paper and account checks compare these facts with `config/broker.yaml`."""
-        account_id, base = self._session(_account_facts)
-        # IB paper accounts are DU-prefixed: that is the real paper signal. The
-        # connector's `paper` flag only selects the market-data type.
+        """IB's own facts, not an echo of the config: the Gate's paper and account
+        checks compare them with `config/broker.yaml`."""
+        account_id, base, all_paper = self._session(_account_facts)
+        # IB paper accounts are DU-prefixed: that is the real paper signal (the
+        # connector's `paper` flag only selects the market-data type). A login
+        # that manages any non-DU account is not paper, even if ours is DU.
         # The connector exposes no connected-port attribute; this is the port we connected to.
-        return AccountInfo(account_id, base, is_paper_account_id(account_id), self._spec.port)
+        paper = is_paper_account_id(account_id) and all_paper
+        return AccountInfo(account_id, base, paper, self._spec.port)
 
     def holdings(self) -> list[Holding]:
         async def op(gateway: Any) -> list[Holding]:
@@ -189,6 +218,10 @@ class IbBroker:
 
     def open_orders(self) -> list[OpenOrder]:
         async def op(gateway: Any) -> list[OpenOrder]:
+            # The connector only logs a failed all-open-orders sync at connect, so an
+            # empty cache could hide live orders. Sync again here; a failure or
+            # timeout raises (fail closed).
+            await asyncio.wait_for(_ib(gateway).reqAllOpenOrdersAsync(), timeout=_SYNC_TIMEOUT)
             return [self._open_order(h) for h in gateway.get_open_orders()]
 
         return self._session(op)
