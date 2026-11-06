@@ -14,7 +14,12 @@ import yaml
 _REQUIRED = frozenset({"enabled", "host", "port", "client_id", "account_id"})
 _DEFAULTS: dict[str, float] = {"cash_buffer": 0.01, "deadband": 0.005}
 _MAXIMA: dict[str, float] = {"cash_buffer": 0.10, "deadband": 0.05}
-_LIVE_PORTS = frozenset({4001, 7496})  # IB Gateway and TWS live; paper is 4002 / 7497
+LIVE_PORTS = frozenset({4001, 7496})  # IB Gateway and TWS live; paper is 4002 / 7497
+
+
+def is_paper_account_id(value: object) -> bool:
+    """IB paper account ids are "DU" plus digits; exact, case-sensitive, no stripping."""
+    return isinstance(value, str) and value.startswith("DU") and len(value) > 2
 
 
 @dataclass(frozen=True)
@@ -75,10 +80,10 @@ def load_broker_config(path: str | Path) -> BrokerConfig:
     if not isinstance(enabled, bool):
         raise ValueError(f"broker config `enabled` must be true or false, got {enabled!r}")
     port = _int(doc, "port", 1)
-    if port in _LIVE_PORTS:
+    if port in LIVE_PORTS:
         raise ValueError(f"broker config `port` {port} is a live IB port; paper only")
     account_id = _text(doc, "account_id")
-    if not account_id.startswith("DU"):
+    if not is_paper_account_id(account_id):
         raise ValueError(
             f"broker config `account_id` must start with DU (paper), got {account_id!r}"
         )

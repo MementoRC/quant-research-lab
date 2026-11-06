@@ -6,9 +6,7 @@ quantity a whole number; (4) no open orders (never auto-cancelled)."""
 from __future__ import annotations
 
 from qrl.broker import AccountInfo, Broker, Holding
-from qrl.broker_config import BrokerConfig
-
-LIVE_PORTS = frozenset({4001, 7496})
+from qrl.broker_config import LIVE_PORTS, BrokerConfig, is_paper_account_id
 
 
 def paper_refusal(info: AccountInfo) -> str | None:
@@ -17,7 +15,7 @@ def paper_refusal(info: AccountInfo) -> str | None:
         return "not a paper connection: the connection spec has paper=False"
     if info.port in LIVE_PORTS:
         return f"not a paper connection: port {info.port} is a live port"
-    if not info.account_id.startswith("DU"):
+    if not is_paper_account_id(info.account_id):
         return f"not a paper connection: account id {info.account_id!r} does not start with DU"
     return None
 
@@ -28,7 +26,11 @@ def account_refusal(info: AccountInfo, holdings: list[Holding]) -> str | None:
     foreign = sorted(h.symbol for h in holdings if h.sec_type != "STK" or h.currency != "USD")
     if foreign:
         return f"position(s) not STK in USD: {', '.join(foreign)}"
-    fractional = sorted(h.symbol for h in holdings if h.quantity != h.quantity.to_integral_value())
+    fractional = sorted(
+        h.symbol
+        for h in holdings
+        if not h.quantity.is_finite() or h.quantity != h.quantity.to_integral_value()
+    )
     if fractional:
         return f"position quantity not a whole number of shares: {', '.join(fractional)}"
     return None
@@ -42,6 +44,11 @@ def gate(cfg: BrokerConfig, broker: Broker) -> tuple[str | None, list[Holding]]:
     refusal = paper_refusal(info)
     if refusal is not None:
         return refusal, []
+    if info.account_id != cfg.account_id:
+        return (
+            f"account {info.account_id!r} is not the configured account {cfg.account_id!r}",
+            [],
+        )
     holdings = broker.holdings()
     refusal = account_refusal(info, holdings)
     if refusal is not None:

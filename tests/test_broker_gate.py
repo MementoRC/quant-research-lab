@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 
-from qrl.broker import AccountInfo, FakeBroker, Holding, OpenOrder
+from qrl.broker import AccountInfo, Broker, FakeBroker, Holding, OpenOrder
 from qrl.broker_config import BrokerConfig
 from qrl.broker_gate import gate, paper_refusal
 
@@ -16,7 +16,7 @@ PAPER = AccountInfo("DU123", "USD", True, 4002)
 QQQ = Holding("QQQ", "STK", "USD", Decimal("10"))
 
 
-def _refusal(broker: FakeBroker, cfg: BrokerConfig = CFG) -> str:
+def _refusal(broker: Broker, cfg: BrokerConfig = CFG) -> str:
     refusal, _ = gate(cfg, broker)
     assert refusal is not None
     return refusal
@@ -28,12 +28,62 @@ def _refusal(broker: FakeBroker, cfg: BrokerConfig = CFG) -> str:
         (replace(PAPER, paper=False), "paper=False"),
         (replace(PAPER, port=4001), "port 4001"),
         (replace(PAPER, port=7496), "port 7496"),
-        (replace(PAPER, account_id="U1234567"), "DU"),
+        (
+            replace(PAPER, account_id="U1234567"),
+            "account id 'U1234567' does not start with DU",
+        ),
     ],
 )
 def test_each_paper_check_part_fails_on_its_own(info, message):
     assert message in paper_refusal(info)
     assert message in _refusal(FakeBroker(info=info))
+
+
+@pytest.mark.parametrize("account_id", ["du123", "", " DU1", "DU", None])
+def test_malformed_account_id_is_refused(account_id):
+    info = replace(PAPER, account_id=account_id)
+    expected = f"not a paper connection: account id {account_id!r} does not start with DU"
+    assert paper_refusal(info) == expected
+    assert _refusal(FakeBroker(info=info)) == expected
+
+
+def test_account_other_than_the_configured_one_is_refused():
+    refusal = _refusal(FakeBroker(info=replace(PAPER, account_id="DU999"), held=[QQQ]))
+    assert "'DU999'" in refusal
+    assert "'DU123'" in refusal
+
+
+class _RecordingBroker:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def account(self) -> AccountInfo:
+        self.calls.append("account")
+        return PAPER
+
+    def holdings(self) -> list[Holding]:
+        self.calls.append("holdings")
+        return []
+
+    def open_orders(self) -> list[OpenOrder]:
+        self.calls.append("open_orders")
+        return []
+
+
+def test_disabled_gate_never_touches_the_broker():
+    broker = _RecordingBroker()
+    assert "disabled" in _refusal(broker, replace(CFG, enabled=False))
+    assert broker.calls == []
+
+
+def test_infinite_quantity_is_refused():
+    broker = FakeBroker(held=[Holding("QQQ", "STK", "USD", Decimal("Infinity"))])
+    assert "whole number" in _refusal(broker)
+
+
+def test_one_bad_holding_among_good_ones_is_refused():
+    broker = FakeBroker(held=[QQQ, Holding("SPY", "STK", "USD", Decimal("2.5"))])
+    assert "whole number of shares: SPY" in _refusal(broker)
 
 
 def test_paper_account_passes_the_paper_check():

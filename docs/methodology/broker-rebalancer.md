@@ -113,8 +113,9 @@ In order:
 
 1. **Gate.** The first step after connecting to IB. It keeps only checks that
    need just the connection, in this order: (1) `enabled`; (2) the 3-part
-   paper check; (3) the account base currency is USD, every position is STK
-   in USD, and every quantity is a whole number; (4) no open orders. Every
+   paper check, then the reported account must equal `account_id` in
+   `config/broker.yaml`; (3) the account base currency is USD, every position
+   is STK in USD, and every quantity is a whole number; (4) no open orders. Every
    refusal sends no orders, appends an events line and exits non-zero.
 2. **Data and session.** Run the `qrl.health` daily checks. Build the
    combined weights frame and the closes, then compute the session date: the
@@ -176,6 +177,8 @@ In order:
 
 - The connection is not paper. The paper check needs all of: `spec.paper` is
   True, the port is not 4001 or 7496, and the account id starts with "DU".
+  The account the connection reports must also equal `account_id` in
+  `config/broker.yaml`.
 - The account base currency is not USD, or any position is not STK or not USD.
 - The account holds a symbol outside the universe.
 - Any open order exists for the account (the adapter sets

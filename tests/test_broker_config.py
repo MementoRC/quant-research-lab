@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from qrl.broker_config import BrokerConfig, load_broker_config
+from qrl.broker_config import BrokerConfig, is_paper_account_id, load_broker_config
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = {
@@ -25,6 +25,15 @@ def _write(tmp_path: Path, **changes: object) -> Path:
     path = tmp_path / "broker.yaml"
     path.write_text(yaml.safe_dump(doc), encoding="utf-8")
     return path
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("DU123", True), ("DU1", True), ("DU", False), ("du123", False), (" DU1", False)]
+    + [("U1234567", False), ("", False), (None, False), (123, False)],
+)
+def test_is_paper_account_id(value, expected):
+    assert is_paper_account_id(value) is expected
 
 
 def test_shipped_config_loads_disabled_with_defaults():
