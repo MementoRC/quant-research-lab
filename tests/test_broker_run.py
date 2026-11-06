@@ -403,6 +403,45 @@ def test_keyboard_interrupt_mid_batch_journals_what_was_sent_then_propagates(tmp
     assert _events(tmp_path)[-1]["orders"][0]["symbol"] == "GLD"
 
 
+def test_event_write_failure_falls_back_to_stderr_with_the_order_ids(tmp_path, monkeypatch, capsys):
+    from qrl import broker_run
+
+    def no_events(root, record):
+        raise OSError("read-only")
+
+    monkeypatch.setattr(broker_run, "append_event", no_events)
+    monkeypatch.setattr(broker_run, "write_journal", lambda path, record: 1 / 0)
+    result = evening_run(_ctx(tmp_path, FakeBroker(cash_usd=1e5), _market()))
+    assert (result.status, result.exit_code) == ("error", 1)
+    err = capsys.readouterr().err
+    assert "order_id=1" in err
+    assert "journal write failed" in err
+
+
+def test_a_second_interrupt_during_the_journal_write_still_writes_the_event(tmp_path, monkeypatch):
+    from qrl import broker_run
+
+    def interrupted(path, record):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(broker_run, "write_journal", interrupted)
+    broker = FakeBroker(cash_usd=80_000.0, held=[Holding("GLD", "STK", "USD", Decimal("100"))])
+    real = broker.submit
+
+    def submit(orders: list[Order]):
+        if orders[0].symbol == "QQQ":
+            raise KeyboardInterrupt
+        return real(orders)
+
+    broker.submit = submit
+    with pytest.raises(KeyboardInterrupt):
+        evening_run(_ctx(tmp_path, broker, _market()))
+    event = _events(tmp_path)[-1]
+    assert "submit of BUY QQQ failed" in event["detail"]
+    assert "journal write failed" in event["detail"]
+    assert [o["symbol"] for o in event["orders"]] == ["GLD"]
+
+
 def test_rerun_after_a_partial_submit_is_refused(tmp_path):
     broker = FakeBroker(cash_usd=80_000.0, held=[Holding("GLD", "STK", "USD", Decimal("100"))])
     _fail_submit_on(broker, "QQQ")

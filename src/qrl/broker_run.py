@@ -12,6 +12,7 @@ never writes a dated journal."""
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
@@ -105,7 +106,8 @@ def _submit_each(
     so a failure partway still tells us which orders went out. Catches
     BaseException (KeyboardInterrupt too) so the caller journals them before
     re-raising; returns the error text naming the failed order, and the
-    exception."""
+    exception. If IB accepts an order but `submit` raises before returning,
+    that order is known only by its label in the error text."""
     label = ""
     try:
         for order in orders:
@@ -211,8 +213,13 @@ def _trade(
                 ctx, stamp, session, weights, closes, cash, result, held, submitted, reconciled
             )
             write_journal(path, record | {"submit_error": submit_error})
-        except Exception as exc:  # the orders are out; keep them traceable in events.jsonl
+        except BaseException as exc:  # the orders are out; keep them traceable in events.jsonl
             problems.append(f"journal write failed: {exc!r}")
+            if interrupt is None and not isinstance(exc, Exception):
+                interrupt = exc  # an interrupt during the write; a first one wins
+    # A run whose journal was not written does not block a same-session rerun by
+    # the dated file; only the Gate's open-orders check and then reconcile
+    # against the older baseline stand in the way.
     if problems:
         detail = "; ".join(problems)
         _append_error(ctx, stamp, detail, submitted)
@@ -226,14 +233,23 @@ def _append_error(
     ctx: RunContext, stamp: datetime, detail: str, submitted: list[SubmittedOrder]
 ) -> None:
     """One "error" events line carrying the submitted order records. If they
-    cannot be written as strict JSON, fall back to their str()."""
-    record: dict[str, Any] = {"recorded_at": utc_iso(stamp), "status": "error", "detail": detail}
-    if submitted:
-        record["orders"] = order_records(submitted)
+    cannot be written as strict JSON, fall back to their str(); if the line
+    cannot be written at all, print the detail and orders to stderr. Never
+    raises, so it cannot replace a pending KeyboardInterrupt."""
     try:
-        append_event(ctx.root, record)
-    except (TypeError, ValueError):
-        append_event(ctx.root, {**record, "orders": str(record.get("orders"))})
+        record: dict[str, Any] = {
+            "recorded_at": utc_iso(stamp),
+            "status": "error",
+            "detail": detail,
+        }
+        if submitted:
+            record["orders"] = order_records(submitted)
+        try:
+            append_event(ctx.root, record)
+        except (TypeError, ValueError):
+            append_event(ctx.root, {**record, "orders": str(record.get("orders"))})
+    except Exception as exc:  # last resort: the orders are out and must stay traceable
+        print(f"events write failed ({exc!r}): {detail}; orders: {submitted}", file=sys.stderr)
 
 
 def _journal(
