@@ -35,6 +35,10 @@ warn_unused_configs = true
 module = ["yfinance", "yfinance.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["market_connector", "market_connector.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"

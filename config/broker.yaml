@@ -1,0 +1,13 @@
+# IB PAPER rebalancer settings (spec: docs/methodology/broker-rebalancer.md).
+# Not hash-locked, but strictly validated by qrl.broker_config: unknown keys,
+# wrong types and out-of-range values are refused.
+#
+# enabled: the normal evening run refuses while this is false. The kill
+# switch (`--flatten`) works either way.
+enabled: false
+host: "127.0.0.1"
+port: 4002            # IB Gateway paper port; live ports 4001 and 7496 are refused
+client_id: 17         # fixed: one stable id for this bot, >= 0
+account_id: "DU0000000"   # the owner's IB paper account id; must start with DU
+cash_buffer: 0.01     # fraction of equity left uninvested, in [0, 0.10]
+deadband: 0.005       # skip trades smaller than this fraction of equity, in [0, 0.05]

@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
@@ -36,41 +35,12 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from qrl.data import load_ohlcv, load_prices  # noqa: E402
 from qrl.health import HealthReport, run_daily_health  # noqa: E402
-from qrl.portfolio import combine_portfolio, load_portfolio_config  # noqa: E402
+from qrl.live_weights import extra_fields, make_combine, member_tickers, weight_fns  # noqa: E402
+from qrl.portfolio import load_portfolio_config  # noqa: E402
 from qrl.profile import load_profile_with_hash  # noqa: E402
 from qrl.risk import load_risk_limits  # noqa: E402
-from qrl.strategies import REGISTRY, SLEEVE_REGISTRY  # noqa: E402
 from qrl.stress import file_hashes, stress_config_paths, stress_warnings  # noqa: E402
 from qrl.universe import load_universe  # noqa: E402
-
-_ALL_SPECS = {**REGISTRY, **SLEEVE_REGISTRY}
-
-
-def _member_tickers(members: list[dict]) -> list[str]:
-    return sorted({t for m in members for t in _ALL_SPECS[m["fn"]].tickers(m["params"])})
-
-
-def _extra_fields(members: list[dict]) -> set[str]:
-    """Fields beyond "close" (high/low/volume) any configured member's
-    family declares needing."""
-    return {f for m in members for f in _ALL_SPECS[m["fn"]].fields} - {"close"}
-
-
-def _member_weights_fn(
-    member: dict, extra_frames: dict[str, pd.DataFrame]
-) -> Callable[[pd.DataFrame], pd.DataFrame]:
-    """A close-only callable matching `run_daily_health`'s `build_weights`
-    contract, closing over any non-close fields this member's family needs
-    (fetched once up front, see `_extra_fields`)."""
-    spec = _ALL_SPECS[member["fn"]]
-    cols = spec.tickers(member["params"])
-    weight_kwargs = {k: v for k, v in member["params"].items() if k != "tickers"}
-
-    def _weights(close: pd.DataFrame) -> pd.DataFrame:
-        frames = [close[cols] if f == "close" else extra_frames[f][cols] for f in spec.fields]
-        return spec.weights(*frames, **weight_kwargs)
-
-    return _weights
 
 
 def _print_report(report: HealthReport) -> None:
@@ -110,35 +80,23 @@ def main(argv: list[str] | None = None) -> int:
     core = portfolio_cfg["core"]
     sleeve_members = portfolio_cfg["sleeve"]["strategies"]
     all_members = [core, *sleeve_members]
-    all_tickers = sorted(set(universe["tickers"]) | set(_member_tickers(all_members)))
+    all_tickers = sorted(set(universe["tickers"]) | set(member_tickers(all_members)))
 
-    extra_fields = _extra_fields(all_members)
+    fields = extra_fields(all_members)
     extra_frames: dict[str, pd.DataFrame] = {}
-    if extra_fields:
-        ohlcv = load_ohlcv(_member_tickers(all_members))
-        extra_frames = {f: ohlcv[f] for f in extra_fields}
+    if fields:
+        ohlcv = load_ohlcv(member_tickers(all_members))
+        extra_frames = {f: ohlcv[f] for f in fields}
 
     def load_close() -> pd.DataFrame:
         _, close = load_prices(all_tickers)
         return close
 
-    build_weights = {"core": _member_weights_fn(core, extra_frames)}
-    for i, member in enumerate(sleeve_members):
-        build_weights[f"sleeve_{i}_{member['fn']}"] = _member_weights_fn(member, extra_frames)
-
-    def combine(weights: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
-        if "core" not in weights:
-            raise RuntimeError("core weights unavailable; core strategy failed earlier.")
-        core_weights = weights["core"]
-        sleeve_weights = [w for key, w in weights.items() if key != "core"]
-        pw = combine_portfolio(core_weights, sleeve_weights, profile["capital_split"])
-        return pw.combined, pw.sleeve
-
     as_of = pd.Timestamp(args.as_of) if args.as_of else None
     report = run_daily_health(
         load_close=load_close,
-        build_weights=build_weights,
-        combine=combine,
+        build_weights=weight_fns(core, sleeve_members, extra_frames),
+        combine=make_combine(profile["capital_split"]),
         limits=limits,
         as_of=as_of,
         max_staleness_bdays=args.max_staleness_bdays,
