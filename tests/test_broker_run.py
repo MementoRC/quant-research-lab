@@ -589,6 +589,87 @@ def test_keyboard_interrupt_during_flatten_is_recorded_then_propagates(tmp_path)
     assert "flatten failed" in _events(tmp_path)[-1]["detail"]
 
 
+def test_flatten_with_no_holdings_still_cancels_and_journals_an_empty_baseline(tmp_path):
+    broker = FakeBroker(pending=[OpenOrder("QQQ", "BUY", 3, 7)])
+    result = flatten_run(_ctx(tmp_path, broker, _market()))
+    assert (result.status, result.exit_code) == ("flattened", 0)
+    assert "0 sell order(s)" in result.detail
+    assert broker.cancel_all_calls == 1
+    journal = json.loads(result.path.read_text())
+    assert (journal["submitted"], journal["expected_positions"]) == ([], {})
+
+
+def test_a_failed_flatten_event_keeps_the_positions_and_the_next_run_refuses(tmp_path):
+    broker = FakeBroker(held=[Holding("QQQ", "STK", "USD", Decimal("10"))])
+    real = broker.flatten
+
+    def sells_then_drops() -> list:
+        real()  # the sells reached IB, then the connection died
+        raise RuntimeError("socket closed")
+
+    broker.flatten = sells_then_drops
+    assert flatten_run(_ctx(tmp_path, broker, _market())).status == "error"
+    assert _events(tmp_path)[-1]["pre_trade_positions"] == {"QQQ": 10}
+    assert _journals(tmp_path) == []
+    blocked = evening_run(_ctx(tmp_path, broker, _market("2026-11-05"), NEXT_EVENING))
+    assert (blocked.status, blocked.exit_code) == ("refused", 1)
+    assert "open order" in blocked.detail
+
+
+@pytest.mark.parametrize(
+    ("broker", "message"),
+    [
+        (FakeBroker(info=AccountInfo("DU123", "USD", True, 4001)), "port 4001"),
+        (FakeBroker(info=AccountInfo("DU999", "USD", True, 4002)), "not the configured account"),
+        (FakeBroker(held=[Holding("ES", "FUT", "USD", Decimal("1"))]), "not STK in USD"),
+        (FakeBroker(held=[Holding("QQQ", "STK", "USD", Decimal("1.5"))]), "whole number"),
+    ],
+)
+def test_accept_runs_the_connection_and_account_checks(tmp_path, broker, message):
+    result = accept_positions_run(_ctx(tmp_path, broker, _market()))
+    assert (result.status, result.exit_code) == ("refused", 1)
+    assert message in result.detail
+    assert _journals(tmp_path) == []
+
+
+def test_accept_does_not_refuse_shorts(tmp_path):
+    broker = FakeBroker(held=[Holding("QQQ", "STK", "USD", Decimal("-5"))])
+    result = accept_positions_run(_ctx(tmp_path, broker, _market()))
+    assert result.status == "accepted"
+    assert json.loads(result.path.read_text())["expected_positions"] == {"QQQ": -5}
+
+
+def test_accept_journal_write_failure_is_an_error_event(tmp_path, monkeypatch):
+    from qrl import broker_run
+
+    def full_disk(path, record):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(broker_run, "write_journal", full_disk)
+    result = accept_positions_run(_ctx(tmp_path, FakeBroker(held=list(LONGS)), _market()))
+    assert (result.status, result.exit_code) == ("error", 1)
+    assert "disk full" in _events(tmp_path)[-1]["detail"]
+    assert _journals(tmp_path) == []
+
+
+def test_accept_file_records_what_it_overrides(tmp_path):
+    broker = _after_first_run(tmp_path)  # baseline QQQ 158, one open order
+    broker.held = [Holding("QQQ", "STK", "USD", Decimal("150"))]
+    accept_at = datetime(2026, 11, 5, 23, 40, tzinfo=UTC)
+    accepted = accept_positions_run(_ctx(tmp_path, broker, _market("2026-11-05"), accept_at))
+    journal = json.loads(accepted.path.read_text())
+    assert journal["previous_baseline"] == "2026-11-04T23:30:00+00:00"
+    assert journal["overridden_mismatches"] == ["QQQ: expected 158, IB holds 150"]
+    assert journal["open_orders"] == 1
+
+
+def test_first_accept_has_no_previous_baseline(tmp_path):
+    result = accept_positions_run(_ctx(tmp_path, FakeBroker(held=list(LONGS)), _market()))
+    journal = json.loads(result.path.read_text())
+    assert (journal["previous_baseline"], journal["overridden_mismatches"]) == (None, [])
+    assert journal["open_orders"] == 0
+
+
 def test_accept_positions_records_ib_positions_trades_nothing_and_unblocks(tmp_path):
     broker = _after_first_run(tmp_path)
     broker.pending.clear()

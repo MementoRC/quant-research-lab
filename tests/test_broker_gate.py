@@ -9,7 +9,7 @@ import pytest
 
 from qrl.broker import AccountInfo, Broker, FakeBroker, Holding, OpenOrder
 from qrl.broker_config import BrokerConfig
-from qrl.broker_gate import gate, paper_refusal
+from qrl.broker_gate import connection_refusal, gate, paper_refusal
 
 CFG = BrokerConfig(True, "127.0.0.1", 4002, 17, "DU123", 0.01, 0.005)
 PAPER = AccountInfo("DU123", "USD", True, 4002)
@@ -51,6 +51,19 @@ def test_account_other_than_the_configured_one_is_refused():
     refusal = _refusal(FakeBroker(info=replace(PAPER, account_id="DU999"), held=[QQQ]))
     assert "'DU999'" in refusal
     assert "'DU123'" in refusal
+
+
+def test_connection_refusal_runs_the_paper_check_then_the_account_match():
+    assert connection_refusal(PAPER, CFG) is None
+    assert connection_refusal(replace(PAPER, port=4001), CFG) == paper_refusal(
+        replace(PAPER, port=4001)
+    )
+    other = replace(PAPER, account_id="DU999")
+    assert connection_refusal(other, CFG) == (
+        "account 'DU999' is not the configured account 'DU123'"
+    )
+    live_other = replace(PAPER, account_id="U999")  # paper check wins over the match
+    assert connection_refusal(live_other, CFG) == paper_refusal(live_other)
 
 
 class _RecordingBroker:

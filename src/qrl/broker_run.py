@@ -1,7 +1,8 @@
 """Runs of the IB paper rebalancer (spec: docs/methodology/broker-rebalancer.md):
-the evening run, the --flatten kill switch and --accept-positions. Every input is injected (broker, market loader, risk limits, journal folder,
-clock) so tests drive the runs with FakeBroker; `scripts/rebalance.py` only
-wires the real objects.
+the evening run, the --flatten kill switch and --accept-positions. Every
+input is injected (broker, market loader, risk limits, journal folder, clock)
+so tests drive the runs with FakeBroker; `scripts/rebalance.py` only wires the
+real objects.
 
 Evening run order: Gate; health checks; weights and closes; session date;
 (a) "no new session" (exit 0), (b) same-session rerun, (c) unknown
@@ -23,7 +24,7 @@ import pandas as pd
 
 from qrl.broker import Broker, Holding, Order, Position, SubmittedOrder, to_positions
 from qrl.broker_config import BrokerConfig
-from qrl.broker_gate import account_refusal, gate, paper_refusal
+from qrl.broker_gate import account_refusal, connection_refusal, gate
 from qrl.broker_journal import (
     append_event,
     dated_path,
@@ -230,11 +231,12 @@ def _settle(
     submitted: list[SubmittedOrder],
     submit_error: str | None,
     interrupt: BaseException | None,
+    extra: Mapping[str, Any] | None = None,
 ) -> None:
     """Journal what went out (when `record` is given), then turn any submit or
-    journal failure into one "error" events line carrying the order records and
-    raise it (an interrupt is re-raised as itself). Returns only when all is
-    well. Shared by the evening run and the flatten run."""
+    journal failure into one "error" events line carrying the order records
+    (and `extra`) and raise it (an interrupt is re-raised as itself). Returns
+    only when all is well. Shared by the evening run and the flatten run."""
     problems = [submit_error] if submit_error else []
     if record is not None:
         try:
@@ -245,24 +247,30 @@ def _settle(
                 interrupt = exc  # an interrupt during the write; a first one wins
     if problems:
         detail = "; ".join(problems)
-        _append_error(ctx, stamp, detail, submitted)
+        _append_error(ctx, stamp, detail, submitted, extra)
         if interrupt is not None and not isinstance(interrupt, Exception):
             raise interrupt  # KeyboardInterrupt, SystemExit: propagate after journaling
         raise _HaltError(RunResult("error", 1, detail))
 
 
 def _append_error(
-    ctx: RunContext, stamp: datetime, detail: str, submitted: list[SubmittedOrder]
+    ctx: RunContext,
+    stamp: datetime,
+    detail: str,
+    submitted: list[SubmittedOrder],
+    extra: Mapping[str, Any] | None = None,
 ) -> None:
-    """One "error" events line carrying the submitted order records. If they
-    cannot be written as strict JSON, fall back to their str(); if the line
-    cannot be written at all, print the detail and orders to stderr. Never
-    raises, so it cannot replace a pending KeyboardInterrupt."""
+    """One "error" events line carrying the submitted order records (and any
+    `extra` fields). If they cannot be written as strict JSON, fall back to
+    their str(); if the line cannot be written at all, print the detail and
+    orders to stderr. Never raises, so it cannot replace a pending
+    KeyboardInterrupt."""
     try:
         record: dict[str, Any] = {
             "recorded_at": utc_iso(stamp),
             "status": "error",
             "detail": detail,
+            **(extra or {}),
         }
         if submitted:
             record["orders"] = order_records(submitted)
@@ -341,11 +349,7 @@ def _checked_holdings(ctx: RunContext, stamp: datetime) -> list[Holding]:
     journals are whole shares). `enabled`, data, reconcile, universe, session
     and open-order checks are skipped."""
     info = ctx.broker.account()
-    refusal = paper_refusal(info)
-    if refusal is None and info.account_id != ctx.cfg.account_id:
-        refusal = (
-            f"account {info.account_id!r} is not the configured account {ctx.cfg.account_id!r}"
-        )
+    refusal = connection_refusal(info, ctx.cfg)
     holdings: list[Holding] = []
     if refusal is None:
         holdings = ctx.broker.holdings()
@@ -383,8 +387,20 @@ def _flatten(ctx: RunContext, stamp: datetime) -> RunResult:
             "expected_positions": expected_positions(held, submitted),
         }
 
-    # A failed flatten() leaves no known orders, so no baseline is written for it.
-    _settle(ctx, stamp, path, None if error else record, submitted, error, interrupt)
+    # A failed flatten() leaves no known orders, so no journal is written: its
+    # expected positions would be a false baseline or launder a mismatch. The
+    # error event keeps the pre-trade positions; the next run's Gate (open
+    # orders) or reconcile catches whatever went out.
+    _settle(
+        ctx,
+        stamp,
+        path,
+        None if error else record,
+        submitted,
+        error,
+        interrupt,
+        {"pre_trade_positions": held},
+    )
     detail = f"cancelled all open orders; {len(submitted)} sell order(s) queued"
     return RunResult("flattened", 0, detail, path)
 
@@ -392,6 +408,10 @@ def _flatten(ctx: RunContext, stamp: datetime) -> RunResult:
 def _accept(ctx: RunContext, stamp: datetime) -> RunResult:
     held = _whole(_checked_holdings(ctx, stamp))
     path = stamped_path(ctx.root, "accept", stamp)
+    # The audit trail of what this accept overrides; an unreadable journal raises
+    # (ValueError) and the run ends as an error event, as in the evening run.
+    baseline = latest_baseline(ctx.root)
+    overridden = reconcile(baseline["expected_positions"], held) if baseline else []
     write_journal(
         path,
         {
@@ -399,6 +419,9 @@ def _accept(ctx: RunContext, stamp: datetime) -> RunResult:
             "recorded_at": utc_iso(stamp),
             "positions": held,
             "expected_positions": held,
+            "previous_baseline": baseline["recorded_at"] if baseline else None,
+            "overridden_mismatches": overridden,
+            "open_orders": len(ctx.broker.open_orders()),
         },
     )
     return RunResult("accepted", 0, f"IB positions accepted as expected: {held}", path)

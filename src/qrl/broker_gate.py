@@ -20,6 +20,16 @@ def paper_refusal(info: AccountInfo) -> str | None:
     return None
 
 
+def connection_refusal(info: AccountInfo, cfg: BrokerConfig) -> str | None:
+    """The paper check, then the reported account must be the configured one."""
+    refusal = paper_refusal(info)
+    if refusal is not None:
+        return refusal
+    if info.account_id != cfg.account_id:
+        return f"account {info.account_id!r} is not the configured account {cfg.account_id!r}"
+    return None
+
+
 def account_refusal(info: AccountInfo, holdings: list[Holding]) -> str | None:
     if info.base_currency != "USD":
         return f"account base currency is {info.base_currency}, not USD"
@@ -41,14 +51,9 @@ def gate(cfg: BrokerConfig, broker: Broker) -> tuple[str | None, list[Holding]]:
     if not cfg.enabled:
         return "disabled: `enabled` is false in config/broker.yaml", []
     info = broker.account()
-    refusal = paper_refusal(info)
+    refusal = connection_refusal(info, cfg)
     if refusal is not None:
         return refusal, []
-    if info.account_id != cfg.account_id:
-        return (
-            f"account {info.account_id!r} is not the configured account {cfg.account_id!r}",
-            [],
-        )
     holdings = broker.holdings()
     refusal = account_refusal(info, holdings)
     if refusal is not None:
