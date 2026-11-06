@@ -23,17 +23,19 @@ the gateway on its own loop, every Broker call runs on that loop, and
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from typing import Any, TypeVar
 
 from market_connector.contracts.instrument import InstrumentRef, InstrumentType
+from market_connector.exchanges.interactive_brokers.exceptions import CancelAllError
 from market_connector.exchanges.interactive_brokers.factory import build_ib_gateway
 from market_connector.exchanges.interactive_brokers.specs import IbConnectionSpec
 from market_connector.orders import HBOrder, OrderType, TimeInForce, TradeType
 
 from qrl.broker import AccountInfo, Holding, OpenOrder, Order, SubmittedOrder
-from qrl.broker_config import BrokerConfig
+from qrl.broker_config import LIVE_PORTS, BrokerConfig, is_paper_account_id
 
 T = TypeVar("T")
 
@@ -68,9 +70,26 @@ async def _total_cash_usd(gateway: Any) -> float:
     return float(summary.total_cash_value)
 
 
-async def _base_currency(gateway: Any) -> str:
+async def _account_facts(gateway: Any) -> tuple[str, str]:
+    """(account id, base currency) as the gateway's USD summary reports them."""
     summary = await gateway.get_account_summary("USD")
-    return "USD" if summary.net_liquidation is not None else "UNKNOWN"
+    if not summary.account:
+        raise RuntimeError("IB gateway reported no account id; refusing to trade")
+    return str(summary.account), "USD" if summary.net_liquidation is not None else "UNKNOWN"
+
+
+def _ids(handle: Any) -> set[int]:
+    """Every id IB may know the order by: the handle's id (permId when set, else
+    orderId) and the trade's own permId and orderId."""
+    order = getattr(getattr(handle, "_trade", None), "order", None)
+    found = {int(handle.order_id), *(int(getattr(order, a, 0) or 0) for a in ("permId", "orderId"))}
+    return found - {0}
+
+
+def _sell_all(position: Any) -> Order:
+    if position.quantity != position.quantity.to_integral_value():
+        raise ValueError(f"{position.symbol}: fractional quantity {position.quantity}; not selling")
+    return Order(position.symbol, "SELL", int(position.quantity))
 
 
 class IbBroker:
@@ -85,6 +104,11 @@ class IbBroker:
     def __init__(
         self, cfg: BrokerConfig, build: Callable[[IbConnectionSpec], Any] = build_ib_gateway
     ) -> None:
+        # A hand-built BrokerConfig never went through the loader's checks.
+        if cfg.port in LIVE_PORTS or not is_paper_account_id(cfg.account_id):
+            raise ValueError(
+                f"IbBroker is paper only: port {cfg.port} / account {cfg.account_id!r} refused"
+            )
         self._spec = connection_spec(cfg)
         self._build = build
         self._placed: dict[int, Order] = {}
@@ -111,6 +135,8 @@ class IbBroker:
             return
         try:
             loop.run_until_complete(gateway.stop())
+        except Exception as exc:  # never mask the run's result or an in-flight exception
+            print(f"IB gateway stop failed: {exc!r}", file=sys.stderr)
         finally:
             asyncio.set_event_loop(None)
             loop.close()
@@ -127,21 +153,27 @@ class IbBroker:
         for order in orders:
             ref = InstrumentRef(order.symbol, InstrumentType.STOCK, quote_currency="USD")
             handle = await gateway.place_order(ref, _hb_order(order, tif))
+            for known in _ids(handle):
+                self._placed[known] = order
             order_id = int(handle.order_id)
-            self._placed[order_id] = order
             out.append(SubmittedOrder(order, order_id, str(handle.status)))
         return out
 
     def _open_order(self, handle: Any) -> OpenOrder:
         order_id = int(handle.order_id)
-        order = self._placed.get(order_id)
+        order = next((self._placed[i] for i in _ids(handle) if i in self._placed), None)
         if order is None:
             return OpenOrder("UNKNOWN", "UNKNOWN", 0, order_id)
         return OpenOrder(order.symbol, order.side, order.shares, order_id)
 
     def account(self) -> AccountInfo:
-        base = self._session(_base_currency)
-        return AccountInfo(self._spec.account_id or "", base, self._spec.paper, self._spec.port)
+        """What the gateway reports, never an echo of the config: the Gate's
+        paper and account checks compare these facts with `config/broker.yaml`."""
+        account_id, base = self._session(_account_facts)
+        # IB paper accounts are DU-prefixed: that is the real paper signal. The
+        # connector's `paper` flag only selects the market-data type.
+        # The connector exposes no connected-port attribute; this is the port we connected to.
+        return AccountInfo(account_id, base, is_paper_account_id(account_id), self._spec.port)
 
     def holdings(self) -> list[Holding]:
         async def op(gateway: Any) -> list[Holding]:
@@ -170,9 +202,14 @@ class IbBroker:
 
     def flatten(self) -> list[SubmittedOrder]:
         async def op(gateway: Any) -> list[SubmittedOrder]:
-            await gateway.cancel_all()
+            try:
+                await gateway.cancel_all()
+            except CancelAllError as exc:
+                # The Broker protocol's flatten result cannot carry a note, so say it on
+                # stderr; the kill switch still sells (the Gate refuses on leftover orders).
+                print(f"flatten: cancel_all partly failed, selling anyway: {exc}", file=sys.stderr)
             positions = await gateway.get_positions()
-            longs = [Order(p.symbol, "SELL", int(p.quantity)) for p in positions if p.quantity > 0]
+            longs = [_sell_all(p) for p in positions if p.quantity > 0]
             # DAY market: the kill switch must also work after the MOO cut-off.
             return await self._place_all(gateway, longs, TimeInForce.DAY)
 

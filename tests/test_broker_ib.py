@@ -12,24 +12,28 @@ import pytest
 pytest.importorskip("market_connector")
 
 from market_connector.contracts.instrument import InstrumentRef, InstrumentType  # noqa: E402
+from market_connector.exchanges.interactive_brokers.exceptions import CancelAllError  # noqa: E402
 from market_connector.exchanges.interactive_brokers.transport import IbAccountSummary  # noqa: E402
 from market_connector.orders import HBOrder, OrderType, TimeInForce, TradeType  # noqa: E402
 
 from qrl.broker import AccountInfo, Holding, OpenOrder, Order, SubmittedOrder  # noqa: E402
 from qrl.broker_config import BrokerConfig  # noqa: E402
-from qrl.broker_gate import account_refusal  # noqa: E402
+from qrl.broker_gate import account_refusal, connection_refusal  # noqa: E402
 from qrl.broker_ib import IbBroker, connection_spec  # noqa: E402
 
 CFG = BrokerConfig(True, "10.0.0.5", 4002, 17, "DU123")
 
 
 def _summary(
-    currency: str, net_liq: str | None = None, cash: str | None = None
+    currency: str,
+    net_liq: str | None = None,
+    cash: str | None = None,
+    account: str = "DU123",
 ) -> IbAccountSummary:
     def dec(x: str | None) -> Decimal | None:
         return None if x is None else Decimal(x)
 
-    return IbAccountSummary("DU123", currency, dec(net_liq), None, dec(cash))
+    return IbAccountSummary(account, currency, dec(net_liq), None, dec(cash))
 
 
 # A USD-base paper account: IB reports NetLiquidation only in the base currency.
@@ -145,15 +149,104 @@ def test_unreported_total_cash_value_raises_lookup_error_instead_of_falling_back
     gw.get_balance.assert_not_called()
 
 
-def test_usd_base_account_reports_usd_and_the_spec_paper_flag_and_port():
+def _reporting(account: str) -> MagicMock:
+    return _gateway(summaries={**USD_BASE, "USD": _summary("USD", "1", "2", account=account)})
+
+
+def test_usd_base_account_reports_the_gateways_account_paper_by_du_prefix_and_port():
     with _connected(_gateway()) as broker:
         assert broker.account() == AccountInfo("DU123", "USD", True, 4002)
+
+
+def test_the_gateway_reported_id_is_used_even_when_it_differs_from_cfg():
+    with _connected(_reporting("DU999")) as broker:
+        info = broker.account()
+    assert info.account_id == "DU999"
+    assert "not the configured account" in connection_refusal(info, CFG)  # the Gate sees it
+
+
+def test_a_non_du_reported_id_is_not_paper():
+    with _connected(_reporting("U555")) as broker:
+        info = broker.account()
+    assert info.paper is False
+    assert "not a paper connection" in connection_refusal(info, CFG)
+
+
+def test_a_missing_reported_id_raises():
+    with _connected(_reporting("")) as broker, pytest.raises(RuntimeError, match="no account id"):
+        broker.account()
 
 
 def test_account_port_is_the_configured_port_from_the_connection_spec():
     cfg = BrokerConfig(True, "10.0.0.5", 7497, 17, "DU123")
     with IbBroker(cfg, build=lambda spec: _gateway()) as broker:
         assert broker.account().port == 7497
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        BrokerConfig(True, "h", 4001, 1, "DU123"),
+        BrokerConfig(True, "h", 7496, 1, "DU123"),
+        BrokerConfig(True, "h", 4002, 1, "U123"),
+        BrokerConfig(True, "h", 4002, 1, ""),
+    ],
+)
+def test_the_adapter_refuses_live_ports_and_non_paper_accounts(cfg):
+    with pytest.raises(ValueError, match="paper only"):
+        IbBroker(cfg, build=lambda spec: _gateway())
+
+
+def test_flatten_still_sells_when_cancel_all_partly_fails(capsys):
+    gw = _gateway(positions=[_pos("QQQ", "10")])
+    gw.cancel_all = AsyncMock(side_effect=CancelAllError("1 of 2 failed", [RuntimeError("x")]))
+    with _connected(gw) as broker:
+        subs = broker.flatten()
+    assert [s.order for s in subs] == [Order("QQQ", "SELL", 10)]
+    assert "cancel_all partly failed" in capsys.readouterr().err
+
+
+def test_a_stop_failure_is_swallowed_and_the_loop_closes(capsys):
+    gw = _gateway()
+    gw.stop = AsyncMock(side_effect=RuntimeError("stop boom"))
+    broker = _connected(gw)
+    with broker:
+        loop = broker._loop
+    assert loop is not None
+    assert loop.is_closed()
+    assert "stop boom" in capsys.readouterr().err
+
+
+def test_a_stop_failure_does_not_mask_an_in_flight_exception():
+    gw = _gateway()
+    gw.stop = AsyncMock(side_effect=RuntimeError("stop boom"))
+    with pytest.raises(KeyError), _connected(gw):
+        raise KeyError("body")
+
+
+def test_flatten_refuses_a_fractional_long_instead_of_truncating():
+    gw = _gateway(positions=[_pos("QQQ", "1.5")])
+    with _connected(gw) as broker, pytest.raises(ValueError, match="fractional"):
+        broker.flatten()
+    gw.place_order.assert_not_called()
+
+
+def test_open_orders_match_by_perm_id_or_order_id():
+    gw = _gateway()
+    trade = SimpleNamespace(order=SimpleNamespace(permId=9001, orderId=7))
+    gw.place_order = AsyncMock(
+        return_value=SimpleNamespace(order_id=7, status="submitted", _trade=trade)
+    )
+    with _connected(gw) as broker:
+        broker.submit([Order("QQQ", "BUY", 3)])
+        gw.get_open_orders.return_value = [
+            SimpleNamespace(order_id=9001, status="submitted"),  # later seen by permId
+            SimpleNamespace(order_id=7, status="submitted"),  # seen by orderId
+        ]
+        assert broker.open_orders() == [
+            OpenOrder("QQQ", "BUY", 3, 9001),
+            OpenOrder("QQQ", "BUY", 3, 7),
+        ]
 
 
 def test_non_usd_base_account_reports_unknown_so_the_gate_refuses():
