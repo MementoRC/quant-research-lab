@@ -28,7 +28,9 @@ def ny_date(now: datetime) -> date:
 def session_date(close: pd.DataFrame, symbols: Iterable[str]) -> date:
     """The earliest of the symbols' last valid close dates. Symbols without a
     column or without any close are skipped (sizing refuses them); with none
-    left, the frame's last date."""
+    left, the frame's last date. An empty frame has no session."""
+    if len(close.index) == 0:
+        raise ValueError("the closes frame is empty; there is no session date")
     lasts: list[pd.Timestamp] = []
     for symbol in symbols:
         if symbol in close.columns:

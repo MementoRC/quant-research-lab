@@ -47,6 +47,11 @@ def test_session_date_is_the_latest_bar_all_relevant_symbols_share():
     assert session_date(_close(), {"QQQ", "GLD"}) == date(2026, 11, 3)
 
 
+def test_session_date_refuses_an_empty_frame():
+    with pytest.raises(ValueError, match="empty"):
+        session_date(_close().iloc[0:0], {"QQQ"})
+
+
 def test_session_date_ignores_symbols_without_a_column_and_falls_back_to_the_frame():
     assert session_date(_close(), {"QQQ", "XYZ"}) == date(2026, 11, 4)
     assert session_date(_close(), set()) == date(2026, 11, 4)
