@@ -44,6 +44,11 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+# yfinance 1.7.0 still passes inplace=True to pandas; drop this once it stops.
+# Mirrors qrl.data.silence_yfinance_inplace_warnings (module-scoped to yfinance).
+filterwarnings = [
+    "ignore:.*inplace keyword.*deprecated.*:pandas.errors.Pandas4Warning:yfinance(\\..*)?",
+]
 
 [tool.coverage.run]
 source = ["qrl"]

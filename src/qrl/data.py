@@ -4,6 +4,7 @@ coverage report for universes too large to eyeball."""
 
 from __future__ import annotations
 
+import importlib
 import time
 import warnings
 from pathlib import Path
@@ -23,6 +24,29 @@ _FIELD_COLUMNS = {
     "close": "Close",
     "volume": "Volume",
 }
+
+
+def silence_yfinance_inplace_warnings() -> None:
+    """Hide pandas' "inplace keyword is deprecated" warning raised from inside yfinance.
+
+    yfinance 1.7.0 still passes `inplace=True` to pandas (utils.py parse_quotes and
+    friends), which pandas 3.1 flags as Pandas4Warning. Only warnings reported by a
+    yfinance module are hidden; remove this once yfinance stops passing `inplace=`.
+    Called on import, so every script that loads data through qrl.data is covered;
+    the pytest `filterwarnings` entry in pyproject.toml mirrors it for the tests.
+    """
+    # yfinance inserts its own warning filters when first imported; import it now so ours
+    # is added afterwards and stays in front.
+    importlib.import_module("yfinance")
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*inplace keyword.*deprecated.*",
+        category=getattr(pd.errors, "Pandas4Warning", FutureWarning),
+        module=r"yfinance(\..*)?",
+    )
+
+
+silence_yfinance_inplace_warnings()
 
 
 def _tidy(df: pd.DataFrame) -> pd.DataFrame:
