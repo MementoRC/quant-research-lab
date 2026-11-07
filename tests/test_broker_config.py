@@ -115,6 +115,24 @@ def test_missing_key_is_refused(tmp_path, key):
         load_broker_config(path)
 
 
+@pytest.mark.parametrize("text", ["", "# only a comment\n", "---\n"])
+def test_empty_file_is_refused(tmp_path, text):
+    # YAML parses these to None; an empty config must not become defaults.
+    path = tmp_path / "broker.yaml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match="mapping"):
+        load_broker_config(path)
+
+
+@pytest.mark.parametrize("key", ["cash_buffer", "deadband"])
+@pytest.mark.parametrize("literal", [".nan", ".inf", "-.inf"])
+def test_non_finite_fractions_are_refused(tmp_path, key, literal):
+    path = tmp_path / "broker.yaml"
+    path.write_text(yaml.safe_dump(BASE) + f"{key}: {literal}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=key):
+        load_broker_config(path)
+
+
 def test_non_mapping_is_refused(tmp_path):
     path = tmp_path / "broker.yaml"
     path.write_text("- just a list\n", encoding="utf-8")
