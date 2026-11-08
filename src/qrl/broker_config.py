@@ -1,7 +1,10 @@
 """`config/broker.yaml`: settings of the IB paper rebalancer (spec:
 docs/methodology/broker-rebalancer.md, "Components"). Not hash-locked;
 strictly validated: unknown or missing keys, wrong types and out-of-range
-values raise ValueError naming the key."""
+values raise ValueError naming the key.
+
+A gitignored `config/broker.local.yaml` overrides it when present: it holds the
+owner's real account, while the committed file keeps placeholders."""
 
 from __future__ import annotations
 
@@ -65,6 +68,12 @@ def _fraction(doc: dict[str, object], key: str) -> float:
     if not 0 <= value <= _MAXIMA[key]:
         raise ValueError(f"broker config `{key}` must be in [0, {_MAXIMA[key]}], got {value}")
     return float(value)
+
+
+def broker_config_path(root: str | Path) -> Path:
+    """`config/broker.local.yaml` under `root` if it exists, else `config/broker.yaml`."""
+    local = Path(root) / "config" / "broker.local.yaml"
+    return local if local.exists() else Path(root) / "config" / "broker.yaml"
 
 
 def load_broker_config(path: str | Path) -> BrokerConfig:

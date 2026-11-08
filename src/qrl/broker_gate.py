@@ -49,7 +49,7 @@ def account_refusal(info: AccountInfo, holdings: list[Holding]) -> str | None:
 def gate(cfg: BrokerConfig, broker: Broker) -> tuple[str | None, list[Holding]]:
     """The first refusal (or None) and the account's holdings."""
     if not cfg.enabled:
-        return "disabled: `enabled` is false in config/broker.yaml", []
+        return "disabled: `enabled` is false in the broker config", []
     info = broker.account()
     refusal = connection_refusal(info, cfg)
     if refusal is not None:

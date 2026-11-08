@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from qrl.broker import Broker  # noqa: E402
-from qrl.broker_config import BrokerConfig, load_broker_config  # noqa: E402
+from qrl.broker_config import BrokerConfig, broker_config_path, load_broker_config  # noqa: E402
 from qrl.broker_journal import append_event, utc_iso  # noqa: E402
 from qrl.broker_run import (  # noqa: E402
     RunContext,
@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
     root = Path(args.journal_dir)
     try:
-        cfg = load_broker_config(ROOT / "config" / "broker.yaml")
+        cfg = load_broker_config(broker_config_path(ROOT))
         profile, _ = load_profile_with_hash(ROOT / "config" / "profile.yaml")
         limits = load_risk_limits(profile)
         portfolio_cfg = load_portfolio_config(ROOT / "config" / "portfolio.yaml")
@@ -126,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         run = evening_run
         if not cfg.enabled:  # the Gate's own refusal, before any connection is opened
-            return _stop_run(root, "refused", "disabled: `enabled` is false in config/broker.yaml")
+            return _stop_run(root, "refused", "disabled: `enabled` is false in the broker config")
     try:
         manager = _open_broker(cfg)
     except ValueError as exc:  # the adapter's paper-only refusal of a hand-built config

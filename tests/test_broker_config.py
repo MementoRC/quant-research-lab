@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from qrl.broker_config import BrokerConfig, is_paper_account_id, load_broker_config
+from qrl.broker_config import (
+    BrokerConfig,
+    broker_config_path,
+    is_paper_account_id,
+    load_broker_config,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = {
@@ -138,3 +143,16 @@ def test_non_mapping_is_refused(tmp_path):
     path.write_text("- just a list\n", encoding="utf-8")
     with pytest.raises(ValueError, match="mapping"):
         load_broker_config(path)
+
+
+def test_broker_config_path_prefers_local_file(tmp_path):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "broker.yaml").write_text("", encoding="utf-8")
+    local = tmp_path / "config" / "broker.local.yaml"
+    local.write_text("", encoding="utf-8")
+    assert broker_config_path(tmp_path) == local
+
+
+def test_broker_config_path_falls_back_to_shipped_file(tmp_path):
+    (tmp_path / "config").mkdir()
+    assert broker_config_path(tmp_path) == tmp_path / "config" / "broker.yaml"
