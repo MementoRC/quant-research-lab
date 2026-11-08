@@ -94,6 +94,11 @@ and no locked file is edited. It adds no trials to any search run.
   | `cash_buffer` | default 0.01, in [0, 0.10] |
   | `deadband` | default 0.005 (of equity), in [0, 0.05] |
 
+  The committed file keeps placeholders. The owner keeps real settings in a
+  gitignored `config/broker.local.yaml`, same keys; when it exists the script
+  and the live test read it instead of `config/broker.yaml`
+  (`broker_config_path`).
+
 ## Delivery
 
 Two parts. The first PR ships the broker protocol, `FakeBroker`, the planner,
