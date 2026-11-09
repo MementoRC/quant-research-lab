@@ -81,7 +81,8 @@ serve = "python -m http.server -d site 8000"
 # default/dev/ci never install it.
 [feature.broker.dependencies]
 python = "3.12.*"
-# ib_async 2.x caps tzdata <2026; the conda solve would otherwise pin 2026.x.
+# ib_async 2.1.0 (latest on PyPI, checked 2026-11-08) declares
+# Requires-Dist: tzdata>=2025.2,<2026.0; the conda solve would otherwise pin 2026.x.
 python-tzdata = ">=2025.2,<2026"
 
 [feature.broker.pypi-dependencies]
