@@ -1,0 +1,13 @@
+[Unit]
+Description=Weekday 18:00 Chicago trigger for the IB paper evening rebalance
+
+[Timer]
+# US close is 15:00 America/Chicago; 18:00 leaves time for the daily data.
+OnCalendar=Mon..Fri 18:00 America/Chicago
+# Persistent=false on purpose: a run missed while the machine was off must NOT
+# be replayed later. A late replay could submit orders built from stale data.
+Persistent=false
+Unit=qrl-rebalance.service
+
+[Install]
+WantedBy=timers.target

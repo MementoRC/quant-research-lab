@@ -1,0 +1,10 @@
+[Unit]
+Description=Quant research lab: IB paper evening rebalance
+
+[Service]
+Type=oneshot
+# Assumes the repo is checked out at ~/PycharmProjects/quant-research-lab.
+WorkingDirectory=%h/PycharmProjects/quant-research-lab
+# A non-zero exit (refusal or error) marks the unit failed; see
+# docs/methodology/broker-rebalancer.md for the exit codes.
+ExecStart=%h/.pixi/bin/pixi run -e broker rebalance
