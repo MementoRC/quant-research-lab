@@ -241,6 +241,30 @@ In order:
 - The next normal run reconciles against the flatten's expected positions
   (all zero).
 
+## Scheduling
+
+Systemd user units in `deploy/systemd/` run `pixi run -e broker rebalance`
+Monday to Friday at 18:00 America/Chicago (US close is 15:00 there). They are
+shipped but **off**: nothing is installed or enabled until the owner does it
+after the first watched run. `Persistent=false`, so a run missed while the
+machine was off is not replayed later (a late replay could submit stale
+orders). The kill switch `--flatten` is a manual command and is unaffected.
+
+```
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/qrl-rebalance.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now qrl-rebalance.timer   # turn on
+systemctl --user list-timers qrl-rebalance.timer    # next run
+journalctl --user -u qrl-rebalance                  # logs of past runs
+systemctl --user disable --now qrl-rebalance.timer  # turn off
+```
+
+The service assumes the repo at `~/PycharmProjects/quant-research-lab` and pixi
+at `~/.pixi/bin/pixi`; edit the copies if either differs. A refusal or error
+exits non-zero and shows as a failed unit; the journal under
+`reports/broker/` has the detail.
+
 ## Packaging
 
 A new pixi feature and environment `broker` with the pypi dependency
@@ -292,13 +316,7 @@ hb-event-bus, hb-rate-limit).
 
 - Live trading. It needs a future PLAN amendment and a code change.
 - Sleeve candidates on IB.
-- Scheduling. Cron example only, Monday to Friday at 18:30 ET. The first line
-  is a cronie/vixie extension:
-
-  ```
-  CRON_TZ=America/New_York
-  30 18 * * 1-5 cd /path/to/repo && pixi run -e broker rebalance
-  ```
+- Enabling the schedule. See "Scheduling"; it ships off.
 - hb-market-connector #182 (fractional shares). #180 and #181 landed (#184,
   #185). Fill history (`get_fills(since)`, #185) is not used: reconcile stays
   position-based.
