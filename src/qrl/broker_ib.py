@@ -113,6 +113,26 @@ def _ids(handle: Any) -> set[int]:
     return found - {0}
 
 
+def _trade_order(handle: Any) -> Order | None:
+    """The order as IB itself describes it on the handle's ib_async `Trade`
+    (contract symbol, order action and total quantity), or None when any part is
+    missing or is not a whole-share BUY/SELL. This names orders another process
+    placed, e.g. the evening run's MOO seen by a later read-only check."""
+    trade = getattr(handle, "_trade", None)
+    symbol = getattr(getattr(trade, "contract", None), "symbol", None)
+    order = getattr(trade, "order", None)
+    side = getattr(order, "action", None)
+    try:
+        qty = Decimal(str(getattr(order, "totalQuantity", None)))
+    except ArithmeticError:
+        return None
+    if not isinstance(symbol, str) or not symbol or side not in ("BUY", "SELL"):
+        return None
+    if not qty.is_finite() or qty <= 0 or qty != qty.to_integral_value():
+        return None
+    return Order(symbol, side, int(qty))
+
+
 def _sell_all(position: Any) -> Order:
     if position.quantity != position.quantity.to_integral_value():
         raise ValueError(f"{position.symbol}: fractional quantity {position.quantity}; not selling")
@@ -126,7 +146,9 @@ class IbBroker:
     `OrderHandle` has no symbol, side or quantity, so the adapter keeps its
     own `order_id -> Order` mapping (filled by `submit` and `flatten`) and
     builds `OpenOrder`s from it. An open order it did not place in this
-    process is reported as UNKNOWN: the Gate only needs to know it exists."""
+    process is read from the handle's ib_async `Trade`; only when that is
+    missing or unreadable is it reported as UNKNOWN (the Gate only needs to
+    know it exists)."""
 
     def __init__(
         self, cfg: BrokerConfig, build: Callable[[IbConnectionSpec], Any] = build_ib_gateway
@@ -189,6 +211,8 @@ class IbBroker:
     def _open_order(self, handle: Any) -> OpenOrder:
         order_id = int(handle.order_id)
         order = next((self._placed[i] for i in _ids(handle) if i in self._placed), None)
+        if order is None:
+            order = _trade_order(handle)
         if order is None:
             return OpenOrder("UNKNOWN", "UNKNOWN", 0, order_id)
         return OpenOrder(order.symbol, order.side, order.shares, order_id)
