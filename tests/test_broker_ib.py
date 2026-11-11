@@ -369,3 +369,47 @@ def test_flatten_cancels_all_first_then_sells_longs_only():
         subs = broker.flatten()
     assert calls == ["cancel_all", "QQQ"]
     assert [s.order for s in subs] == [Order("QQQ", "SELL", 10)]
+
+
+def _foreign(order_id: int, symbol=None, action=None, qty=None) -> SimpleNamespace:
+    """An open-order handle for an order another process placed (not in `_placed`)."""
+    trade = SimpleNamespace(
+        contract=SimpleNamespace(symbol=symbol),
+        order=SimpleNamespace(permId=order_id, orderId=0, action=action, totalQuantity=qty),
+    )
+    return SimpleNamespace(order_id=order_id, status="submitted", _trade=trade)
+
+
+def test_an_order_placed_by_another_process_is_named_from_ibs_trade():
+    # The evening run's MOO, seen by a later read-only check in a fresh process.
+    gw = _gateway(open_orders=[_foreign(1048809924, "GLD", "SELL", 23.0)])
+    with _connected(gw) as broker:
+        assert broker.open_orders() == [OpenOrder("GLD", "SELL", 23, 1048809924)]
+
+
+@pytest.mark.parametrize(
+    ("symbol", "action", "qty"),
+    [
+        (None, "SELL", 23.0),
+        ("", "SELL", 23.0),
+        ("GLD", None, 23.0),
+        ("GLD", "SSHORT", 23.0),
+        ("GLD", "SELL", None),
+        ("GLD", "SELL", 0.0),
+        ("GLD", "SELL", 1.5),
+        ("GLD", "SELL", float("nan")),
+        ("GLD", "SELL", 1.7976931348623157e308 * 10),
+    ],
+)
+def test_an_unreadable_foreign_trade_is_still_reported_as_unknown(symbol, action, qty):
+    gw = _gateway(open_orders=[_foreign(55, symbol, action, qty)])
+    with _connected(gw) as broker:
+        assert broker.open_orders() == [OpenOrder("UNKNOWN", "UNKNOWN", 0, 55)]
+
+
+def test_the_adapters_own_mapping_wins_over_the_trade():
+    gw = _gateway()
+    with _connected(gw) as broker:
+        broker.submit([Order("QQQ", "BUY", 3)])  # order_id 100
+        gw.get_open_orders.return_value = [_foreign(100, "GLD", "SELL", 9.0)]
+        assert broker.open_orders() == [OpenOrder("QQQ", "BUY", 3, 100)]
