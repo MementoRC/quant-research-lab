@@ -1,6 +1,6 @@
 # Broker rebalancer: daily automatic trading of the combined portfolio on an IB paper account
 
-Status: Implemented 2026-11-05 (PR #102); connector pinned at 5829aa1.
+Status: Implemented 2026-11-05 (PR #102); connector pinned at tag v0.5.0.
 Implements PLAN.md milestone 3.4, amendment 2026-11-05.
 The forward paper track (`config/paper.yaml`, `src/qrl/paper.py`) is
 unaffected.
@@ -69,8 +69,7 @@ and no locked file is edited. It adds no trials to any search run.
   request itself (the connector only logs a failed sync at connect); a
   failure raises. `account()` reports IB's own facts: the connector echoes the
   configured account id in its summary, so the adapter reads IB's
-  managed-accounts list (the connector's ib_async `IB` instance, reached
-  through the transport's private `_ib`; there is no public accessor). An
+  managed-accounts list (the connector's public `managed_accounts()`). An
   empty or unreadable list refuses the run. If the configured id is not in
   the list the first managed account is reported, so the Gate refuses as "not
   the configured account". `paper` is true only if the reported id and every
@@ -270,7 +269,7 @@ exits non-zero and shows as a failed unit; the journal under
 A new pixi feature and environment `broker` with the pypi dependency
 `hb-market-connector`, a standalone repo, from git
 `https://github.com/MementoRC/hb-market-connector.git` (no subdirectory) at
-the pinned commit 5829aa1, plus `ib_async>=2.1,<3` (the connector declares no
+the pinned tag v0.5.0, plus `ib_async>=2.1,<3` (the connector declares no
 extra for it). The broker feature caps `python-tzdata` below 2026, because
 `ib_async` 2.x caps `tzdata` below 2026; the other environments are not
 affected. The default, dev and ci environments are unchanged; CI never

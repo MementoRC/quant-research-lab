@@ -71,28 +71,17 @@ async def _total_cash_usd(gateway: Any) -> float:
     return float(summary.total_cash_value)
 
 
-def _ib(gateway: Any) -> Any:
-    """The connector's ib_async `IB` instance. The connector has no public accessor
-    for it, so this reads the transport's `_ib`; if that moves, fail closed."""
-    try:
-        return gateway.unified_transport._ib
-    except AttributeError as exc:
-        raise RuntimeError("cannot reach the ib_async IB instance; refusing to trade") from exc
-
-
 async def _account_facts(gateway: Any) -> tuple[str, str, bool]:
     """(account id, base currency, every managed account is paper).
 
     The summary's `account` is only the configured id echoed by the connector, so
-    it proves nothing. IB's own managed-accounts list (`IB.managedAccounts()`) is
-    the independent fact. An empty or unreadable list fails closed. If the
+    it proves nothing. IB's own managed-accounts list (`gateway.managed_accounts()`)
+    is the independent fact. An empty or unreadable list fails closed. If the
     configured id is not in the list, the first managed account is reported, so
     the Gate refuses with "not the configured account"."""
     summary = await gateway.get_account_summary("USD")
     try:
-        managed = [str(a) for a in _ib(gateway).managedAccounts()]
-    except RuntimeError:
-        raise
+        managed = [str(a) for a in gateway.managed_accounts()]
     except Exception as exc:
         raise RuntimeError(f"cannot read IB's managed accounts: {exc!r}") from exc
     if not managed:
@@ -245,7 +234,7 @@ class IbBroker:
             # The connector only logs a failed all-open-orders sync at connect, so an
             # empty cache could hide live orders. Sync again here; a failure or
             # timeout raises (fail closed).
-            await asyncio.wait_for(_ib(gateway).reqAllOpenOrdersAsync(), timeout=_SYNC_TIMEOUT)
+            await gateway.sync_open_orders(timeout=_SYNC_TIMEOUT)
             return [self._open_order(h) for h in gateway.get_open_orders()]
 
         return self._session(op)
