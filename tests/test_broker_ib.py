@@ -12,7 +12,12 @@ import pytest
 pytest.importorskip("market_connector")
 
 from market_connector.contracts.instrument import InstrumentRef, InstrumentType  # noqa: E402
-from market_connector.exchanges.interactive_brokers.exceptions import CancelAllError  # noqa: E402
+from market_connector.exchanges.interactive_brokers.exceptions import (  # noqa: E402
+    CancelAllError,
+    ManagedAccountsUnavailableError,
+    OpenOrdersSyncError,
+    OpenOrdersSyncTimeoutError,
+)
 from market_connector.exchanges.interactive_brokers.transport import IbAccountSummary  # noqa: E402
 from market_connector.orders import HBOrder, OrderType, TimeInForce, TradeType  # noqa: E402
 
@@ -51,10 +56,10 @@ def _pos(symbol: str, qty: str, sec_type: str = "STK", currency: str = "USD") ->
 
 def _gateway(positions=(), summaries=USD_BASE, open_orders=(), managed=("DU123",)) -> MagicMock:
     gw = MagicMock()
-    # The connector's ib_async IB instance: IB's own managed-accounts list, and the
-    # all-open-orders request the adapter repeats before reading open orders.
-    gw.unified_transport._ib.managedAccounts = MagicMock(return_value=list(managed))
-    gw.unified_transport._ib.reqAllOpenOrdersAsync = AsyncMock(return_value=[])
+    # The connector's public API: IB's own managed-accounts list, and the
+    # all-open-orders sync the adapter repeats before reading open orders.
+    gw.managed_accounts = MagicMock(return_value=list(managed))
+    gw.sync_open_orders = AsyncMock(return_value=None)
     gw.start = AsyncMock()
     gw.stop = AsyncMock()
     gw.get_positions = AsyncMock(return_value=list(positions))
@@ -170,7 +175,14 @@ def test_an_empty_managed_accounts_list_fails_closed():
 
 def test_an_unreadable_managed_accounts_list_fails_closed():
     gw = _gateway()
-    gw.unified_transport._ib.managedAccounts = MagicMock(side_effect=OSError("down"))
+    gw.managed_accounts = MagicMock(side_effect=OSError("down"))
+    with _connected(gw) as broker, pytest.raises(RuntimeError, match="managed accounts"):
+        broker.account()
+
+
+def test_the_connectors_managed_accounts_unavailable_error_fails_closed():
+    gw = _gateway()
+    gw.managed_accounts = MagicMock(side_effect=ManagedAccountsUnavailableError("none"))
     with _connected(gw) as broker, pytest.raises(RuntimeError, match="managed accounts"):
         broker.account()
 
@@ -201,12 +213,23 @@ def test_open_orders_resync_with_ib_and_fail_closed_when_it_fails():
     gw = _gateway()
     with _connected(gw) as broker:
         broker.open_orders()
-    gw.unified_transport._ib.reqAllOpenOrdersAsync.assert_awaited_once()
+    gw.sync_open_orders.assert_awaited_once_with(timeout=15.0)
 
     bad = _gateway()
-    bad.unified_transport._ib.reqAllOpenOrdersAsync = AsyncMock(side_effect=OSError("no answer"))
+    bad.sync_open_orders = AsyncMock(side_effect=OSError("no answer"))
     with _connected(bad) as broker, pytest.raises(OSError, match="no answer"):
         broker.open_orders()
+
+
+@pytest.mark.parametrize(
+    "error", [OpenOrdersSyncError("failed"), OpenOrdersSyncTimeoutError("timed out")]
+)
+def test_open_orders_sync_errors_propagate_without_reading_orders(error):
+    gw = _gateway()
+    gw.sync_open_orders = AsyncMock(side_effect=error)
+    with _connected(gw) as broker, pytest.raises(type(error)):
+        broker.open_orders()
+    gw.get_open_orders.assert_not_called()
 
 
 def test_usd_base_account_reports_the_gateways_account_paper_by_du_prefix_and_port():
