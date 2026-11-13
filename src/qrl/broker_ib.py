@@ -96,26 +96,22 @@ async def _account_facts(gateway: Any) -> tuple[str, str, bool]:
 
 def _ids(handle: Any) -> set[int]:
     """Every id IB may know the order by: the handle's id (permId when set, else
-    orderId) and the trade's own permId and orderId."""
-    order = getattr(getattr(handle, "_trade", None), "order", None)
-    found = {int(handle.order_id), *(int(getattr(order, a, 0) or 0) for a in ("permId", "orderId"))}
-    return found - {0}
+    orderId), its permId and its client orderId (None and 0 are ignored)."""
+    found = {handle.order_id, *(getattr(handle, a, None) for a in ("perm_id", "client_order_id"))}
+    return {int(i) for i in found if i}
 
 
-def _trade_order(handle: Any) -> Order | None:
-    """The order as IB itself describes it on the handle's ib_async `Trade`
-    (contract symbol, order action and total quantity), or None when any part is
-    missing or is not a whole-share BUY/SELL. This names orders another process
+def _handle_order(handle: Any) -> Order | None:
+    """The order as IB itself describes it through the handle's public `symbol`,
+    `action` and `total_quantity` accessors, or None when any part is missing or
+    is not a whole-share BUY/SELL. This names orders another process or TWS
     placed, e.g. the evening run's MOO seen by a later read-only check."""
-    trade = getattr(handle, "_trade", None)
-    symbol = getattr(getattr(trade, "contract", None), "symbol", None)
-    order = getattr(trade, "order", None)
-    side = getattr(order, "action", None)
     try:
-        qty = Decimal(str(getattr(order, "totalQuantity", None)))
-    except ArithmeticError:
+        symbol, side, qty = handle.symbol, handle.action, Decimal(str(handle.total_quantity))
+    except (AttributeError, ArithmeticError):
         return None
-    if not isinstance(symbol, str) or not symbol or side not in ("BUY", "SELL"):
+    # The connector's `symbol` is `str(contract.symbol)`: a missing symbol is "None".
+    if not isinstance(symbol, str) or symbol in ("", "None") or side not in ("BUY", "SELL"):
         return None
     if not qty.is_finite() or qty <= 0 or qty != qty.to_integral_value():
         return None
@@ -132,12 +128,11 @@ class IbBroker:
     """`qrl.broker.Broker` over one IB Gateway paper connection per run; use
     it as `with IbBroker(cfg) as broker: ...`.
 
-    `OrderHandle` has no symbol, side or quantity, so the adapter keeps its
-    own `order_id -> Order` mapping (filled by `submit` and `flatten`) and
-    builds `OpenOrder`s from it. An open order it did not place in this
-    process is read from the handle's ib_async `Trade`; only when that is
-    missing or unreadable is it reported as UNKNOWN (the Gate only needs to
-    know it exists)."""
+    The adapter keeps its own `order_id -> Order` mapping (filled by `submit`
+    and `flatten`) and builds `OpenOrder`s from it. An open order it did not
+    place in this process is read from the handle's public `symbol`, `action`
+    and `total_quantity`; only when those are missing or unreadable is it
+    reported as UNKNOWN (the Gate only needs to know it exists)."""
 
     def __init__(
         self, cfg: BrokerConfig, build: Callable[[IbConnectionSpec], Any] = build_ib_gateway
@@ -201,7 +196,7 @@ class IbBroker:
         order_id = int(handle.order_id)
         order = next((self._placed[i] for i in _ids(handle) if i in self._placed), None)
         if order is None:
-            order = _trade_order(handle)
+            order = _handle_order(handle)
         if order is None:
             return OpenOrder("UNKNOWN", "UNKNOWN", 0, order_id)
         return OpenOrder(order.symbol, order.side, order.shares, order_id)

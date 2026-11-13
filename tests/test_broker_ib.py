@@ -312,15 +312,20 @@ def test_flatten_refuses_a_fractional_long_instead_of_truncating():
 
 def test_open_orders_match_by_perm_id_or_order_id():
     gw = _gateway()
-    trade = SimpleNamespace(order=SimpleNamespace(permId=9001, orderId=7))
     gw.place_order = AsyncMock(
-        return_value=SimpleNamespace(order_id=7, status="submitted", _trade=trade)
+        return_value=SimpleNamespace(
+            order_id=7, perm_id=9001, client_order_id=7, status="submitted"
+        )
     )
     with _connected(gw) as broker:
         broker.submit([Order("QQQ", "BUY", 3)])
+        # None of these handles can name the order by itself (no symbol/action/
+        # total_quantity), so only the id match against `_placed` yields QQQ.
         gw.get_open_orders.return_value = [
-            SimpleNamespace(order_id=9001, status="submitted"),  # later seen by permId
-            SimpleNamespace(order_id=7, status="submitted"),  # seen by orderId
+            # later seen by permId
+            SimpleNamespace(order_id=9001, perm_id=9001, client_order_id=7, status="submitted"),
+            # seen by orderId
+            SimpleNamespace(order_id=7, perm_id=None, client_order_id=7, status="submitted"),
         ]
         assert broker.open_orders() == [
             OpenOrder("QQQ", "BUY", 3, 9001),
@@ -396,14 +401,16 @@ def test_flatten_cancels_all_first_then_sells_longs_only():
 
 def _foreign(order_id: int, symbol=None, action=None, qty=None) -> SimpleNamespace:
     """An open-order handle for an order another process placed (not in `_placed`)."""
-    trade = SimpleNamespace(
-        contract=SimpleNamespace(symbol=symbol),
-        order=SimpleNamespace(permId=order_id, orderId=0, action=action, totalQuantity=qty),
+    return SimpleNamespace(
+        order_id=order_id,
+        status="submitted",
+        symbol=symbol,
+        action=action,
+        total_quantity=None if qty is None else Decimal(str(qty)),
     )
-    return SimpleNamespace(order_id=order_id, status="submitted", _trade=trade)
 
 
-def test_an_order_placed_by_another_process_is_named_from_ibs_trade():
+def test_an_order_placed_by_another_process_is_named_from_the_handle():
     # The evening run's MOO, seen by a later read-only check in a fresh process.
     gw = _gateway(open_orders=[_foreign(1048809924, "GLD", "SELL", 23.0)])
     with _connected(gw) as broker:
@@ -430,7 +437,20 @@ def test_an_unreadable_foreign_trade_is_still_reported_as_unknown(symbol, action
         assert broker.open_orders() == [OpenOrder("UNKNOWN", "UNKNOWN", 0, 55)]
 
 
-def test_the_adapters_own_mapping_wins_over_the_trade():
+def test_a_foreign_handle_whose_symbol_is_the_string_none_is_reported_as_unknown():
+    # The connector's `symbol` is `str(contract.symbol)`, so a missing symbol arrives as "None".
+    gw = _gateway(open_orders=[_foreign(55, "None", "SELL", 23.0)])
+    with _connected(gw) as broker:
+        assert broker.open_orders() == [OpenOrder("UNKNOWN", "UNKNOWN", 0, 55)]
+
+
+def test_a_handle_without_the_public_accessors_is_reported_as_unknown():
+    gw = _gateway(open_orders=[SimpleNamespace(order_id=55, status="submitted")])
+    with _connected(gw) as broker:
+        assert broker.open_orders() == [OpenOrder("UNKNOWN", "UNKNOWN", 0, 55)]
+
+
+def test_the_adapters_own_mapping_wins_over_the_handle():
     gw = _gateway()
     with _connected(gw) as broker:
         broker.submit([Order("QQQ", "BUY", 3)])  # order_id 100
