@@ -437,6 +437,13 @@ def test_an_unreadable_foreign_trade_is_still_reported_as_unknown(symbol, action
         assert broker.open_orders() == [OpenOrder("UNKNOWN", "UNKNOWN", 0, 55)]
 
 
+def test_a_foreign_handle_whose_symbol_is_the_string_none_is_reported_as_unknown():
+    # The connector's `symbol` is `str(contract.symbol)`, so a missing symbol arrives as "None".
+    gw = _gateway(open_orders=[_foreign(55, "None", "SELL", 23.0)])
+    with _connected(gw) as broker:
+        assert broker.open_orders() == [OpenOrder("UNKNOWN", "UNKNOWN", 0, 55)]
+
+
 def test_a_handle_without_the_public_accessors_is_reported_as_unknown():
     gw = _gateway(open_orders=[SimpleNamespace(order_id=55, status="submitted")])
     with _connected(gw) as broker:

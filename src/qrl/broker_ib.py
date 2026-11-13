@@ -110,7 +110,8 @@ def _handle_order(handle: Any) -> Order | None:
         symbol, side, qty = handle.symbol, handle.action, Decimal(str(handle.total_quantity))
     except (AttributeError, ArithmeticError):
         return None
-    if not isinstance(symbol, str) or not symbol or side not in ("BUY", "SELL"):
+    # The connector's `symbol` is `str(contract.symbol)`: a missing symbol is "None".
+    if not isinstance(symbol, str) or symbol in ("", "None") or side not in ("BUY", "SELL"):
         return None
     if not qty.is_finite() or qty <= 0 or qty != qty.to_integral_value():
         return None
