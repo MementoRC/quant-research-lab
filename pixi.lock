@@ -209,7 +209,7 @@ environments:
       - pypi: git+https://github.com/MementoRC/hb-data-type-primitives.git?rev=v0.4.0#8b512f84f5baf840b32c03260eb2ab4e193dd76e
       - pypi: git+https://github.com/MementoRC/hb-event-bus.git?rev=v0.2.0#efa7a314829933233c19ab32f5daf25ca165c6c3
       - pypi: git+https://github.com/MementoRC/hb-logger.git?rev=v0.2.0#1969c00dd144002b5bc4884e1b37bb02142bc447
-      - pypi: git+https://github.com/MementoRC/hb-market-connector.git?tag=v0.5.0#3e32105b82b5d40c1b5c18e29a290ad367c2041c
+      - pypi: git+https://github.com/MementoRC/hb-market-connector.git?tag=v0.6.0#fb009ba581ba98594cf74b5539ce46605446897c
       - pypi: git+https://github.com/MementoRC/hb-rate-limit.git?rev=v0.5.0#b63332a00e6e7d817a8d6741fc31afc52a2450a0
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
@@ -4486,7 +4486,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/ukkonen?source=compressed-mapping
+  - pkg:pypi/ukkonen?source=hash-mapping
   run_exports: {}
   size: 17718
   timestamp: 1793037115940
@@ -4762,7 +4762,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/distlib?source=compressed-mapping
+  - pkg:pypi/distlib?source=hash-mapping
   run_exports: {}
   size: 305245
   timestamp: 1792175759072
@@ -5731,7 +5731,7 @@ packages:
   - python
   license: Apache-2.0 AND MIT
   purls:
-  - pkg:pypi/types-pytz?source=compressed-mapping
+  - pkg:pypi/types-pytz?source=hash-mapping
   run_exports: {}
   size: 20458
   timestamp: 1793437234006
@@ -5975,9 +5975,9 @@ packages:
   - pytest>=9.0.3 ; extra == 'dev'
   - ruff>=0.15.10 ; extra == 'dev'
   requires_python: '>=3.12'
-- pypi: git+https://github.com/MementoRC/hb-market-connector.git?tag=v0.5.0#3e32105b82b5d40c1b5c18e29a290ad367c2041c
+- pypi: git+https://github.com/MementoRC/hb-market-connector.git?tag=v0.6.0#fb009ba581ba98594cf74b5539ce46605446897c
   name: hb-market-connector
-  version: 0.5.0
+  version: 0.6.0
   requires_dist:
   - hb-data-type-primitives @ git+https://github.com/MementoRC/hb-data-type-primitives.git@v0.4.0
   - hb-event-bus @ git+https://github.com/MementoRC/hb-event-bus.git@v0.2.0

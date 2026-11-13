@@ -1,6 +1,6 @@
 # Broker rebalancer: daily automatic trading of the combined portfolio on an IB paper account
 
-Status: Implemented 2026-11-05 (PR #102); connector pinned at tag v0.5.0.
+Status: Implemented 2026-11-05 (PR #102); connector pinned at tag v0.6.0.
 Implements PLAN.md milestone 3.4, amendment 2026-11-05.
 The forward paper track (`config/paper.yaml`, `src/qrl/paper.py`) is
 unaffected.
@@ -269,7 +269,7 @@ exits non-zero and shows as a failed unit; the journal under
 A new pixi feature and environment `broker` with the pypi dependency
 `hb-market-connector`, a standalone repo, from git
 `https://github.com/MementoRC/hb-market-connector.git` (no subdirectory) at
-the pinned tag v0.5.0, plus `ib_async>=2.1,<3` (the connector declares no
+the pinned tag v0.6.0, plus `ib_async>=2.1,<3` (the connector declares no
 extra for it). The broker feature caps `python-tzdata` below 2026, because
 `ib_async` 2.x caps `tzdata` below 2026; the other environments are not
 affected. The default, dev and ci environments are unchanged; CI never
