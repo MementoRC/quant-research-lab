@@ -95,8 +95,10 @@ async def _account_facts(gateway: Any) -> tuple[str, str, bool]:
 
 
 def _ids(handle: Any) -> set[int]:
-    """The id IB knows the order by on this handle (permId when set, else orderId)."""
-    return {int(handle.order_id)} - {0}
+    """Every id IB may know the order by: the handle's id (permId when set, else
+    orderId), its permId and its client orderId (None and 0 are ignored)."""
+    found = {handle.order_id, *(getattr(handle, a, None) for a in ("perm_id", "client_order_id"))}
+    return {int(i) for i in found if i}
 
 
 def _handle_order(handle: Any) -> Order | None:

@@ -312,14 +312,20 @@ def test_flatten_refuses_a_fractional_long_instead_of_truncating():
 
 def test_open_orders_match_by_perm_id_or_order_id():
     gw = _gateway()
-    gw.place_order = AsyncMock(return_value=SimpleNamespace(order_id=7, status="submitted"))
+    gw.place_order = AsyncMock(
+        return_value=SimpleNamespace(
+            order_id=7, perm_id=9001, client_order_id=7, status="submitted"
+        )
+    )
     with _connected(gw) as broker:
         broker.submit([Order("QQQ", "BUY", 3)])
-        # Later seen by permId: the handle no longer carries the placing orderId, so
-        # the order is named from the handle's public accessors; seen by orderId: mapping.
+        # None of these handles can name the order by itself (no symbol/action/
+        # total_quantity), so only the id match against `_placed` yields QQQ.
         gw.get_open_orders.return_value = [
-            _foreign(9001, "QQQ", "BUY", 3),
-            SimpleNamespace(order_id=7, status="submitted"),
+            # later seen by permId
+            SimpleNamespace(order_id=9001, perm_id=9001, client_order_id=7, status="submitted"),
+            # seen by orderId
+            SimpleNamespace(order_id=7, perm_id=None, client_order_id=7, status="submitted"),
         ]
         assert broker.open_orders() == [
             OpenOrder("QQQ", "BUY", 3, 9001),
